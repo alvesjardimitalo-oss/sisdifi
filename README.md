@@ -10,7 +10,7 @@ conforme a **Lei Ordinária nº 994/2025** (Anexo I). Hospedado no **GitHub Page
 - **Login por e-mail e senha**, com perfis: *Administrador*, *Operador* e *Somente consulta*. Só entra quem o administrador cadastrar.
 - **Nova solicitação** com cálculo ao vivo, vários servidores da mesma viagem de uma vez (cada um com a sua categoria) e aviso de viagens sobrepostas.
 - **Numeração automática por ano** (`0001/2026`…), sem risco de número repetido com dois usuários ao mesmo tempo.
-- **Distância**: reaproveita o km já usado para o mesmo destino; se for destino novo, calcula pela rota (OpenStreetMap/OSRM) e permite ajuste manual.
+- **Destino escolhido em lista**: estado → município (todos os 5.570 municípios do Brasil). A distância é calculada automaticamente pela rota rodoviária entre a sede de Frei Inocêncio e a sede do destino (OSRM/OpenStreetMap), com ajuste manual permitido e aviso se divergir de viagens anteriores.
 - **Empenho** da diária e **reembolsos** (com leitura do nº/série a partir da chave da NF-e).
 - **Cancelamento** com motivo (mantém o número e o histórico); exclusão definitiva só para administrador.
 - **Documentos para imprimir/PDF**: solicitação (inclusive em lote), formulário de reembolso, relatório do servidor e simulação.
@@ -63,6 +63,7 @@ assets/js/db.js             acesso ao Firebase (login e banco)
 assets/js/calculo.js        motor de cálculo da lei (funções puras)
 assets/js/importador.js     conversão do banco antigo
 assets/js/views/            telas
+assets/data/municipios.json lista de municípios com coordenadas (kelvins/municipios-brasileiros, MIT)
 firestore.rules             regras de segurança
 tests/                      testes automáticos do cálculo
 ```

@@ -189,9 +189,9 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
           <label class="campo"><span>Retorno (data e hora)</span><input type="datetime-local" name="data_hora_retorno" value="${esc(sol.data_hora_retorno || '')}" required></label>
         </div>
         <div class="grade-3">
-          <label class="campo"><span>UF</span><select name="destino_uf" id="uf" required><option value="${esc(sol.destino_uf || 'MG')}">${esc(sol.destino_uf || 'MG')}</option></select></label>
-          <label class="campo"><span>Cidade de destino</span><input name="destino_cidade" id="cidade" list="lista-cidades" value="${esc(sol.destino_cidade || '')}" autocomplete="off" required>
-            <datalist id="lista-cidades"></datalist></label>
+          <label class="campo"><span>Estado (UF)</span><select name="destino_uf" id="uf" required><option value="${esc(sol.destino_uf || 'MG')}">${esc(sol.destino_uf || 'MG')}</option></select></label>
+          <label class="campo"><span>Município de destino</span><select name="destino_cidade" id="cidade" required>
+            <option value="${esc(sol.destino_cidade || '')}">${esc(sol.destino_cidade || 'Carregando municípios…')}</option></select></label>
           <label class="campo"><span>Distância (km) <button type="button" class="link link-peq" id="btn-km">recalcular</button></span>
             <input type="number" name="distancia_km" id="km" step="0.01" min="0.01" value="${esc(sol.distancia_km ?? '')}" required>
             <small class="dica" id="km-fonte"></small></label>
@@ -263,69 +263,91 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
     if (!e.target.closest('.busca-servidor')) sug.classList.remove('aberta');
   });
 
-  // ---------- UF / cidade / distância ----------
-  const selUF = $('#uf', el), inCidade = $('#cidade', el), inKm = $('#km', el), kmFonte = $('#km-fonte', el);
-  const textoFonte = { salva: 'Distância salva nesta solicitação.', cadastro: 'Distância já usada antes para este destino (pode ajustar).', rota: 'Calculada pela rota rodoviária (OpenStreetMap). Confira e ajuste se necessário.', manual: 'Informada manualmente.' };
-  const mostrarFonte = () => { kmFonte.textContent = textoFonte[fonteKm] || ''; };
-  mostrarFonte();
+  // ---------- UF / município / distância ----------
+  // O destino é escolhido na lista oficial de municípios do estado; a distância é calculada
+  // automaticamente pela rota rodoviária entre a sede de Frei Inocêncio e a sede do município escolhido.
+  const selUF = $('#uf', el), selCidade = $('#cidade', el), inKm = $('#km', el), kmFonte = $('#km-fonte', el);
+  const chkDentro = $('#dentro-mun', el);
+  const textoFonte = {
+    salva: 'Distância salva nesta solicitação.',
+    rota: 'Calculada pela rota rodoviária (OpenStreetMap) entre as sedes dos municípios. Pode ajustar se necessário.',
+    estimada: 'ESTIMADA (serviço de rotas fora do ar): linha reta × 1,25. Confira antes de salvar.',
+    cadastro: 'Serviço de rotas indisponível: usada a distância já registrada para este destino.',
+    manual: 'Informada manualmente.'
+  };
+  let dicaExtra = '';
+  const mostrarFonte = () => { kmFonte.textContent = chkDentro.checked ? 'Dentro do município: a distância não altera o valor.' : ((textoFonte[fonteKm] || '') + dicaExtra); };
 
-  listarUFs().then(ufs => {
+  async function carregarCidades(desejada) {
+    const uf = selUF.value;
+    selCidade.innerHTML = '<option value="">Carregando…</option>';
+    try {
+      const lista = await listarMunicipios(uf);
+      const alvo = desejada || '';
+      const existe = lista.some(c => normalizar(c) === normalizar(alvo));
+      selCidade.innerHTML = '<option value="">Selecione o município</option>'
+        + (alvo && !existe ? `<option value="${esc(alvo)}" selected>${esc(alvo)} (registro antigo)</option>` : '')
+        + lista.map(c => `<option value="${esc(c)}" ${normalizar(c) === normalizar(alvo) ? 'selected' : ''}>${esc(c)}</option>`).join('');
+    } catch (e) {
+      selCidade.innerHTML = `<option value="${esc(desejada || '')}">${esc(desejada || 'Lista indisponível')}</option>`;
+      toast('Não foi possível carregar a lista de municípios. Recarregue a página.', 'erro');
+    }
+  }
+  const prontoLocalidades = listarUFs().then(async ufs => {
     const atual = selUF.value || 'MG';
     selUF.innerHTML = ufs.map(u => `<option value="${u.sigla}" ${u.sigla === atual ? 'selected' : ''}>${u.sigla} — ${esc(u.nome)}</option>`).join('');
-    carregarCidades();
-  }).catch(() => {
-    // Sem acesso ao IBGE: troca por campo de texto para não travar o cadastro.
-    const atual = selUF.value || 'MG';
-    selUF.outerHTML = `<input name="destino_uf" id="uf" maxlength="2" value="${esc(atual)}" required style="text-transform:uppercase">`;
-  });
-  function carregarCidades() {
-    listarMunicipios(selUF.value).then(l => { $('#lista-cidades', el).innerHTML = l.map(c => `<option value="${esc(c)}">`).join(''); }).catch(() => {});
-  }
-  selUF.addEventListener('change', () => { carregarCidades(); inCidade.value = ''; });
+    await carregarCidades(sol.destino_cidade || '');
+  }).catch(() => toast('Não foi possível carregar a lista de estados. Recarregue a página.', 'erro'));
 
-  let ultimoDestino = `${sol.destino_cidade || ''}|${sol.destino_uf || ''}`;
-  async function buscarDistancia(forcarRota = false) {
-    const cidade = inCidade.value.trim(), uf = (form.destino_uf.value || '').toUpperCase();
-    if (!cidade || !uf || chkDentro?.checked) return;
-    const chave = chaveDistancia(cidade, uf);
-    const cache = estado.distancias[chave];
-    if (cache && !forcarRota) { inKm.value = cache.km; fonteKm = 'cadastro'; mostrarFonte(); recalcular(); return; }
+  async function buscarDistancia() {
+    const cidade = selCidade.value, uf = selUF.value;
+    if (!cidade || !uf || chkDentro.checked) return;
+    const anterior = estado.distancias[chaveDistancia(cidade, uf)];
     kmFonte.textContent = 'Calculando distância pela rota…';
+    inKm.disabled = true;
     try {
-      const km = await calcularDistanciaRodoviaria(estado.config.origem, cidade, uf);
-      inKm.value = km; fonteKm = 'rota';
+      const r = await calcularDistanciaRodoviaria(estado.config.origem, cidade, uf);
+      if (r.fonte === 'estimada' && anterior) { inKm.value = anterior.km; fonteKm = 'cadastro'; }
+      else { inKm.value = r.km; fonteKm = r.fonte; }
+      dicaExtra = anterior && fonteKm !== 'cadastro' && Math.abs(anterior.km - Number(inKm.value)) >= 5
+        ? ` Atenção: viagens anteriores para ${cidade} usaram ${String(anterior.km).replace('.', ',')} km.` : '';
     } catch (e) {
-      kmFonte.textContent = '';
-      toast(`Não foi possível calcular a distância automaticamente (${e.message}). Informe o km manualmente.`, 'aviso');
-      fonteKm = 'manual';
+      if (anterior) { inKm.value = anterior.km; fonteKm = 'cadastro'; }
+      else { fonteKm = 'manual'; toast(`Não foi possível calcular a distância (${e.message}). Informe o km manualmente.`, 'aviso'); }
+      dicaExtra = '';
     }
+    inKm.disabled = false;
     mostrarFonte(); recalcular();
   }
-  // A distância só é buscada quando o usuário MUDA o destino (o sistema antigo sobrescrevia o km salvo ao abrir a edição).
-  inCidade.addEventListener('change', () => {
-    const d = `${inCidade.value.trim()}|${form.destino_uf.value}`;
-    if (d !== ultimoDestino) { ultimoDestino = d; buscarDistancia(false); }
-  });
-  $('#btn-km', el).onclick = () => buscarDistancia(true);
-  inKm.addEventListener('input', () => { fonteKm = 'manual'; mostrarFonte(); });
+
+  function marcarDentroSeMesmoMunicipio() {
+    const o = estado.config.origem;
+    const mesmo = normalizar(selCidade.value) === normalizar(o.cidade) && selUF.value === o.uf;
+    if (mesmo !== chkDentro.checked) { chkDentro.checked = mesmo; aplicarDentro(); }
+    return mesmo;
+  }
+  selUF.addEventListener('change', async () => { await carregarCidades(''); inKm.value = ''; fonteKm = ''; dicaExtra = ''; mostrarFonte(); recalcular(); });
+  // A distância só é calculada quando o usuário ESCOLHE o destino (ao abrir uma edição, o km salvo é mantido).
+  selCidade.addEventListener('change', () => { if (!marcarDentroSeMesmoMunicipio()) buscarDistancia(); recalcular(); });
+  $('#btn-km', el).onclick = () => buscarDistancia();
+  inKm.addEventListener('input', () => { fonteKm = 'manual'; dicaExtra = ''; mostrarFonte(); });
 
   // Deslocamento dentro do município: destino = município de origem, distância não é usada.
-  const chkDentro = $('#dentro-mun', el);
-  function aplicarDentro() {
+  async function aplicarDentro() {
     const on = chkDentro.checked;
     inKm.required = !on;
     if (on) {
-      if (!inCidade.value) inCidade.value = estado.config.origem.cidade;
-      if (form.destino_uf.value !== estado.config.origem.uf) form.destino_uf.value = estado.config.origem.uf;
-      kmFonte.textContent = 'Dentro do município: a distância não altera o valor.';
-    } else mostrarFonte();
+      const o = estado.config.origem;
+      if (selUF.value !== o.uf) { selUF.value = o.uf; await carregarCidades(o.cidade); }
+      else if (normalizar(selCidade.value) !== normalizar(o.cidade)) {
+        const opt = [...selCidade.options].find(x => normalizar(x.value) === normalizar(o.cidade));
+        if (opt) selCidade.value = opt.value;
+      }
+    }
+    mostrarFonte(); recalcular();
   }
-  chkDentro.addEventListener('change', () => { aplicarDentro(); recalcular(); });
-  inCidade.addEventListener('change', () => {
-    const mesmo = normalizar(inCidade.value) === normalizar(estado.config.origem.cidade) && (form.destino_uf.value || '').toUpperCase() === estado.config.origem.uf;
-    if (mesmo && !chkDentro.checked) { chkDentro.checked = true; aplicarDentro(); recalcular(); }
-  });
-  aplicarDentro();
+  chkDentro.addEventListener('change', aplicarDentro);
+  prontoLocalidades.then(() => { inKm.required = !chkDentro.checked; mostrarFonte(); });
 
   // ---------- Cálculo ao vivo ----------
   function recalcular() {

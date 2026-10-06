@@ -1,15 +1,38 @@
-// SISDIFI — UFs/municípios (IBGE) e distância rodoviária (OpenStreetMap + OSRM)
+// SISDIFI — Estados, municípios (com coordenadas) e distância rodoviária
+// Lista de municípios: arquivo local assets/data/municipios.json (5.571 sedes municipais com latitude/longitude),
+// então o destino é escolhido numa lista e a distância é calculada sem depender de busca por nome.
 import { normalizar } from './ui.js';
 
-const cacheMem = {};
-function lerCache(chave) {
-  if (cacheMem[chave]) return cacheMem[chave];
-  try { const v = localStorage.getItem('sisdifi:' + chave); if (v) return (cacheMem[chave] = JSON.parse(v)); } catch { /* sem storage */ }
-  return null;
+let base = null;
+async function carregarBase() {
+  if (!base) {
+    const r = await fetch('assets/data/municipios.json');
+    if (!r.ok) throw new Error('lista de municípios indisponível');
+    base = await r.json();
+  }
+  return base;
 }
-function gravarCache(chave, valor) {
-  cacheMem[chave] = valor;
-  try { localStorage.setItem('sisdifi:' + chave, JSON.stringify(valor)); } catch { /* sem storage */ }
+
+export async function listarUFs() {
+  const b = await carregarBase();
+  return Object.entries(b.estados).map(([sigla, nome]) => ({ sigla, nome }));
+}
+
+export async function listarMunicipios(uf) {
+  if (!uf) return [];
+  const b = await carregarBase();
+  return (b.municipios[uf] || []).map(m => m[0]);
+}
+
+export async function coordenadas(cidade, uf) {
+  const b = await carregarBase();
+  const alvo = normalizar(cidade);
+  const m = (b.municipios[uf] || []).find(x => normalizar(x[0]) === alvo);
+  return m ? { lat: m[1], lon: m[2] } : null;
+}
+
+export function chaveDistancia(cidade, uf) {
+  return (uf + '-' + normalizar(cidade).replace(/[^a-z0-9]+/g, '-')).replace(/-+$/, '');
 }
 
 async function obterJSON(url, ms = 15000) {
@@ -22,57 +45,24 @@ async function obterJSON(url, ms = 15000) {
   } finally { clearTimeout(t); }
 }
 
-export async function listarUFs() {
-  let ufs = lerCache('ufs');
-  if (!ufs) {
-    const dados = await obterJSON('https://servicodados.ibge.gov.br/api/v1/localidades/estados');
-    ufs = dados.map(e => ({ sigla: e.sigla, nome: e.nome })).sort((a, b) => a.sigla.localeCompare(b.sigla));
-    gravarCache('ufs', ufs);
-  }
-  return ufs;
-}
-
-export async function listarMunicipios(uf) {
-  if (!uf) return [];
-  let lista = lerCache('mun-' + uf);
-  if (!lista) {
-    const dados = await obterJSON(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${encodeURIComponent(uf)}/municipios`);
-    lista = dados.map(m => m.nome).sort((a, b) => a.localeCompare(b, 'pt-BR'));
-    gravarCache('mun-' + uf, lista);
-  }
-  return lista;
-}
-
-export function chaveDistancia(cidade, uf) {
-  return (uf + '-' + normalizar(cidade).replace(/[^a-z0-9]+/g, '-')).replace(/-+$/, '');
-}
-
-async function geocodificar(cidade, nomeUF) {
-  const chave = 'geo-' + normalizar(cidade + '-' + nomeUF);
-  const c = lerCache(chave);
-  if (c) return c;
-  const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=br'
-    + '&city=' + encodeURIComponent(cidade) + '&state=' + encodeURIComponent(nomeUF);
-  let r = await obterJSON(url);
-  if (!r.length) r = await obterJSON('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=br&q=' + encodeURIComponent(`${cidade}, ${nomeUF}, Brasil`));
-  if (!r.length) throw new Error(`Não foi possível localizar ${cidade}/${nomeUF} no mapa.`);
-  const ponto = { lat: Number(r[0].lat), lon: Number(r[0].lon) };
-  gravarCache(chave, ponto);
-  return ponto;
+function linhaReta(a, b) {
+  const rad = x => x * Math.PI / 180;
+  const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lon - a.lon) / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
 }
 
 /**
- * Distância rodoviária (km) da cidade de origem do município até o destino.
- * origem = { cidade, uf } (vem dos Parâmetros). Retorna número com 2 casas.
+ * Distância rodoviária (ida) da sede do município de origem até a sede do destino.
+ * Retorna { km, fonte: 'rota' | 'estimada' }. Se o serviço de rotas estiver fora do ar,
+ * devolve uma estimativa (linha reta × 1,25) marcada como "estimada" para o operador conferir.
  */
 export async function calcularDistanciaRodoviaria(origem, cidade, uf) {
-  const ufs = await listarUFs();
-  const nomeUF = sigla => (ufs.find(u => u.sigla === sigla) || {}).nome || sigla;
-  const [a, b] = await Promise.all([
-    geocodificar(origem.cidade, nomeUF(origem.uf)),
-    geocodificar(cidade, nomeUF(uf))
-  ]);
-  const rota = await obterJSON(`https://router.project-osrm.org/route/v1/driving/${a.lon},${a.lat};${b.lon},${b.lat}?overview=false`);
-  if (!rota.routes || !rota.routes[0]) throw new Error('Não foi possível calcular a rota até o destino.');
-  return Math.round(rota.routes[0].distance / 10) / 100;
+  const [a, b] = await Promise.all([coordenadas(origem.cidade, origem.uf), coordenadas(cidade, uf)]);
+  if (!a) throw new Error(`município de origem "${origem.cidade}/${origem.uf}" não está na lista`);
+  if (!b) throw new Error(`escolha o destino na lista de municípios de ${uf}`);
+  try {
+    const rota = await obterJSON(`https://router.project-osrm.org/route/v1/driving/${a.lon},${a.lat};${b.lon},${b.lat}?overview=false`);
+    if (rota.routes && rota.routes[0]) return { km: Math.round(rota.routes[0].distance / 10) / 100, fonte: 'rota' };
+  } catch { /* cai na estimativa */ }
+  return { km: Math.round(linhaReta(a, b) * 1.25 * 100) / 100, fonte: 'estimada' };
 }

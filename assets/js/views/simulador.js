@@ -3,6 +3,8 @@ import { estado } from '../estado.js';
 import { calcularDiaria, GRUPOS, FAIXAS, moeda, horasBR } from '../calculo.js';
 import { esc, $, lerForm } from '../ui.js';
 import { aguardando, cabecalho } from './comum.js';
+import { listarUFs, listarMunicipios, calcularDistanciaRodoviaria } from '../localidades.js';
+import { toast } from '../ui.js';
 
 export const ultimaSimulacao = { dados: null, resultado: null };
 const valores = { grupo: 'DEMAIS_SERVIDORES', km: '', saida: '', retorno: '', dentro_municipio: false };
@@ -16,7 +18,11 @@ export function telaSimulador(el) {
       <form class="cartao col-form" id="fsim">
         <label class="campo"><span>Categoria do servidor</span><select name="grupo">
           ${Object.entries(GRUPOS).map(([k, n]) => `<option value="${k}" ${valores.grupo === k ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
-        <label class="campo"><span>Distância (km)</span><input type="number" name="km" min="0.01" step="0.01" value="${esc(valores.km)}"></label>
+        <div class="grade-3">
+          <label class="campo"><span>Estado (UF)</span><select id="sim-uf"><option>MG</option></select></label>
+          <label class="campo"><span>Município de destino</span><select id="sim-cidade"><option value="">Selecione</option></select></label>
+          <label class="campo"><span>Distância (km)</span><input type="number" name="km" min="0.01" step="0.01" value="${esc(valores.km)}"><small class="dica" id="sim-km-dica"></small></label>
+        </div>
         <div class="grade-2">
           <label class="campo"><span>Saída</span><input type="datetime-local" name="saida" value="${esc(valores.saida)}"></label>
           <label class="campo"><span>Retorno</span><input type="datetime-local" name="retorno" value="${esc(valores.retorno)}"></label>
@@ -48,6 +54,21 @@ export function telaSimulador(el) {
       <ul class="lista-peq">${r.descricao_calculo.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
   };
   f.oninput = atualizar; f.onchange = atualizar; f.onsubmit = e => e.preventDefault();
+  const selUF = $('#sim-uf', el), selCid = $('#sim-cidade', el);
+  const carregar = async () => { const l = await listarMunicipios(selUF.value); selCid.innerHTML = '<option value="">Selecione</option>' + l.map(c => `<option>${esc(c)}</option>`).join(''); };
+  listarUFs().then(u => { selUF.innerHTML = u.map(x => `<option value="${x.sigla}" ${x.sigla === 'MG' ? 'selected' : ''}>${x.sigla} — ${esc(x.nome)}</option>`).join(''); return carregar(); }).catch(() => {});
+  selUF.onchange = e => { e.stopPropagation(); carregar(); };
+  selCid.onchange = async e => {
+    e.stopPropagation();
+    if (!selCid.value) return;
+    $('#sim-km-dica', el).textContent = 'Calculando…';
+    try {
+      const r = await calcularDistanciaRodoviaria(estado.config.origem, selCid.value, selUF.value);
+      f.km.value = r.km;
+      $('#sim-km-dica', el).textContent = r.fonte === 'rota' ? 'Distância pela rota rodoviária.' : 'Estimada (serviço de rotas fora do ar).';
+      atualizar();
+    } catch (err) { $('#sim-km-dica', el).textContent = ''; toast(err.message, 'erro'); }
+  };
   atualizar();
   return { titulo: 'Simulador' };
 }
