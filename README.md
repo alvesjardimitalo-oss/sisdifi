@@ -20,16 +20,21 @@ conforme a **Lei Ordinária nº 994/2025** (Anexo I). Hospedado no **GitHub Page
 - **Importador** do banco do SISDIFI desktop (`sisdifi.sqlite`), feito no navegador.
 - **Auditoria** de todas as ações e exportação para planilha (CSV/Excel).
 
-## Regra de cálculo
+## Regra de cálculo (Lei nº 994, de 14/04/2025)
 
-| Situação | Resultado |
-|---|---|
-| Cada 24 horas completas fora do município | 1 diária pernoite |
-| Fração final acima de 12 horas | 1 diária simples |
-| Fração final de 6 a 12 horas | 1 etapa alimentação |
-| Fração final abaixo de 6 horas | nada |
+| Situação | Resultado | Base |
+|---|---|---|
+| Cada 24 horas completas fora do município | 1 diária pernoite | Art. 6º |
+| Fração final acima de 12 horas | 1 diária simples | Art. 6º |
+| Fração final de 6 a 12 horas | 1 etapa alimentação (R$ 60) | Art. 6º, § 1º |
+| Fração final abaixo de 6 horas | nada | Art. 6º, § 1º |
+| Deslocamento **inferior a 100 km** com pernoite | cada 24h paga pelo valor da **diária simples** | Art. 7º, § 2º |
+| Deslocamento **dentro do território do município**, a partir de 6h | 50% da etapa alimentação | Art. 6º, § 2º |
 
-Faixas de distância: **abaixo de 150 km**, **de 150 a 300 km** (300 inclusive) e **acima de 300 km**.
+Faixas do Anexo I: até 100 km, 150 a 300 km e acima de 300 km. A lei não trata de 100,01–149,99 km;
+por decisão da administração essa distância fica na **primeira faixa** (como já era pago).
+O Art. 7º, caput e § 1º (sem diária abaixo de 8h/100 km; alimentação só se o município não oferecer) **não** é aplicado
+automaticamente, por decisão da administração.
 
 ## Implantação (uma vez só)
 
@@ -42,7 +47,9 @@ Faixas de distância: **abaixo de 150 km**, **de 150 a 300 km** (300 inclusive) 
    - *Configurações do projeto* → *Seus apps* → Web (`</>`) → copie o `firebaseConfig`.
 2. **Configuração** — edite [`assets/js/firebase-config.js`](assets/js/firebase-config.js) aqui no GitHub (lápis ✎) e cole os valores. *Commit changes*.
 3. **GitHub Pages** — *Settings* → *Pages* → *Deploy from a branch* → `main` / `(root)` → *Save*. Em 1–2 minutos o sistema abre em `https://SEU-USUARIO.github.io/sisdifi/`.
-4. **Primeiro acesso** — abra o endereço: o sistema pede para criar o **administrador**. Depois cadastre os demais em *Usuários*.
+4. **Primeiro acesso** — abra o endereço e entre com Google ou com e-mail/senha (pode ser uma conta já criada no Firebase): essa conta vira o **administrador**.
+   Depois: cadastre usuários em *Usuários*, ou peça que entrem com Google — eles aparecem como "Aguardando liberação" e você clica em **Liberar**.
+   Para o login Google funcionar, ative o provedor *Google* em Authentication → Sign-in method.
 5. **Importar o banco antigo** — *Importar banco antigo* → selecione `sisdifi.sqlite` (na pasta de instalação do SISDIFI desktop: `resources\app\database\sisdifi.sqlite`). Depois revise a *Conferência*.
 
 ## Estrutura

@@ -77,9 +77,11 @@ export function telaParametros(el) {
 // =============================================================
 export function telaUsuarios(el) {
   if (aguardando(el, ['usuarios'])) return { viva: true, titulo: 'Usuários' };
-  const lista = [...estado.usuarios].sort((a, b) => (b.ativo !== false) - (a.ativo !== false) || String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
+  const lista = [...estado.usuarios].sort((a, b) => (!!b.pendente - !!a.pendente) || (b.ativo !== false) - (a.ativo !== false) || String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
+  const pendentes = lista.filter(u => u.pendente && !u.ativo).length;
   el.innerHTML = `
     ${cabecalho('Usuários', '<button class="btn" id="novo-usr">＋ Novo usuário</button>', 'Só entra no sistema quem estiver cadastrado e ativo aqui.')}
+    ${pendentes ? `<div class="alerta">${pendentes} pessoa(s) entraram com a conta (ex.: Google) e aguardam liberação. Clique em "Liberar" e escolha o perfil.</div>` : ''}
     <div class="cartao legenda-perfis">
       <span><strong>Administrador:</strong> tudo, inclusive usuários, parâmetros, importação e exclusão definitiva.</span>
       <span><strong>Operador:</strong> cadastra servidores e secretarias, emite/edita/cancela solicitações e reembolsos.</span>
@@ -90,8 +92,8 @@ export function telaUsuarios(el) {
       <tbody>${lista.map(u => `<tr>
         <td><strong>${esc(u.nome)}</strong>${u.id === estado.sessao.uid ? ' <small class="muted">(você)</small>' : ''}</td><td>${esc(u.email)}</td>
         <td>${esc(PERFIS[u.perfil] || u.perfil)}</td>
-        <td>${u.ativo === false ? '<span class="selo selo-cancelada">Bloqueado</span>' : '<span class="selo selo-emitida">Ativo</span>'}</td>
-        <td class="acoes-linha">${u.id === estado.sessao.uid ? '' : `<button class="btn btn-sec btn-peq" data-editar="${esc(u.id)}">✎ Editar</button>`}
+        <td>${u.pendente && !u.ativo ? '<span class="selo selo-pendente">Aguardando liberação</span>' : u.ativo === false ? '<span class="selo selo-cancelada">Bloqueado</span>' : '<span class="selo selo-emitida">Ativo</span>'}</td>
+        <td class="acoes-linha">${u.id === estado.sessao.uid ? '' : `<button class="btn ${u.pendente && !u.ativo ? '' : 'btn-sec'} btn-peq" data-editar="${esc(u.id)}">${u.pendente && !u.ativo ? '✓ Liberar' : '✎ Editar'}</button>`}
           <button class="btn btn-sec btn-peq" data-reset="${esc(u.email)}" title="Enviar e-mail para criar nova senha">✉ Redefinir senha</button></td></tr>`).join('')}</tbody>
     </table></div>`;
   $('#novo-usr', el).onclick = () => formUsuario(null);
@@ -113,7 +115,7 @@ function formUsuario(u) {
       <label class="campo"><span>Senha provisória (mín. 8 caracteres)</span><input name="senha" minlength="8" required value="${gerarSenha()}"></label>
       <p class="muted">Passe a senha provisória ao usuário. Ele pode trocá-la em "Minha conta".</p>`}
       <label class="campo"><span>Perfil</span><select name="perfil">${Object.entries(PERFIS).map(([k, v]) => `<option value="${k}" ${(u?.perfil || 'operador') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
-      ${u ? `<label class="campo"><span>Situação</span><select name="ativo"><option value="1" ${u.ativo === false ? '' : 'selected'}>Ativo</option><option value="0" ${u.ativo === false ? 'selected' : ''}>Bloqueado</option></select></label>` : ''}
+      ${u ? `<label class="campo"><span>Situação</span><select name="ativo"><option value="1" ${u.ativo === false && !u.pendente ? '' : 'selected'}>Ativo</option><option value="0" ${u.ativo === false && !u.pendente ? 'selected' : ''}>Bloqueado</option></select></label>` : ''}
       <p class="erro-form" id="erro-usr"></p>
       <div class="acoes-form"><button type="button" class="btn btn-sec" data-cancelar>Cancelar</button><button class="btn" type="submit">Salvar</button></div>
     </form>`
@@ -128,7 +130,7 @@ function formUsuario(u) {
     const btn = f.querySelector('[type=submit]'); btn.disabled = true;
     try {
       if (u) {
-        await db.salvar('usuarios', u.id, { nome: d.nome, perfil: d.perfil, ativo: d.ativo === '1' });
+        await db.salvar('usuarios', u.id, { nome: d.nome, perfil: d.perfil, ativo: d.ativo === '1', pendente: false });
         await db.registrarLog('usuario.editar', { email: u.email, perfil: d.perfil, ativo: d.ativo === '1' });
       } else {
         if (!d.email) { btn.disabled = false; return (erro.textContent = 'Informe o e-mail.'); }
@@ -265,12 +267,14 @@ function resumoDetalhe(d) {
 // =============================================================
 export function telaConta(el) {
   const s = estado.sessao;
+  const soGoogle = !(db.dadosUsuarioAtual()?.provedores || []).includes('password');
   el.innerHTML = `
     ${cabecalho('Minha conta')}
     <section class="cartao estreito">
       <dl class="dl"><dt>Nome</dt><dd>${esc(s.nome)}</dd><dt>E-mail</dt><dd>${esc(s.email)}</dd><dt>Perfil</dt><dd>${esc(PERFIS[s.perfil])}</dd></dl>
-      <h3 class="mt">Alterar senha</h3>
-      <form id="fsenha" novalidate>
+      ${soGoogle ? '<p class="muted mt">Você entra com a conta Google — a senha é gerenciada pelo Google.</p>' : ''}
+      <h3 class="mt" ${soGoogle ? 'hidden' : ''}>Alterar senha</h3>
+      <form id="fsenha" novalidate ${soGoogle ? 'hidden' : ''}>
         <label class="campo"><span>Senha atual</span><input type="password" name="atual" autocomplete="current-password" required></label>
         <label class="campo"><span>Nova senha (mín. 8 caracteres)</span><input type="password" name="nova" autocomplete="new-password" minlength="8" required></label>
         <label class="campo"><span>Repita a nova senha</span><input type="password" name="nova2" autocomplete="new-password" required></label>

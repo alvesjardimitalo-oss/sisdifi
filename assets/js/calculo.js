@@ -10,7 +10,7 @@ export const GRUPOS = {
 };
 
 export const FAIXAS = {
-  '0_149': '0 a 149 KM',
+  '0_149': '0 a 149 KM',  // Anexo I diz "até 100 km"; 100–149,99 km foi enquadrado aqui por decisão da administração
   '150_300': '150 a 300 KM',
   'ACIMA_300': 'Acima de 300 KM'
 };
@@ -70,73 +70,94 @@ export function horasBR(h) {
 }
 
 /**
- * Calcula a diária.
- * Regra (mantida do sistema em uso):
- *  - cada período completo de 24h → 1 diária pernoite;
- *  - fração final > 12h → 1 diária simples;
- *  - fração final de 6h a 12h → 1 etapa alimentação;
- *  - fração final < 6h → nada.
- * Os cálculos são feitos em MINUTOS inteiros (o antigo usava horas com vírgula flutuante).
+ * Calcula a diária conforme a Lei Ordinária nº 994/2025.
+ *  - Art. 6º: cada período de 24h completo → 1 diária (pernoite); fração final > 12h → 1 diária simples;
+ *  - Art. 6º, § 1º: fração final de 6h a 12h → somente etapa alimentação; abaixo de 6h → nada;
+ *  - Art. 6º, § 2º: deslocamento DENTRO do território do município de 6h a 12h → 50% da etapa alimentação;
+ *  - Art. 7º, § 2º: deslocamento inferior a 100 km COM pernoite → cada período de 24h é pago pelo valor da diária simples;
+ *  - Faixa "até 100 km" do Anexo I também cobre 100,01–149,99 km (lacuna da lei; decisão da administração).
+ * Os cálculos são feitos em MINUTOS inteiros.
  */
-export function calcularDiaria({ grupo, km, saida, retorno, parametros = PARAMETROS_PADRAO }) {
+export function calcularDiaria({ grupo, km, saida, retorno, dentroMunicipio = false, parametros = PARAMETROS_PADRAO }) {
   if (!GRUPOS[grupo]) return { erro: 'Categoria do servidor inválida.' };
-  const distancia = Number(String(km ?? '').replace(',', '.'));
-  if (!(distancia > 0)) return { erro: 'Informe a distância em KM.' };
+  const distancia = Number(String(km ?? '').replace(',', '.')) || 0;
+  if (!dentroMunicipio && !(distancia > 0)) return { erro: 'Informe a distância em KM.' };
   const ini = minutosAbsolutos(saida);
   const fim = minutosAbsolutos(retorno);
   if (ini === null || fim === null) return { erro: 'Informe data e hora de saída e de retorno.' };
   if (fim <= ini) return { erro: 'A data/hora de retorno deve ser posterior à de saída.' };
 
-  const faixa = faixaDistancia(distancia);
-  const tab = parametros.valores[grupo];
-  const valorPernoite = Number(tab.PERNOITE[faixa]);
-  const valorSimples = Number(tab.SIMPLES[faixa]);
-  const valorAlimentacao = Number(parametros.alimentacao);
-
   const totalMin = fim - ini;
-  const qtdPernoite = Math.floor(totalMin / 1440);
-  const restoMin = totalMin - qtdPernoite * 1440;
-  const inicioResto = ini + qtdPernoite * 1440;
-
+  const valorAlimentacaoCheia = Number(parametros.alimentacao);
   const descricao = [];
   const justificativa = [];
-  for (let i = 0; i < qtdPernoite; i++) {
-    descricao.push(`01 diária pernoite referente ao período de ${formatarDataHora(ini + i * 1440)} até ${formatarDataHora(ini + (i + 1) * 1440)}.`);
-  }
-  if (qtdPernoite) justificativa.push('Diária pernoite devida por período completo de 24 horas fora do município.');
+  let qtdPernoite = 0, qtdSimples = 0, qtdAlimentacao = 0;
+  let valorPernoite = 0, valorSimples = 0, valorAlimentacao = valorAlimentacaoCheia;
+  let faixa = faixaDistancia(distancia), faixaTexto = FAIXAS[faixa];
+  const periodo = `${formatarDataHora(ini)} até ${formatarDataHora(fim)}`;
 
-  let qtdSimples = 0, qtdAlimentacao = 0;
-  const periodoResto = `${formatarDataHora(inicioResto)} até ${formatarDataHora(fim)}`;
-  if (restoMin > 720) {
-    qtdSimples = 1;
-    descricao.push(`01 diária simples referente ao período de ${periodoResto}.`);
-    justificativa.push(qtdPernoite
-      ? 'Diária simples devida por fração superior a 12 horas após o último período integral.'
-      : 'Diária simples devida por afastamento superior a 12 horas.');
-  } else if (restoMin >= 360) {
-    qtdAlimentacao = 1;
-    descricao.push(`01 etapa alimentação referente ao período de ${periodoResto}.`);
-    justificativa.push('Etapa alimentação devida por fração entre 6 e 12 horas.');
-  } else if (restoMin > 0 || qtdPernoite === 0) {
-    if (qtdPernoite === 0) {
-      descricao.push('Não há diária devida, pois o afastamento foi inferior a 6 horas.');
-      justificativa.push('Afastamento inferior ao período mínimo para concessão.');
+  if (dentroMunicipio) {
+    // Diária só é devida fora do município (Art. 3º); dentro do território vale apenas o Art. 6º, § 2º.
+    faixa = 'MUNICIPIO'; faixaTexto = 'Dentro do território do município';
+    valorAlimentacao = Math.round(valorAlimentacaoCheia * 50) / 100;
+    if (totalMin >= 360) {
+      qtdAlimentacao = 1;
+      descricao.push(`01 etapa alimentação (50%) referente ao deslocamento dentro do município de ${periodo}.`);
+      justificativa.push('Art. 6º, § 2º: deslocamento dentro do território do município com duração a partir de 6 horas — 50% do valor da etapa alimentação.');
+      if (totalMin > 720) justificativa.push('A lei não prevê diária para deslocamento dentro do município; aplicada somente a etapa alimentação de 50%.');
     } else {
-      descricao.push('O período residual final foi inferior a 6 horas e não gerou parcela adicional.');
-      justificativa.push('Fração final inferior a 6 horas sem direito a parcela adicional.');
+      descricao.push('Não há valor devido: deslocamento dentro do município inferior a 6 horas.');
+      justificativa.push('Art. 6º, § 2º: abaixo de 6 horas não há etapa alimentação.');
+    }
+  } else {
+    const tab = parametros.valores[grupo];
+    valorSimples = Number(tab.SIMPLES[faixa]);
+    const art7 = distancia < 100;
+    valorPernoite = art7 ? valorSimples : Number(tab.PERNOITE[faixa]);
+    qtdPernoite = Math.floor(totalMin / 1440);
+    const restoMin = totalMin - qtdPernoite * 1440;
+    const inicioResto = ini + qtdPernoite * 1440;
+
+    for (let i = 0; i < qtdPernoite; i++) {
+      descricao.push(`01 diária ${art7 ? 'com pernoite (pago o valor da diária simples)' : 'pernoite'} referente ao período de ${formatarDataHora(ini + i * 1440)} até ${formatarDataHora(ini + (i + 1) * 1440)}.`);
+    }
+    if (qtdPernoite) {
+      justificativa.push('Art. 6º: uma diária a cada período de 24 horas de deslocamento, contado da saída de Frei Inocêncio até o retorno.');
+      if (art7) justificativa.push('Art. 7º, § 2º: deslocamento inferior a 100 km com necessidade de pernoite — atribuído o valor da diária simples.');
+    }
+    const periodoResto = `${formatarDataHora(inicioResto)} até ${formatarDataHora(fim)}`;
+    if (restoMin > 720) {
+      qtdSimples = 1;
+      descricao.push(`01 diária simples referente ao período de ${periodoResto}.`);
+      justificativa.push(qtdPernoite
+        ? 'Art. 6º: fração superior a 12 horas após o último período de 24 horas — uma diária simples.'
+        : 'Art. 6º: deslocamento superior a 12 horas — uma diária simples.');
+    } else if (restoMin >= 360) {
+      qtdAlimentacao = 1;
+      descricao.push(`01 etapa alimentação referente ao período de ${periodoResto}.`);
+      justificativa.push('Art. 6º, § 1º: fração de deslocamento entre 6 e 12 horas — somente a parcela referente à alimentação.');
+    } else if (restoMin > 0 || qtdPernoite === 0) {
+      if (qtdPernoite === 0) {
+        descricao.push('Não há diária devida, pois o afastamento foi inferior a 6 horas.');
+        justificativa.push('Art. 6º, § 1º: deslocamento inferior a 6 horas não gera diária nem etapa alimentação.');
+      } else {
+        descricao.push('O período residual final foi inferior a 6 horas e não gerou parcela adicional.');
+        justificativa.push('Art. 6º: fração final inferior a 6 horas não gera parcela adicional.');
+      }
     }
   }
 
   const valorTotal = Math.round((qtdPernoite * valorPernoite + qtdSimples * valorSimples + qtdAlimentacao * valorAlimentacao) * 100) / 100;
   const tipos = [];
-  if (qtdAlimentacao) tipos.push('Etapa Alimentação');
+  if (qtdAlimentacao) tipos.push(dentroMunicipio ? 'Etapa Alimentação (50%)' : 'Etapa Alimentação');
   if (qtdSimples) tipos.push('Diária Simples');
-  if (qtdPernoite) tipos.push('Diária Pernoite');
+  if (qtdPernoite) tipos.push(valorPernoite === valorSimples && !dentroMunicipio ? 'Diária com Pernoite (valor simples – Art. 7º, § 2º)' : 'Diária Pernoite');
 
   return {
     distancia_km: Math.round(distancia * 100) / 100,
+    dentro_municipio: !!dentroMunicipio,
     faixa_codigo: faixa,
-    faixa_texto: FAIXAS[faixa],
+    faixa_texto: faixaTexto,
     horas_total: totalMin / 60,
     quantidade_pernoite: qtdPernoite,
     quantidade_simples: qtdSimples,

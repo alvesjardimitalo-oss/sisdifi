@@ -256,3 +256,7 @@ progress { width: 260px; vertical-align: middle; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .kpi strong { font-size: 17px; }
 }
+.ou { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; margin: 14px 0; }
+.ou::before, .ou::after { content: ""; flex: 1; border-top: 1px solid var(--borda); }
+.btn-google { gap: 10px; }
+.selo-pendente { background: var(--ambar-claro); color: var(--ambar); }

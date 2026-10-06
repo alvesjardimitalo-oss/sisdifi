@@ -134,7 +134,7 @@ function snapshotServidor(sv) {
 }
 
 function montarDadosSolicitacao(dados, sv, existente = null) {
-  const calc = calcularDiaria({ grupo: sv.grupo, km: dados.distancia_km, saida: dados.data_hora_saida, retorno: dados.data_hora_retorno, parametros: estado.config });
+  const calc = calcularDiaria({ grupo: sv.grupo, km: dados.distancia_km, saida: dados.data_hora_saida, retorno: dados.data_hora_retorno, dentroMunicipio: !!dados.dentro_municipio, parametros: estado.config });
   const { tipo_resumo, faixa_codigo, ...camposCalc } = calc;
   return {
     servidor_id: sv.id,
@@ -196,6 +196,8 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
             <input type="number" name="distancia_km" id="km" step="0.01" min="0.01" value="${esc(sol.distancia_km ?? '')}" required>
             <small class="dica" id="km-fonte"></small></label>
         </div>
+        <label class="check"><input type="checkbox" name="dentro_municipio" id="dentro-mun" ${sol.dentro_municipio ? 'checked' : ''}>
+          Deslocamento dentro do território do município (distritos/zona rural) — Art. 6º, § 2º: 50% da etapa alimentação</label>
         <label class="campo"><span>Data da solicitação</span><input type="date" name="data_solicitacao" value="${esc(sol.data_solicitacao || hojeISO())}" required ${modo === 'editar' ? 'disabled title="A data da solicitação define a numeração e não pode ser alterada."' : ''}></label>
       </section>
 
@@ -284,7 +286,7 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
   let ultimoDestino = `${sol.destino_cidade || ''}|${sol.destino_uf || ''}`;
   async function buscarDistancia(forcarRota = false) {
     const cidade = inCidade.value.trim(), uf = (form.destino_uf.value || '').toUpperCase();
-    if (!cidade || !uf) return;
+    if (!cidade || !uf || chkDentro?.checked) return;
     const chave = chaveDistancia(cidade, uf);
     const cache = estado.distancias[chave];
     if (cache && !forcarRota) { inKm.value = cache.km; fonteKm = 'cadastro'; mostrarFonte(); recalcular(); return; }
@@ -307,6 +309,24 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
   $('#btn-km', el).onclick = () => buscarDistancia(true);
   inKm.addEventListener('input', () => { fonteKm = 'manual'; mostrarFonte(); });
 
+  // Deslocamento dentro do município: destino = município de origem, distância não é usada.
+  const chkDentro = $('#dentro-mun', el);
+  function aplicarDentro() {
+    const on = chkDentro.checked;
+    inKm.required = !on;
+    if (on) {
+      if (!inCidade.value) inCidade.value = estado.config.origem.cidade;
+      if (form.destino_uf.value !== estado.config.origem.uf) form.destino_uf.value = estado.config.origem.uf;
+      kmFonte.textContent = 'Dentro do município: a distância não altera o valor.';
+    } else mostrarFonte();
+  }
+  chkDentro.addEventListener('change', () => { aplicarDentro(); recalcular(); });
+  inCidade.addEventListener('change', () => {
+    const mesmo = normalizar(inCidade.value) === normalizar(estado.config.origem.cidade) && (form.destino_uf.value || '').toUpperCase() === estado.config.origem.uf;
+    if (mesmo && !chkDentro.checked) { chkDentro.checked = true; aplicarDentro(); recalcular(); }
+  });
+  aplicarDentro();
+
   // ---------- Cálculo ao vivo ----------
   function recalcular() {
     const d = lerForm(form);
@@ -317,7 +337,7 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
     for (const id of selecionados) {
       const s = porId('servidores', id);
       if (!s) continue;
-      const c = calcularDiaria({ grupo: s.grupo, km: d.distancia_km, saida: d.data_hora_saida, retorno: d.data_hora_retorno, parametros: estado.config });
+      const c = calcularDiaria({ grupo: s.grupo, km: d.distancia_km, saida: d.data_hora_saida, retorno: d.data_hora_retorno, dentroMunicipio: !!d.dentro_municipio, parametros: estado.config });
       if (c.erro) linhas.push({ s, erro: c.erro });
       else { total += c.valor_total; linhas.push({ s, c }); }
       const conflito = ativas(estado.solicitacoes).find(o => o.servidor_id === id && o.id !== sol.id &&
@@ -356,12 +376,12 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
     if (!d.secretaria_id) faltando.push('secretaria');
     if (!d.data_hora_saida || !d.data_hora_retorno) faltando.push('saída e retorno');
     if (!d.destino_uf || !d.destino_cidade) faltando.push('destino');
-    if (!(Number(d.distancia_km) > 0)) faltando.push('distância');
+    if (!d.dentro_municipio && !(Number(d.distancia_km) > 0)) faltando.push('distância');
     if (!d.objetivo) faltando.push('objetivo');
     if (!d.data_solicitacao) faltando.push('data da solicitação');
     if (faltando.length) { erro.textContent = 'Preencha: ' + faltando.join(', ') + '.'; return; }
     for (const id of selecionados) {
-      const c = calcularDiaria({ grupo: porId('servidores', id).grupo, km: d.distancia_km, saida: d.data_hora_saida, retorno: d.data_hora_retorno, parametros: estado.config });
+      const c = calcularDiaria({ grupo: porId('servidores', id).grupo, km: d.distancia_km, saida: d.data_hora_saida, retorno: d.data_hora_retorno, dentroMunicipio: !!d.dentro_municipio, parametros: estado.config });
       if (c.erro) { erro.textContent = c.erro; return; }
     }
     if ($('#avisos .alerta', el) && !(await confirmar('Há sobreposição de período com outra solicitação do mesmo servidor. Deseja salvar mesmo assim?', { ok: 'Salvar mesmo assim' }))) return;
@@ -372,7 +392,7 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
       // Guarda a distância usada para este destino: próximas viagens para a mesma cidade usam o mesmo km.
       const chave = chaveDistancia(d.destino_cidade, d.destino_uf);
       const km = Math.round(Number(d.distancia_km) * 100) / 100;
-      if (estado.distancias[chave]?.km !== km) db.salvar('distancias', chave, { cidade: d.destino_cidade, uf: d.destino_uf, km }).catch(() => {});
+      if (!d.dentro_municipio && km > 0 && estado.distancias[chave]?.km !== km) db.salvar('distancias', chave, { cidade: d.destino_cidade, uf: d.destino_uf, km }).catch(() => {});
       await aoSalvar(d, selecionados);
     } catch (err) {
       erro.textContent = mensagemErro(err);

@@ -7,7 +7,7 @@ import { initializeApp, deleteApp } from 'https://www.gstatic.com/firebasejs/10.
 import {
   getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail,
   createUserWithEmailAndPassword, updatePassword, EmailAuthProvider, reauthenticateWithCredential,
-  setPersistence, browserLocalPersistence
+  setPersistence, browserLocalPersistence, GoogleAuthProvider, signInWithPopup
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
@@ -44,6 +44,34 @@ export async function alterarMinhaSenha(atual, nova) {
   const u = auth.currentUser;
   await reauthenticateWithCredential(u, EmailAuthProvider.credential(u.email, atual));
   await updatePassword(u, nova);
+}
+
+export async function entrarComGoogle() {
+  const prov = new GoogleAuthProvider();
+  prov.setCustomParameters({ prompt: 'select_account' });
+  return signInWithPopup(auth, prov);
+}
+export const criarConta = (email, senha) => createUserWithEmailAndPassword(auth, email.trim(), senha);
+export function dadosUsuarioAtual() {
+  const u = auth.currentUser;
+  return u ? { uid: u.uid, email: u.email, nome: u.displayName || '', provedores: u.providerData.map(p => p.providerId) } : null;
+}
+
+/** Primeiro acesso: o usuário logado (Google ou e-mail) vira o administrador. Só funciona uma vez (garantido pelas regras). */
+export async function reivindicarAdmin(nome) {
+  const u = auth.currentUser;
+  const b = writeBatch(fs);
+  b.set(doc(fs, 'sistema', 'bootstrap'), { uid: u.uid, criado_em: serverTimestamp() });
+  b.set(doc(fs, 'usuarios', u.uid), { nome: nome || u.displayName || u.email, email: (u.email || '').toLowerCase(), perfil: 'admin', ativo: true, criado_em: serverTimestamp() });
+  await b.commit();
+}
+
+/** Quem entra sem cadastro (ex.: conta Google nova) fica registrado como pendente até o admin liberar. */
+export async function solicitarAcesso() {
+  const u = auth.currentUser;
+  await setDoc(doc(fs, 'usuarios', u.uid), {
+    nome: u.displayName || u.email, email: (u.email || '').toLowerCase(), perfil: 'consulta', ativo: false, pendente: true, criado_em: serverTimestamp()
+  });
 }
 
 export async function bootstrapExiste() {

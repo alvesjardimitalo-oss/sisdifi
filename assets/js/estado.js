@@ -9,7 +9,7 @@ export const TIPOS_DESPESA_PADRAO = [
 export const CONFIG_PADRAO = {
   ...PARAMETROS_PADRAO,
   orgao: 'PREFEITURA MUNICIPAL DE FREI INOCÊNCIO',
-  lei: 'Lei Ordinária nº 994/2025',
+  lei: 'Lei Ordinária nº 994, de 14 de abril de 2025',
   origem: { cidade: 'Frei Inocêncio', uf: 'MG' },
   tipos_despesa: TIPOS_DESPESA_PADRAO
 };

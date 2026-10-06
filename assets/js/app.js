@@ -14,9 +14,11 @@ import { telaParametros, telaUsuarios, telaImportar, telaAuditoria, telaConta } 
 import { telaImprimir } from './views/imprimir.js';
 import { telaConferencia } from './views/conferencia.js';
 
-const VERSAO = '2.0.0';
+const VERSAO = '2.1.0';
+const ICONE_GOOGLE = '<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>';
 const raiz = document.getElementById('app');
 let ouvintes = [];
+let reivindicando = null; // { nome } durante o primeiro acesso
 let limpezaTela = null;
 
 const MENU = [
@@ -47,7 +49,15 @@ if (!db.configurado) {
       return telaLogin();
     }
     try {
-      const perfil = await db.obterPerfil(usuario.uid);
+      let perfil = await db.obterPerfil(usuario.uid);
+      if (!perfil && reivindicando) {
+        // Veio da tela "Primeiro acesso": este usuário vira o administrador.
+        await db.reivindicarAdmin(reivindicando.nome);
+        reivindicando = null;
+        perfil = await db.obterPerfil(usuario.uid);
+      } else if (!perfil) {
+        try { await db.solicitarAcesso(); perfil = await db.obterPerfil(usuario.uid); } catch { /* sem permissão: segue como não liberado */ }
+      }
       if (!perfil || !perfil.ativo) return telaSemAcesso(usuario, perfil);
       estado.sessao = { uid: usuario.uid, email: usuario.email, nome: perfil.nome, perfil: perfil.perfil };
       db.definirSessao(estado.sessao);
@@ -91,6 +101,8 @@ async function telaLogin() {
       <label class="campo"><span>Senha</span><input type="password" name="senha" autocomplete="current-password" required></label>
       <p class="erro-form" id="erro-login" role="alert"></p>
       <button class="btn btn-bloco" type="submit">Entrar</button>
+      <div class="ou"><span>ou</span></div>
+      <button class="btn btn-sec btn-bloco btn-google" type="button" id="google">${ICONE_GOOGLE} Entrar com Google</button>
       <button class="link" type="button" id="esqueci">Esqueci minha senha</button>
       <p class="rodape-login">Acesso restrito a usuários autorizados pela administração.</p>
     </form></div>`;
@@ -105,6 +117,10 @@ async function telaLogin() {
     try { await db.entrar(email, senha); }
     catch (err) { erro.textContent = mensagemErro(err); btn.disabled = false; btn.textContent = 'Entrar'; }
   };
+  $('#google').onclick = async () => {
+    try { await db.entrarComGoogle(); }
+    catch (err) { if (err?.code !== 'auth/popup-closed-by-user') $('#erro-login').textContent = mensagemErro(err); }
+  };
   $('#esqueci').onclick = async () => {
     const email = form.email.value.trim();
     if (!email) { $('#erro-login').textContent = 'Digite seu e-mail acima e clique novamente em "Esqueci minha senha".'; return; }
@@ -118,33 +134,50 @@ function telaPrimeiroAdmin() {
     <div class="login-fundo"><form class="login-caixa" id="form-admin" novalidate>
       ${marca()}
       <h2>Primeiro acesso</h2>
-      <p>Nenhum administrador foi criado ainda. Crie agora a conta do <strong>administrador do sistema</strong>.
-      Depois, os demais usuários serão cadastrados por você em <em>Usuários</em>.</p>
-      <label class="campo"><span>Nome completo</span><input name="nome" required></label>
-      <label class="campo"><span>E-mail</span><input type="email" name="email" required></label>
-      <label class="campo"><span>Senha (mínimo 8 caracteres)</span><input type="password" name="senha" minlength="8" required></label>
-      <label class="campo"><span>Confirme a senha</span><input type="password" name="senha2" required></label>
+      <p>Nenhum administrador foi definido ainda. Entre com a conta que será o <strong>administrador do sistema</strong>.
+      Depois, os demais usuários são liberados por você em <em>Usuários</em>.</p>
+      <button class="btn btn-sec btn-bloco btn-google" type="button" id="google-admin">${ICONE_GOOGLE} Entrar com Google e tornar-me administrador</button>
+      <div class="ou"><span>ou com e-mail e senha</span></div>
+      <label class="campo"><span>Nome completo</span><input name="nome" autocomplete="name"></label>
+      <label class="campo"><span>E-mail</span><input type="email" name="email" autocomplete="username" required></label>
+      <label class="campo"><span>Senha</span><input type="password" name="senha" autocomplete="current-password" required></label>
+      <p class="dica">Se a conta já existe no Firebase, use a senha dela. Se não existe, ela será criada (mínimo 8 caracteres).</p>
       <p class="erro-form" id="erro-admin" role="alert"></p>
-      <button class="btn btn-bloco" type="submit">Criar administrador</button>
+      <button class="btn btn-bloco" type="submit">Entrar e tornar-me administrador</button>
     </form></div>`;
   const form = $('#form-admin');
+  const erro = $('#erro-admin');
+  $('#google-admin').onclick = async () => {
+    reivindicando = { nome: form.nome.value.trim() };
+    try { await db.entrarComGoogle(); }
+    catch (err) { reivindicando = null; if (err?.code !== 'auth/popup-closed-by-user') erro.textContent = mensagemErro(err); }
+  };
   form.onsubmit = async e => {
     e.preventDefault();
     const d = lerForm(form);
-    const erro = $('#erro-admin');
-    if (!d.nome || !d.email) return (erro.textContent = 'Preencha nome e e-mail.');
-    if (d.senha.length < 8) return (erro.textContent = 'A senha precisa ter pelo menos 8 caracteres.');
-    if (d.senha !== d.senha2) return (erro.textContent = 'As senhas não conferem.');
-    form.querySelector('[type=submit]').disabled = true;
-    try { await db.criarPrimeiroAdmin(d); }
-    catch (err) { erro.textContent = mensagemErro(err); form.querySelector('[type=submit]').disabled = false; }
+    if (!d.email || !d.senha) return (erro.textContent = 'Informe e-mail e senha.');
+    const btn = form.querySelector('[type=submit]');
+    btn.disabled = true; erro.textContent = '';
+    reivindicando = { nome: d.nome };
+    try {
+      try { await db.entrar(d.email, d.senha); }
+      catch (err) {
+        // Conta ainda não existe: cria.
+        if (!['auth/invalid-credential', 'auth/user-not-found'].includes(err?.code)) throw err;
+        if (d.senha.length < 8) throw Object.assign(new Error('Senha incorreta — ou, para criar a conta, use pelo menos 8 caracteres.'), {});
+        try { await db.criarConta(d.email, d.senha); }
+        catch (e2) { if (e2?.code === 'auth/email-already-in-use') throw Object.assign(new Error('Este e-mail já tem conta no Firebase, mas a senha não confere. Use a senha correta ou "Entrar com Google".'), {}); throw e2; }
+      }
+    } catch (err) {
+      reivindicando = null; erro.textContent = mensagemErro(err); btn.disabled = false;
+    }
   };
 }
 
 function telaSemAcesso(usuario, perfil, detalhe = '') {
-  const msg = perfil && !perfil.ativo
+  const msg = perfil && !perfil.ativo && !perfil.pendente
     ? 'Seu acesso está desativado. Procure o administrador do sistema.'
-    : 'Sua conta ainda não foi liberada pelo administrador do sistema.';
+    : 'Seu pedido de acesso foi registrado. Aguarde o administrador liberar sua conta em Usuários e entre novamente.';
   raiz.innerHTML = `
     <div class="login-fundo"><div class="login-caixa">
       ${marca()}

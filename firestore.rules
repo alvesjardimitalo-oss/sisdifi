@@ -34,6 +34,13 @@ service cloud.firestore {
         && !exists(caminhoBootstrap())
         && existsAfter(caminhoBootstrap())
         && getAfter(caminhoBootstrap()).data.uid == request.auth.uid
+      ) || (
+        // Quem entra sem cadastro (ex.: Google) registra um pedido de acesso, sempre bloqueado até o admin liberar.
+        logado() && request.auth.uid == uid
+        && exists(caminhoBootstrap())
+        && request.resource.data.ativo == false
+        && request.resource.data.perfil == 'consulta'
+        && request.resource.data.email == request.auth.token.email.lower()
       );
       // Só admin altera usuários, e não pode bloquear/rebaixar a si mesmo.
       allow update: if admin() && (uid != request.auth.uid || (request.resource.data.perfil == 'admin' && request.resource.data.ativo == true));

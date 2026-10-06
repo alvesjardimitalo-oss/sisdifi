@@ -23,20 +23,20 @@ export async function entrar(email, senha) {
 export async function sair() { usuarioAtual = null; cbSessao(null); }
 export async function redefinirSenha() {}
 export async function alterarMinhaSenha() {}
-export async function bootstrapExiste() { return usuarios.size > 0; }
+export async function bootstrapExiste() { return [...usuarios.values()].some(u => u.perfil === 'admin'); }
 export async function criarPrimeiroAdmin({ nome, email, senha }) {
   usuarios.set('u-admin', { nome, email, senha, perfil: 'admin', ativo: true });
   garantir('usuarios').set('u-admin', { nome, email, perfil: 'admin', ativo: true });
   usuarioAtual = { uid: 'u-admin', email }; cbSessao(usuarioAtual);
 }
-export async function obterPerfil(uid) { const u = usuarios.get(uid); return u ? { uid, ...u } : null; }
+export async function obterPerfil(uid) { const u = usuarios.get(uid); return u && u.perfil ? { uid, ...u } : null; }
 export async function criarUsuario({ nome, email, senha, perfil }) {
   const uid = 'u' + (contador++);
   usuarios.set(uid, { nome, email, senha, perfil, ativo: true });
   garantir('usuarios').set(uid, { nome, email, perfil, ativo: true }); notificar('usuarios'); return uid;
 }
 export function ouvir(c, cb) {
-  if (c === 'usuarios') { colecoes.usuarios = new Map([...usuarios].map(([uid, u]) => [uid, { nome: u.nome, email: u.email, perfil: u.perfil, ativo: u.ativo }])); }
+  if (c === 'usuarios') { colecoes.usuarios = new Map([...usuarios].filter(([, u]) => u.perfil).map(([uid, { senha, ...u }]) => [uid, u])); }
   const o = { c, cb }; ouvintes.push(o); notificar(c); return () => ouvintes.splice(ouvintes.indexOf(o), 1);
 }
 export function ouvirDoc(c, id, cb) { const o = { c, id, cb }; ouvintes.push(o); notificar(c); return () => ouvintes.splice(ouvintes.indexOf(o), 1); }
@@ -72,3 +72,9 @@ export async function gravarEmLote(ops, prog) {
   new Set(ops.map(o => o.colecao)).forEach(notificar); prog && prog(ops.length, ops.length);
 }
 export async function registrarLog(acao, detalhe) { window.__mock.logs.push({ acao, detalhe, nome: sessao?.nome, em: new Date() }); }
+
+export async function entrarComGoogle() { usuarioAtual = { uid: 'g1', email: 'google@teste.com' }; cbSessao(usuarioAtual); }
+export async function criarConta(email, senha) { const uid = 'u' + (contador++); usuarios.set(uid, { email, senha }); usuarioAtual = { uid, email }; cbSessao(usuarioAtual); }
+export function dadosUsuarioAtual() { return usuarioAtual ? { ...usuarioAtual, provedores: ['password'] } : null; }
+export async function reivindicarAdmin(nome) { const u = usuarios.get(usuarioAtual.uid) || { email: usuarioAtual.email }; usuarios.set(usuarioAtual.uid, { ...u, nome: nome || u.email, perfil: 'admin', ativo: true }); }
+export async function solicitarAcesso() { usuarios.set(usuarioAtual.uid, { nome: usuarioAtual.email, email: usuarioAtual.email, perfil: 'consulta', ativo: false, pendente: true }); }
