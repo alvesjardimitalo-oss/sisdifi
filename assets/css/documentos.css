@@ -1,0 +1,46 @@
+/* SISDIFI — documentos A4 (solicitação, reembolso, relatório) — mesmo modelo do sistema anterior */
+.barra-impressao { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.documentos { display: flex; flex-direction: column; align-items: center; gap: 16px; overflow-x: auto; }
+.folha { position: relative; width: 210mm; min-height: 297mm; background: #fff; color: #000; padding: 8mm 9mm; box-shadow: 0 0 10px rgba(0, 0, 0, .15);
+  font-family: "Times New Roman", Times, serif; font-size: 11px; line-height: 1.25; }
+.doc-cab { position: relative; min-height: 46px; }
+.doc-brasao { position: absolute; left: 0; top: 0; width: 38px; height: auto; }
+.doc-titulos { text-align: center; padding: 0 44px; }
+.doc-orgao { font-size: 13px; font-weight: bold; text-transform: uppercase; }
+.doc-titulo { font-size: 14px; font-weight: bold; text-transform: uppercase; margin-top: 2px; }
+.doc-sub { font-size: 11px; margin-top: 2px; }
+.doc-linha { border-top: 1px solid #000; margin: 4px 0 6px; }
+.doc-secao { margin-top: 5px; break-inside: avoid; }
+.doc-secao-titulo { border: 1px solid #000; border-bottom: 0; background: #efefef; padding: 3px 5px; font-weight: bold; text-transform: uppercase; }
+.doc-tab { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 0; }
+.doc-tab + .doc-tab { border-top: 0; }
+.doc-tab td, .doc-tab th { border: 1px solid #000; padding: 3px 5px; vertical-align: top; overflow-wrap: anywhere; text-align: left; }
+.doc-tab th { background: #f5f5f5; }
+.doc-tab td.r { font-weight: bold; background: #fafafa; }
+.doc-tab .pre { white-space: pre-wrap; min-height: 22px; }
+.doc-tab .quebra { word-break: break-all; }
+.doc-tab tr.riscado td { text-decoration: line-through; color: #555; }
+.doc-lista { margin: 0; padding-left: 15px; }
+.doc-lista li { margin-bottom: 2px; }
+.doc-total { text-align: right; font-weight: bold; font-size: 12px; margin-top: 6px; }
+.doc-local { text-align: right; margin-top: 14px; }
+.doc-ass { width: 100%; margin-top: 14px; border-collapse: collapse; }
+.doc-ass td { width: 50%; padding: 0 12px; }
+.doc-linha-ass { margin-top: 40px; border-top: 1px solid #000; text-align: center; padding-top: 4px; }
+.doc-resumo { width: 100%; border-collapse: separate; border-spacing: 6px 0; margin: 8px -6px 2px; }
+.doc-resumo td { border: 1px solid #000; padding: 5px; text-align: center; width: 25%; }
+.doc-resumo span { display: block; font-weight: bold; text-transform: uppercase; font-size: 10px; }
+.doc-resumo strong { font-size: 13px; }
+.doc-marca-cancelada { position: absolute; top: 40%; left: 0; right: 0; text-align: center; font-size: 80px; font-weight: bold; color: rgba(180, 35, 24, .18); transform: rotate(-25deg); pointer-events: none; font-family: Arial, sans-serif; }
+
+@page { size: A4; margin: 6mm; }
+@media print {
+  body, body.modo-impressao { background: #fff !important; }
+  .lateral, .topo, .barra-impressao, #toasts { display: none !important; }
+  .layout { display: block; }
+  main { padding: 0 !important; max-width: none; }
+  .documentos { display: block; overflow: visible; }
+  .folha { width: auto; min-height: 0; box-shadow: none; padding: 2mm 3mm; font-size: 10.5px; page-break-after: always; break-after: page; }
+  .folha:last-child { page-break-after: auto; break-after: auto; }
+  .doc-secao-titulo, .doc-tab td.r, .doc-tab th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

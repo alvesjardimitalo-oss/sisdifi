@@ -1,0 +1,91 @@
+rules_version = '2';
+// =============================================================
+// SISDIFI — Regras de segurança do Cloud Firestore
+// Cole este conteúdo em: Console Firebase → Firestore Database → Regras → Publicar
+// =============================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function logado() { return request.auth != null; }
+    function caminhoUsuario() { return /databases/$(database)/documents/usuarios/$(request.auth.uid); }
+    function caminhoBootstrap() { return /databases/$(database)/documents/sistema/bootstrap; }
+    function ativo() { return logado() && exists(caminhoUsuario()) && get(caminhoUsuario()).data.ativo == true; }
+    function perfil() { return get(caminhoUsuario()).data.perfil; }
+    function admin() { return ativo() && perfil() == 'admin'; }
+    function operador() { return ativo() && perfil() in ['admin', 'operador']; }
+
+    // Marca de "primeiro administrador já criado". Leitura pública (só contém o uid).
+    match /sistema/bootstrap {
+      allow get: if true;
+      allow create: if logado()
+        && !exists(caminhoBootstrap())
+        && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /usuarios/{uid} {
+      allow get: if logado() && (request.auth.uid == uid || admin());
+      allow list: if admin();
+      // Admin cria qualquer usuário; ou o PRIMEIRO acesso cria o próprio admin junto com o bootstrap.
+      allow create: if admin() || (
+        logado() && request.auth.uid == uid
+        && request.resource.data.perfil == 'admin'
+        && request.resource.data.ativo == true
+        && !exists(caminhoBootstrap())
+        && existsAfter(caminhoBootstrap())
+        && getAfter(caminhoBootstrap()).data.uid == request.auth.uid
+      );
+      // Só admin altera usuários, e não pode bloquear/rebaixar a si mesmo.
+      allow update: if admin() && (uid != request.auth.uid || (request.resource.data.perfil == 'admin' && request.resource.data.ativo == true));
+      allow delete: if false;
+    }
+
+    match /config/{doc} {
+      allow read: if ativo();
+      allow write: if admin();
+    }
+
+    match /secretarias/{id} {
+      allow read: if ativo();
+      allow create, update: if operador() && request.resource.data.nome is string && request.resource.data.nome.size() > 0;
+      allow delete: if admin();
+    }
+
+    match /servidores/{id} {
+      allow read: if ativo();
+      allow create, update: if operador()
+        && request.resource.data.nome is string
+        && request.resource.data.cpf is string && request.resource.data.cpf.size() == 11
+        && request.resource.data.grupo in ['PREFEITO', 'VICE_SECRETARIO_JURIDICO', 'DEMAIS_SERVIDORES'];
+      allow delete: if admin();
+    }
+
+    match /solicitacoes/{id} {
+      allow read: if ativo();
+      allow create: if operador()
+        && request.resource.data.numero is string
+        && request.resource.data.valor_total is number
+        && request.resource.data.servidor_id is string;
+      // O número da solicitação nunca muda depois de criado.
+      allow update: if operador() && request.resource.data.numero == resource.data.numero;
+      allow delete: if admin();
+    }
+
+    match /contadores/{id} {
+      allow read: if ativo();
+      allow write: if operador();
+    }
+
+    match /distancias/{id} {
+      allow read: if ativo();
+      allow write: if operador();
+    }
+
+    // Auditoria: qualquer usuário ativo registra a própria ação; ninguém altera ou apaga.
+    match /logs/{id} {
+      allow read: if admin();
+      allow create: if ativo() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+  }
+}

@@ -1,0 +1,90 @@
+// SISDIFI — Painel (indicadores)
+import { estado, pode, totalReembolsos, ativas, secretariaNome } from '../estado.js';
+import { moeda } from '../calculo.js';
+import { esc, $, $$, dataBR, lerForm } from '../ui.js';
+import { aguardando, cabecalho, anosDisponiveis, MESES } from './comum.js';
+import { analisarPendencias } from './conferencia.js';
+
+const filtro = { ano: String(new Date().getFullYear()), mes: '' };
+
+export function telaPainel(el) {
+  if (aguardando(el, ['solicitacoes', 'servidores', 'secretarias'])) return { viva: true, titulo: 'Painel' };
+  const doAno = ativas(estado.solicitacoes).filter(s => !filtro.ano || String(s.data_hora_saida).startsWith(filtro.ano));
+  const periodo = doAno.filter(s => !filtro.mes || String(s.data_hora_saida).slice(5, 7) === filtro.mes.padStart(2, '0'));
+  const tDiarias = periodo.reduce((t, s) => t + Number(s.valor_total || 0), 0);
+  const tReemb = periodo.reduce((t, s) => t + totalReembolsos(s), 0);
+  const semEmpenho = periodo.filter(s => !s.numero_empenho && s.valor_total > 0).length;
+
+  // Por mês (do ano selecionado)
+  const porMes = MESES.map((m, i) => {
+    const l = doAno.filter(s => Number(String(s.data_hora_saida).slice(5, 7)) === i + 1);
+    return { m: m.slice(0, 3), v: l.reduce((t, s) => t + Number(s.valor_total || 0) + totalReembolsos(s), 0), n: l.length };
+  });
+  const maxMes = Math.max(1, ...porMes.map(x => x.v));
+
+  // Por secretaria
+  const mapaSec = {};
+  for (const s of periodo) {
+    const k = s.secretaria_id || '-';
+    mapaSec[k] = mapaSec[k] || { nome: s.secretaria_nome || secretariaNome(k) || '—', n: 0, v: 0 };
+    mapaSec[k].n++; mapaSec[k].v += Number(s.valor_total || 0) + totalReembolsos(s);
+  }
+  const porSec = Object.values(mapaSec).sort((a, b) => b.v - a.v);
+  const maxSec = Math.max(1, ...porSec.map(x => x.v));
+
+  // Destinos e servidores mais frequentes
+  const contar = (f) => Object.entries(periodo.reduce((a, s) => { const k = f(s); a[k] = (a[k] || 0) + 1; return a; }, {})).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const destinos = contar(s => `${s.destino_cidade}/${s.destino_uf}`);
+  const servidoresTop = Object.values(periodo.reduce((a, s) => {
+    a[s.servidor_id] = a[s.servidor_id] || { nome: s.servidor?.nome, id: s.servidor_id, v: 0, n: 0 };
+    a[s.servidor_id].v += Number(s.valor_total || 0) + totalReembolsos(s); a[s.servidor_id].n++; return a;
+  }, {})).sort((a, b) => b.v - a.v).slice(0, 5);
+
+  const ultimas = estado.solicitacoes.slice(0, 8);
+  const rotulo = filtro.mes ? `${MESES[Number(filtro.mes) - 1]} de ${filtro.ano || 'todos os anos'}` : (filtro.ano ? `Ano de ${filtro.ano}` : 'Todo o período');
+
+  el.innerHTML = `
+    ${cabecalho('Painel', pode.editar() ? '<a class="btn" href="#/solicitacoes/nova">＋ Nova solicitação</a>' : '', `Olá, ${esc(estado.sessao.nome.split(' ')[0])}. Indicadores pela data de saída da viagem (solicitações canceladas não entram).`)}
+    ${(() => { const p = analisarPendencias(); const n = p.grupos.length + p.distancias.length + p.cpfs.length;
+      return n ? `<a class="alerta alerta-link" href="#/conferencia">⚠ A conferência automática encontrou ${n} ponto(s) para revisar (${p.grupos.length} viagem(ns) sobreposta(s), ${p.distancias.length} destino(s) com km divergente, ${p.cpfs.length} CPF(s) inválido(s)). Clique para ver.</a>` : ''; })()}
+    <form class="filtros" id="filtro-painel">
+      <label class="campo"><span>Ano</span><select name="ano"><option value="">Todos</option>${anosDisponiveis().map(a => `<option ${String(a) === filtro.ano ? 'selected' : ''}>${a}</option>`).join('')}</select></label>
+      <label class="campo"><span>Mês</span><select name="mes"><option value="">Todos</option>${MESES.map((m, i) => `<option value="${i + 1}" ${String(i + 1) === filtro.mes ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
+      <div class="filtro-rotulo">${esc(rotulo)}</div>
+    </form>
+    <div class="kpis">
+      <div class="kpi"><span>Viagens</span><strong>${periodo.length}</strong></div>
+      <div class="kpi"><span>Diárias</span><strong>${moeda(tDiarias)}</strong></div>
+      <div class="kpi"><span>Reembolsos</span><strong>${moeda(tReemb)}</strong></div>
+      <div class="kpi"><span>Total pago/a pagar</span><strong>${moeda(tDiarias + tReemb)}</strong></div>
+      <div class="kpi ${semEmpenho ? 'kpi-alerta' : ''}"><span>Sem empenho</span><strong>${semEmpenho}</strong><a href="#/solicitacoes" class="link-peq">ver solicitações</a></div>
+    </div>
+    <div class="grade-painel">
+      <section class="cartao">
+        <h3>Gastos por mês ${filtro.ano ? '— ' + esc(filtro.ano) : ''}</h3>
+        <div class="barras-mes" role="img" aria-label="Gastos por mês">
+          ${porMes.map(x => `<div class="barra-col" title="${esc(x.m)}: ${moeda(x.v)} (${x.n} viagens)">
+            <div class="barra-valor">${x.v ? moeda(x.v).replace('R$ ', '') : ''}</div>
+            <div class="barra" style="height:${Math.round((x.v / maxMes) * 100)}%"></div><div class="barra-rot">${esc(x.m)}</div></div>`).join('')}
+        </div>
+      </section>
+      <section class="cartao">
+        <h3>Por secretaria</h3>
+        ${porSec.map(x => `<div class="linha-barra"><div class="linha-barra-txt"><span>${esc(x.nome)}</span><span>${moeda(x.v)} · ${x.n}</span></div>
+          <div class="linha-barra-trilho"><div style="width:${Math.max(2, Math.round((x.v / maxSec) * 100))}%"></div></div></div>`).join('') || '<p class="muted">Sem viagens no período.</p>'}
+      </section>
+      <section class="cartao">
+        <h3>Servidores com mais gastos</h3>
+        <ol class="ranking">${servidoresTop.map(x => `<li><a href="#/servidores/${esc(x.id)}">${esc(x.nome)}</a><span>${moeda(x.v)} · ${x.n} viagem(ns)</span></li>`).join('') || '<li class="muted">—</li>'}</ol>
+        <h3 class="mt">Destinos mais frequentes</h3>
+        <ol class="ranking">${destinos.map(([d, n]) => `<li><span>${esc(d)}</span><span>${n} viagem(ns)</span></li>`).join('') || '<li class="muted">—</li>'}</ol>
+      </section>
+      <section class="cartao">
+        <h3>Últimas solicitações</h3>
+        <ul class="ultimas">${ultimas.map(s => `<li><a href="#/solicitacoes/${esc(s.id)}"><strong>${esc(s.numero)}</strong> ${esc(s.servidor?.nome)}</a>
+          <span>${esc(s.destino_cidade)}/${esc(s.destino_uf)} · ${esc(dataBR(s.data_hora_saida).slice(0, 10))} · ${moeda(s.valor_total)}${s.status === 'cancelada' ? ' · <em>cancelada</em>' : ''}</span></li>`).join('') || '<li class="muted">Nenhuma solicitação ainda.</li>'}</ul>
+      </section>
+    </div>`;
+  $('#filtro-painel', el).onchange = e => { Object.assign(filtro, lerForm(e.currentTarget)); telaPainel(el); };
+  return { viva: true, titulo: 'Painel' };
+}

@@ -1,0 +1,7 @@
+# Nunca versionar bancos de dados com dados pessoais
+*.sqlite
+*.sqlite3
+*.db
+*.csv
+node_modules/
+.DS_Store
