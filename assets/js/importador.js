@@ -31,9 +31,14 @@ export function mapearBancoAntigo(t, { agora = new Date().toISOString() } = {}) 
   const svPorId = {};
   for (const s of tab('servidores')) {
     const grupo = grupoDaCategoria[s.categoria_diaria_id];
+    let cpf = limparCpf(s.cpf);
+    if (cpf.length !== 11) {
+      avisos.push(`Servidor "${txt(s.nome).trim()}": CPF com ${cpf.length} dígito(s) no banco antigo (${cpf}). Importado completado com zeros à esquerda — corrija o CPF no cadastro do servidor.`);
+      cpf = cpf.slice(0, 11).padStart(11, '0');
+    }
     if (!GRUPOS[grupo]) avisos.push(`Servidor "${s.nome}" com categoria desconhecida (${s.categoria_diaria_id}); importado como Demais Servidores.`);
     const dados = {
-      nome: txt(s.nome).trim().replace(/\s+/g, ' '), cpf: limparCpf(s.cpf), chave_pix: txt(s.chave_pix).trim(),
+      nome: txt(s.nome).trim().replace(/\s+/g, ' '), cpf, chave_pix: txt(s.chave_pix).trim(),
       cargo_funcao: txt(s.cargo_funcao).trim(), grupo: GRUPOS[grupo] ? grupo : 'DEMAIS_SERVIDORES',
       secretaria_id: s.secretaria_id && secNome[s.secretaria_id] !== undefined ? secId(s.secretaria_id) : null,
       ativo: num(s.ativo ?? 1) === 1, legado_id: s.id, importado_em: agora, criado_por: origem

@@ -69,7 +69,7 @@ export async function criarSolicitacoes(listaDados) {
 }
 export async function gravarEmLote(ops, prog) {
   ops.forEach(o => garantir(o.colecao).set(o.id, { ...(colecoes[o.colecao].get(o.id) || {}), ...structuredClone(o.dados) }));
-  new Set(ops.map(o => o.colecao)).forEach(notificar); prog && prog(ops.length, ops.length);
+  new Set(ops.map(o => o.colecao)).forEach(notificar); prog && prog(ops.length, ops.length); return [];
 }
 export async function registrarLog(acao, detalhe) { window.__mock.logs.push({ acao, detalhe, nome: sessao?.nome, em: new Date() }); }
 

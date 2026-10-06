@@ -175,12 +175,23 @@ export async function criarSolicitacoes(lista) {
 
 /** Gravação em lote (importação). operacoes = [{ colecao, id, dados }] */
 export async function gravarEmLote(operacoes, progresso) {
-  for (let i = 0; i < operacoes.length; i += 400) {
+  const falhas = [];
+  for (let i = 0; i < operacoes.length; i += 100) {
+    const parte = operacoes.slice(i, i + 100);
     const b = writeBatch(fs);
-    for (const op of operacoes.slice(i, i + 400)) b.set(doc(fs, op.colecao, op.id), op.dados, { merge: true });
-    await b.commit();
-    progresso && progresso(Math.min(i + 400, operacoes.length), operacoes.length);
+    for (const op of parte) b.set(doc(fs, op.colecao, op.id), op.dados, { merge: true });
+    try {
+      await b.commit();
+    } catch (e) {
+      // Um registro recusado derruba o lote inteiro: grava um a um para salvar o resto e apontar qual falhou.
+      for (const op of parte) {
+        try { await setDoc(doc(fs, op.colecao, op.id), op.dados, { merge: true }); }
+        catch (e2) { falhas.push({ colecao: op.colecao, id: op.id, nome: op.dados.nome || op.dados.numero || op.id, erro: e2.code || e2.message }); }
+      }
+    }
+    progresso && progresso(Math.min(i + 100, operacoes.length), operacoes.length);
   }
+  return falhas;
 }
 
 export async function registrarLog(acao, detalhe = {}) {

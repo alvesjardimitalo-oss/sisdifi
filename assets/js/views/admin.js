@@ -195,7 +195,13 @@ export function telaImportar(el) {
         const btn = $('#btn-importar', el); btn.disabled = true;
         const prog = $('#progresso', el);
         try {
-          await db.gravarEmLote(r.operacoes, (feito, total) => { prog.innerHTML = `<progress max="${total}" value="${feito}"></progress> ${feito}/${total}`; });
+          const falhas = await db.gravarEmLote(r.operacoes, (feito, total) => { prog.innerHTML = `<progress max="${total}" value="${feito}"></progress> ${feito}/${total}`; });
+          if (falhas.length) {
+            prog.innerHTML = `<div class="alerta"><strong>${r.operacoes.length - falhas.length} registros importados; ${falhas.length} recusado(s):</strong><ul>${falhas.map(f => `<li>${esc(f.colecao)} · ${esc(f.nome)} — ${esc(f.erro)}</li>`).join('')}</ul>
+              Se o erro for "permission-denied", confira se as regras do Firestore publicadas são as do arquivo firestore.rules mais recente.</div>`;
+            btn.disabled = false;
+            return;
+          }
           for (const [ano, n] of Object.entries(r.contadores)) {
             const atual = await db.lerDoc('contadores', 'solicitacoes-' + ano);
             await db.salvar('contadores', 'solicitacoes-' + ano, { ano: Number(ano), ultimo: Math.max(n, Number(atual?.ultimo || 0)) });
