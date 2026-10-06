@@ -1,5 +1,5 @@
 // SISDIFI — Painel (indicadores)
-import { estado, pode, totalReembolsos, ativas, secretariaNome } from '../estado.js';
+import { estado, pode, totalReembolsos, ativas, secretariaNome, ETAPAS, etapaDe } from '../estado.js';
 import { moeda } from '../calculo.js';
 import { esc, $, $$, dataBR, lerForm } from '../ui.js';
 import { aguardando, cabecalho, anosDisponiveis, MESES } from './comum.js';
@@ -44,13 +44,15 @@ export function telaPainel(el) {
   const rotulo = filtro.mes ? `${MESES[Number(filtro.mes) - 1]} de ${filtro.ano || 'todos os anos'}` : (filtro.ano ? `Ano de ${filtro.ano}` : 'Todo o período');
 
   el.innerHTML = `
-    ${cabecalho('Painel', pode.editar() ? '<a class="btn" href="#/solicitacoes/nova">＋ Nova solicitação</a>' : '', `Olá, ${esc(estado.sessao.nome.split(' ')[0])}. Indicadores pela data de saída da viagem (solicitações canceladas não entram).`)}
+    ${cabecalho('Painel', pode.solicitar() ? '<a class="btn" href="#/solicitacoes/nova">＋ Nova solicitação</a>' : '', `Olá, ${esc(estado.sessao.nome.split(' ')[0])}. Indicadores pela data de saída da viagem (solicitações canceladas não entram).`)}
     ${(() => { const p = analisarPendencias(); const n = p.grupos.length + p.distancias.length + p.cpfs.length;
       return n ? `<a class="alerta alerta-link" href="#/conferencia">⚠ A conferência automática encontrou ${n} ponto(s) para revisar (${p.grupos.length} viagem(ns) sobreposta(s), ${p.distancias.length} destino(s) com km divergente, ${p.cpfs.length} CPF(s) inválido(s)). Clique para ver.</a>` : ''; })()}
+    ${filaDeTrabalho()}
     <form class="filtros" id="filtro-painel">
       <label class="campo"><span>Ano</span><select name="ano"><option value="">Todos</option>${anosDisponiveis().map(a => `<option ${String(a) === filtro.ano ? 'selected' : ''}>${a}</option>`).join('')}</select></label>
       <label class="campo"><span>Mês</span><select name="mes"><option value="">Todos</option>${MESES.map((m, i) => `<option value="${i + 1}" ${String(i + 1) === filtro.mes ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
       <div class="filtro-rotulo">${esc(rotulo)}</div>
+      <a class="btn btn-sec btn-peq" style="margin:0 0 14px auto" href="#/imprimir/mensal?ano=${esc(filtro.ano)}&mes=${esc(filtro.mes)}">🖨 Relatório do período</a>
     </form>
     <div class="kpis">
       <div class="kpi"><span>Viagens</span><strong>${periodo.length}</strong></div>
@@ -73,6 +75,7 @@ export function telaPainel(el) {
         ${porSec.map(x => `<div class="linha-barra"><div class="linha-barra-txt"><span>${esc(x.nome)}</span><span>${moeda(x.v)} · ${x.n}</span></div>
           <div class="linha-barra-trilho"><div style="width:${Math.max(2, Math.round((x.v / maxSec) * 100))}%"></div></div></div>`).join('') || '<p class="muted">Sem viagens no período.</p>'}
       </section>
+      ${blocoDotacao(filtro.ano)}
       <section class="cartao">
         <h3>Servidores com mais gastos</h3>
         <ol class="ranking">${servidoresTop.map(x => `<li><a href="#/servidores/${esc(x.id)}">${esc(x.nome)}</a><span>${moeda(x.v)} · ${x.n} viagem(ns)</span></li>`).join('') || '<li class="muted">—</li>'}</ol>
@@ -87,4 +90,36 @@ export function telaPainel(el) {
     </div>`;
   $('#filtro-painel', el).onchange = e => { Object.assign(filtro, lerForm(e.currentTarget)); telaPainel(el); };
   return { viva: true, titulo: 'Painel' };
+}
+
+/** Pendências da tramitação conforme o perfil de quem está logado. */
+function filaDeTrabalho() {
+  const sols = ativas(estado.solicitacoes);
+  const n = e => sols.filter(s => etapaDe(s) === e).length;
+  const itens = [];
+  if (pode.analisar()) itens.push(['analise', 'Para analisar (Controle Interno)'], ['aprovada', 'Aguardando assinatura do Prefeito']);
+  if (pode.contabil()) itens.push(['autorizada', 'Autorizadas — empenhar'], ['empenhada', 'Empenhadas — liquidar'], ['liquidada', 'Liquidadas — aguardando pagamento']);
+  if (pode.solicitar()) itens.push(['reprovada', 'Reprovadas — corrigir']);
+  const vistos = new Set();
+  const cards = itens.filter(([e]) => !vistos.has(e) && vistos.add(e)).map(([e, t]) => {
+    const q = n(e);
+    return `<a href="#/solicitacoes?etapa=${e}"><div class="kpi ${q ? '' : 'zero'}"><span>${esc(t)}</span><strong>${q}</strong><small>${esc(ETAPAS[e].nome)}</small></div></a>`;
+  });
+  return cards.length ? `<h3>Minha fila de trabalho</h3><div class="fila">${cards.join('')}</div>` : '';
+}
+
+/** Gasto x dotação prevista por secretaria (ano selecionado). */
+function blocoDotacao(ano) {
+  const a = ano || String(new Date().getFullYear());
+  const linhas = estado.secretarias.filter(s => s.dotacao?.[a]).map(s => {
+    const gasto = ativas(estado.solicitacoes).filter(x => x.secretaria_id === s.id && String(x.data_hora_saida).startsWith(a))
+      .reduce((t, x) => t + Number(x.valor_total || 0) + totalReembolsos(x), 0);
+    const prev = Number(s.dotacao[a]);
+    return { nome: s.nome, gasto, prev, pct: prev ? gasto / prev * 100 : 0 };
+  }).sort((x, y) => y.pct - x.pct);
+  if (!linhas.length) return '';
+  return `<section class="cartao"><h3>Dotação para diárias — ${esc(a)}</h3>
+    ${linhas.map(l => `<div class="linha-barra"><div class="linha-barra-txt"><span>${esc(l.nome)}</span><span>${moeda(l.gasto)} de ${moeda(l.prev)} · ${Math.round(l.pct)}%</span></div>
+      <div class="linha-barra-trilho"><div class="${l.pct > 100 ? 'estouro' : ''}" style="width:${Math.min(100, Math.max(2, l.pct))}%"></div></div></div>`).join('')}
+  </section>`;
 }

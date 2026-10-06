@@ -1,5 +1,5 @@
 // Testes do motor de cálculo: node tests/calculo.test.mjs [registros_antigos.json]
-import { calcularDiaria, faixaDistancia, cpfValido, periodosSobrepostos } from '../assets/js/calculo.js';
+import { calcularDiaria, faixaDistancia, cpfValido, periodosSobrepostos, valorPorExtenso } from '../assets/js/calculo.js';
 import fs from 'node:fs';
 let falhas = 0;
 const ok = (cond, msg) => { if (!cond) { falhas++; console.log('FALHA:', msg); } };
@@ -31,6 +31,11 @@ ok(calcularDiaria({ grupo: 'X', km: 1, saida: '2026-01-01T00:00', retorno: '2026
 ok(cpfValido('529.982.247-25'), 'cpf válido'); ok(!cpfValido('111.111.111-11'), 'cpf repetido'); ok(!cpfValido('52998224724'), 'dv errado');
 ok(periodosSobrepostos('2026-01-01T08:00','2026-01-01T18:00','2026-01-01T17:00','2026-01-02T08:00'), 'sobreposição');
 ok(!periodosSobrepostos('2026-01-01T08:00','2026-01-01T18:00','2026-01-01T18:00','2026-01-02T08:00'), 'encostado não sobrepõe');
+
+ok(valorPorExtenso(750) === 'setecentos e cinquenta reais', 'extenso 750');
+ok(valorPorExtenso(7560) === 'sete mil quinhentos e sessenta reais', 'extenso 7560');
+ok(valorPorExtenso(1300) === 'mil e trezentos reais', 'extenso 1300');
+ok(valorPorExtenso(30.5) === 'trinta reais e cinquenta centavos', 'extenso centavos');
 
 // Comparação com o banco antigo (opcional)
 const arq = process.argv[2];

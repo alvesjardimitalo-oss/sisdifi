@@ -1,5 +1,5 @@
 // SISDIFI — partes comuns das telas
-import { estado } from '../estado.js';
+import { estado, ETAPAS, etapaDe } from '../estado.js';
 import { esc } from '../ui.js';
 
 /** Mostra "carregando" enquanto as coleções necessárias não chegaram. Retorna true se ainda está carregando. */
@@ -33,4 +33,11 @@ export function anosDisponiveis() {
   const anos = new Set(estado.solicitacoes.map(s => Number(String(s.data_hora_saida || '').slice(0, 4))).filter(Boolean));
   anos.add(new Date().getFullYear());
   return [...anos].sort((a, b) => b - a);
+}
+
+/** Selo da etapa de tramitação (considera cancelamento). */
+export function seloEtapa(sol) {
+  if (sol.status === 'cancelada') return '<span class="selo selo-cancelada">Cancelada</span>';
+  const e = etapaDe(sol);
+  return `<span class="selo selo-etapa etapa-${e}" title="${esc(ETAPAS[e].nome)}">${esc(ETAPAS[e].curto)}</span>`;
 }

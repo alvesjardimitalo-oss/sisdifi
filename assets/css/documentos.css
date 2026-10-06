@@ -44,3 +44,11 @@
   .folha:last-child { page-break-after: auto; break-after: auto; }
   .doc-secao-titulo, .doc-tab td.r, .doc-tab th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+.doc-aviso { border: 1px dashed #000; padding: 4px 6px; margin-bottom: 5px; text-align: center; font-weight: bold; }
+.doc-ass-4 td { padding: 0 12px 4px; }
+.doc-ass-4 .doc-linha-ass { margin-top: 30px; }
+.doc-linha-ass small { font-size: 9.5px; }
+.doc-rodape { display: flex; gap: 10px; align-items: center; margin-top: 12px; border-top: 1px solid #999; padding-top: 6px; font-size: 9.5px; color: #333; }
+.doc-qr { width: 64px; height: 64px; flex: none; }
+.doc-qr img, .doc-qr canvas { width: 64px !important; height: 64px !important; }
+.doc-tab-peq td, .doc-tab-peq th { font-size: 9.5px; padding: 2px 3px; }

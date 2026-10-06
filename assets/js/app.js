@@ -32,7 +32,7 @@ const MENU = [
   { grupo: 'Administração', admin: true },
   { rota: 'parametros', icone: '⚙', texto: 'Parâmetros da lei', admin: true },
   { rota: 'usuarios', icone: '🔑', texto: 'Usuários', admin: true },
-  { rota: 'importar', icone: '⇪', texto: 'Importar banco antigo', admin: true },
+  { rota: 'importar', icone: '⇪', texto: 'Importar / Backup', admin: true },
   { rota: 'auditoria', icone: '🕘', texto: 'Auditoria', admin: true }
 ];
 
@@ -227,7 +227,7 @@ function montarLayout() {
     <div class="layout">
       <aside class="lateral" id="lateral">
         ${marca()}
-        <nav>${MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.editar())).map(m => m.grupo
+        <nav>${MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.solicitar())).map(m => m.grupo
           ? `<div class="menu-grupo">${esc(m.grupo)}</div>`
           : `<a href="#/${m.rota}" data-rota="${m.rota}"><span class="ico" aria-hidden="true">${m.icone}</span>${esc(m.texto)}</a>`).join('')}
         </nav>

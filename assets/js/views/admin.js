@@ -2,7 +2,7 @@
 import * as db from '../db.js';
 import { estado, PERFIS, CONFIG_PADRAO, pode } from '../estado.js';
 import { GRUPOS, FAIXAS, moeda } from '../calculo.js';
-import { esc, $, $$, toast, modal, confirmar, lerForm, mensagemErro, dataBR } from '../ui.js';
+import { esc, $, $$, toast, modal, confirmar, lerForm, mensagemErro, dataBR, baixarArquivo } from '../ui.js';
 import { aguardando, cabecalho } from './comum.js';
 import { mapearBancoAntigo } from '../importador.js';
 
@@ -37,8 +37,13 @@ export function telaParametros(el) {
         Faixas: até 149,99 km; de 150 a 300 km; acima de 300 km.</p>
       </section>
       <section class="cartao">
-        <h3>Tipos de despesa para reembolso</h3>
-        <label class="campo"><span>Um por linha</span><textarea name="tipos" rows="6">${esc((c.tipos_despesa || []).join('\n'))}</textarea></label>
+        <h3>Listas de apoio</h3>
+        <div class="grade-3">
+          <label class="campo"><span>Contas de pagamento (uma por linha)</span><textarea name="contas" rows="6" placeholder="Ex.: BB 12.345-6 — Tesouro">${esc((c.contas_pagamento || []).join('\n'))}</textarea></label>
+          <label class="campo"><span>Fontes de recursos (uma por linha)</span><textarea name="fontes" rows="6" placeholder="Ex.: 1500 — Recursos não vinculados">${esc((c.fontes_recursos || []).join('\n'))}</textarea></label>
+          <label class="campo"><span>Tipos de despesa para reembolso</span><textarea name="tipos" rows="6">${esc((c.tipos_despesa || []).join('\n'))}</textarea></label>
+        </div>
+        <p class="muted">As contas e fontes aparecem como sugestão para o Controle Interno ao aprovar (ele também pode digitar outra).</p>
       </section>
       <div class="acoes-form"><button type="button" class="btn btn-sec" id="restaurar">Restaurar valores da Lei 994/2025</button><button class="btn" type="submit">Salvar parâmetros</button></div>
     </form>`;
@@ -60,7 +65,9 @@ export function telaParametros(el) {
     const novo = {
       orgao: d.orgao, lei: d.lei, origem: { cidade: d.origem_cidade, uf: d.origem_uf.toUpperCase() }, valores,
       alimentacao: Math.round(Number(d.alimentacao) * 100) / 100,
-      tipos_despesa: d.tipos.split('\n').map(x => x.trim()).filter(Boolean)
+      tipos_despesa: d.tipos.split('\n').map(x => x.trim()).filter(Boolean),
+      contas_pagamento: d.contas.split('\n').map(x => x.trim()).filter(Boolean),
+      fontes_recursos: d.fontes.split('\n').map(x => x.trim()).filter(Boolean)
     };
     if (!(await confirmar('Salvar os parâmetros? Os novos valores valem para as próximas solicitações e edições.'))) return;
     try {
@@ -84,7 +91,8 @@ export function telaUsuarios(el) {
     ${pendentes ? `<div class="alerta">${pendentes} pessoa(s) entraram com a conta (ex.: Google) e aguardam liberação. Clique em "Liberar" e escolha o perfil.</div>` : ''}
     <div class="cartao legenda-perfis">
       <span><strong>Administrador:</strong> tudo, inclusive usuários, parâmetros, importação e exclusão definitiva.</span>
-      <span><strong>Operador:</strong> cadastra servidores e secretarias, emite/edita/cancela solicitações e reembolsos.</span>
+      <span><strong>Contabilidade:</strong> cadastra servidores e secretarias, emite solicitações, registra ficha, empenho, liquidação, pagamento e reembolsos.</span>
+      <span><strong>Controle Interno:</strong> simula e emite solicitações, aprova ou reprova (conta de pagamento e fonte de recursos) e registra a assinatura do Prefeito. Não altera cadastros nem parâmetros.</span>
       <span><strong>Somente consulta:</strong> visualiza, imprime e exporta.</span>
     </div>
     <div class="tabela-wrap"><table class="tabela">
@@ -156,7 +164,16 @@ function gerarSenha() {
 // =============================================================
 export function telaImportar(el) {
   el.innerHTML = `
-    ${cabecalho('Importar banco do SISDIFI antigo', '', 'Traz secretarias, servidores, solicitações, reembolsos e tabela de valores do sistema desktop.')}
+    ${cabecalho('Importar e cópia de segurança', '', 'Importe o banco do SISDIFI desktop ou baixe uma cópia de segurança de todos os dados.')}
+    <section class="cartao">
+      <h3>Cópia de segurança</h3>
+      <p>Baixa um arquivo com todos os servidores, secretarias, solicitações (com reembolsos e tramitação), distâncias e parâmetros.
+      Guarde em local seguro: contém CPF e chave Pix dos servidores.</p>
+      <div class="acoes-form" style="justify-content:flex-start">
+        <button class="btn" id="bkp-json">⭳ Baixar cópia completa (.json)</button>
+      </div>
+    </section>
+    <h3>Importar banco do SISDIFI antigo</h3>
     <section class="cartao">
       <ol class="passos">
         <li>No computador onde o SISDIFI antigo está instalado, localize o arquivo <code>resources\\app\\database\\sisdifi.sqlite</code> (dentro da pasta de instalação do SISDIFI).</li>
@@ -166,6 +183,12 @@ export function telaImportar(el) {
       <label class="campo"><span>Arquivo sisdifi.sqlite</span><input type="file" id="arq" accept=".sqlite,.db,.sqlite3"></label>
       <div id="previa"></div>
     </section>`;
+  $('#bkp-json', el).onclick = async () => {
+    const dados = { sistema: 'SISDIFI', gerado_em: new Date().toISOString(), por: estado.sessao.email,
+      config: estado.config, secretarias: estado.secretarias, servidores: estado.servidores, solicitacoes: estado.solicitacoes, distancias: Object.values(estado.distancias) };
+    baixarArquivo(`sisdifi-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(dados, (k, v) => (v && typeof v.toDate === 'function') ? v.toDate().toISOString() : v, 2), 'application/json');
+    await db.registrarLog('backup.baixar', { solicitacoes: estado.solicitacoes.length });
+  };
   $('#arq', el).onchange = async e => {
     const arq = e.target.files[0];
     if (!arq) return;
@@ -252,7 +275,7 @@ const NOMES_ACAO = {
   'reembolso.lancar': 'Lançou reembolso', 'reembolso.editar': 'Editou reembolso', 'reembolso.excluir': 'Excluiu reembolso',
   'servidor.criar': 'Cadastrou servidor', 'servidor.editar': 'Editou servidor', 'secretaria.criar': 'Cadastrou secretaria',
   'secretaria.editar': 'Editou secretaria', 'parametros.alterar': 'Alterou parâmetros', 'usuario.criar': 'Criou usuário',
-  'usuario.editar': 'Editou usuário', 'importacao.banco_antigo': 'Importou banco antigo'
+  'usuario.editar': 'Editou usuário', 'importacao.banco_antigo': 'Importou banco antigo', 'solicitacao.etapa': 'Tramitou solicitação', 'backup.baixar': 'Baixou cópia de segurança'
 };
 export function telaAuditoria(el) {
   el.innerHTML = cabecalho('Auditoria', '', 'Últimas 300 ações registradas no sistema.') + '<div id="logs" class="carregando"><div class="spinner"></div></div>';

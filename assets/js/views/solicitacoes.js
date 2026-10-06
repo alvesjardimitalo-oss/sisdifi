@@ -1,21 +1,23 @@
 // SISDIFI — Solicitações de diária: lista, nova, detalhe/edição, empenho e reembolsos
 import * as db from '../db.js';
-import { estado, pode, porId, secretariaNome, totalReembolsos, ativas } from '../estado.js';
+import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ETAPAS, etapaDe } from '../estado.js';
 import { calcularDiaria, moeda, horasBR, formatarCpf, periodosSobrepostos, GRUPOS } from '../calculo.js';
 import { esc, $, $$, toast, modal, confirmar, hojeISO, dataBR, numeroBR, normalizar, lerForm, baixarArquivo, csv, mensagemErro } from '../ui.js';
 import { listarUFs, listarMunicipios, calcularDistanciaRodoviaria, chaveDistancia } from '../localidades.js';
-import { aguardando, cabecalho, selo, opcoesSecretarias, anosDisponiveis, MESES } from './comum.js';
+import { aguardando, cabecalho, selo, seloEtapa, opcoesSecretarias, anosDisponiveis, MESES } from './comum.js';
 
 // =============================================================
 // LISTA
 // =============================================================
-const filtros = { busca: '', secretaria: '', status: 'emitida', ano: '', mes: '', pagina: 1 };
+const filtros = { busca: '', secretaria: '', status: 'emitida', etapa: '', ano: '', mes: '', pagina: 1 };
+let filtroDaUrl = '';
 
 export function telaListaSolicitacoes(el, { query }) {
   if (aguardando(el, ['solicitacoes', 'secretarias'])) return { viva: true, titulo: 'Solicitações' };
   const idsLote = (query.get('ids') || '').split(',').filter(Boolean);
 
   let lista = estado.solicitacoes;
+  if (query.has('etapa') && filtroDaUrl !== location.hash) { filtroDaUrl = location.hash; filtros.etapa = query.get('etapa'); filtros.status = 'emitida'; filtros.busca = ''; }
   if (idsLote.length) {
     lista = lista.filter(s => idsLote.includes(s.id));
   } else {
@@ -23,6 +25,7 @@ export function telaListaSolicitacoes(el, { query }) {
     lista = lista.filter(s =>
       (!filtros.status || (s.status || 'emitida') === filtros.status) &&
       (!filtros.secretaria || s.secretaria_id === filtros.secretaria) &&
+      (!filtros.etapa || etapaDe(s) === filtros.etapa) &&
       (!filtros.ano || String(s.data_hora_saida).startsWith(filtros.ano)) &&
       (!filtros.mes || String(s.data_hora_saida).slice(5, 7) === filtros.mes.padStart(2, '0')) &&
       (!termo || normalizar(`${s.numero} ${s.servidor?.nome} ${s.destino_cidade} ${s.destino_uf} ${s.servidor?.cpf} ${s.numero_empenho || ''}`).includes(termo)));
@@ -38,7 +41,7 @@ export function telaListaSolicitacoes(el, { query }) {
     ${cabecalho(idsLote.length ? 'Solicitações criadas' : 'Solicitações',
       `${idsLote.length ? `<a class="btn" href="#/imprimir/lote/${esc(idsLote.join(','))}">🖨 Imprimir todas</a><a class="btn btn-sec" href="#/solicitacoes">Ver todas</a>` : ''}
        <button class="btn btn-sec" id="exportar">⭳ Exportar planilha</button>
-       ${pode.editar() ? '<a class="btn" href="#/solicitacoes/nova">＋ Nova solicitação</a>' : ''}`)}
+       ${pode.solicitar() ? '<a class="btn" href="#/solicitacoes/nova">＋ Nova solicitação</a>' : ''}`)}
     ${idsLote.length ? '' : `
     <form class="filtros" id="filtros">
       <label class="campo cresce"><span>Buscar</span><input type="search" name="busca" value="${esc(filtros.busca)}" placeholder="Nº, servidor, CPF, destino ou empenho"></label>
@@ -49,6 +52,8 @@ export function telaListaSolicitacoes(el, { query }) {
         <option value="emitida" ${filtros.status === 'emitida' ? 'selected' : ''}>Emitidas</option>
         <option value="cancelada" ${filtros.status === 'cancelada' ? 'selected' : ''}>Canceladas</option>
         <option value="" ${filtros.status === '' ? 'selected' : ''}>Todas</option></select></label>
+      <label class="campo"><span>Etapa</span><select name="etapa"><option value="">Todas</option>
+        ${Object.entries(ETAPAS).map(([k, v]) => `<option value="${k}" ${filtros.etapa === k ? 'selected' : ''}>${esc(v.curto)}</option>`).join('')}</select></label>
     </form>`}
     <div class="resumo-linha">
       <span><strong>${lista.length}</strong> solicitação(ões)</span>
@@ -56,7 +61,7 @@ export function telaListaSolicitacoes(el, { query }) {
       <span>Reembolsos: <strong>${moeda(totalReemb)}</strong></span>
     </div>
     <div class="tabela-wrap"><table class="tabela">
-      <thead><tr><th>Nº</th><th>Servidor</th><th>Destino</th><th>Saída</th><th>Retorno</th><th class="num">Diárias</th><th class="num">Reemb.</th><th>Empenho</th><th>Situação</th><th></th></tr></thead>
+      <thead><tr><th>Nº</th><th>Servidor</th><th>Destino</th><th>Saída</th><th>Retorno</th><th class="num">Diárias</th><th class="num">Reemb.</th><th>Empenho</th><th>Etapa</th><th></th></tr></thead>
       <tbody>${pagina.map(s => `
         <tr class="clicavel" data-id="${esc(s.id)}">
           <td><strong>${esc(s.numero)}</strong></td>
@@ -67,7 +72,7 @@ export function telaListaSolicitacoes(el, { query }) {
           <td class="num">${moeda(s.valor_total)}</td>
           <td class="num">${totalReembolsos(s) ? moeda(totalReembolsos(s)) : '—'}</td>
           <td>${s.numero_empenho ? esc(s.numero_empenho) : '<span class="muted">—</span>'}</td>
-          <td>${selo(s.status)}</td>
+          <td>${seloEtapa(s)}</td>
           <td class="acoes-linha"><a class="btn btn-sec btn-peq" href="#/imprimir/solicitacao/${esc(s.id)}" title="Imprimir" data-parar>🖨</a></td>
         </tr>`).join('') || '<tr><td colspan="10" class="vazio-linha">Nenhuma solicitação encontrada.</td></tr>'}
       </tbody></table></div>
@@ -98,11 +103,11 @@ function redesenharMantendoFoco(el, form) {
 
 function exportarCSV(lista) {
   const linhas = [['Número', 'Data solicitação', 'Servidor', 'CPF', 'Cargo', 'Categoria', 'Secretaria', 'Destino', 'UF', 'KM', 'Faixa',
-    'Saída', 'Retorno', 'Horas', 'Pernoites', 'Simples', 'Alimentação', 'Valor diárias', 'Reembolsos', 'Empenho', 'Data empenho', 'Situação', 'Objetivo']];
+    'Saída', 'Retorno', 'Horas', 'Pernoites', 'Simples', 'Alimentação', 'Valor diárias', 'Reembolsos', 'Etapa', 'Analisado por', 'Conta de pagamento', 'Fonte de recursos', 'Autorização Prefeito', 'Ficha', 'Empenho', 'Data empenho', 'Liquidação', 'Pagamento', 'Situação', 'Objetivo']];
   for (const s of lista) linhas.push([s.numero, dataBR(s.data_solicitacao), s.servidor?.nome, formatarCpf(s.servidor?.cpf), s.servidor?.cargo_funcao,
     GRUPOS[s.servidor?.grupo] || '', s.secretaria_nome, s.destino_cidade, s.destino_uf, numeroBR(s.distancia_km), s.faixa_texto,
     dataBR(s.data_hora_saida), dataBR(s.data_hora_retorno), numeroBR(s.horas_total), s.quantidade_pernoite, s.quantidade_simples,
-    s.quantidade_alimentacao, numeroBR(s.valor_total), numeroBR(totalReembolsos(s)), s.numero_empenho || '', dataBR(s.data_empenho),
+    s.quantidade_alimentacao, numeroBR(s.valor_total), numeroBR(totalReembolsos(s)), ETAPAS[etapaDe(s)].curto, s.analise?.por?.nome || '', s.conta_pagamento || '', s.fonte_recursos || '', dataBR(s.data_autorizacao), s.ficha || '', s.numero_empenho || '', dataBR(s.data_empenho), dataBR(s.data_liquidacao), dataBR(s.data_pagamento),
     s.status === 'cancelada' ? 'Cancelada' : 'Emitida', s.objetivo]);
   baixarArquivo(`solicitacoes-${hojeISO()}.csv`, csv(linhas));
 }
@@ -111,7 +116,7 @@ function exportarCSV(lista) {
 // FORMULÁRIO DA VIAGEM (nova e edição)
 // =============================================================
 export function telaNovaSolicitacao(el, { query }) {
-  if (!pode.editar()) { el.innerHTML = '<div class="vazio">Seu perfil é somente consulta.</div>'; return { titulo: 'Nova solicitação' }; }
+  if (!pode.solicitar()) { el.innerHTML = '<div class="vazio">Seu perfil é somente consulta.</div>'; return { titulo: 'Nova solicitação' }; }
   if (aguardando(el, ['servidores', 'secretarias', 'solicitacoes', 'config'])) return { viva: true, titulo: 'Nova solicitação' };
   const servidorInicial = query.get('servidor');
   el.innerHTML = cabecalho('Nova solicitação de diária', '', 'O valor é calculado automaticamente enquanto você preenche. Você pode incluir vários servidores da mesma viagem de uma vez.') + '<div id="form-viagem"></div>';
@@ -151,6 +156,8 @@ function montarDadosSolicitacao(dados, sv, existente = null) {
     ...camposCalc,
     faixa_codigo,
     status: existente?.status || 'emitida',
+    // nova → vai para análise do Controle Interno; reprovada e corrigida → volta para análise
+    etapa: !existente ? 'analise' : (existente.etapa === 'reprovada' ? 'analise' : (existente.etapa || 'legado')),
     reembolsos: existente?.reembolsos || [],
     numero_empenho: existente?.numero_empenho || '',
     data_empenho: existente?.data_empenho || ''
@@ -429,15 +436,208 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
 // =============================================================
 // DETALHE
 // =============================================================
+function podeEditarViagem(sol) {
+  if (sol.status === 'cancelada') return false;
+  if (pode.admin()) return true;
+  const e = etapaDe(sol);
+  if (e === 'legado') return pode.contabil();
+  return pode.solicitar() && ['analise', 'reprovada'].includes(e);
+}
+
+function podeCancelar(sol) {
+  if (sol.status === 'cancelada') return false;
+  if (pode.admin() || pode.contabil()) return true;
+  return pode.solicitar() && ['analise', 'reprovada', 'aprovada'].includes(etapaDe(sol));
+}
+
+const quem = () => ({ uid: estado.sessao.uid, nome: estado.sessao.nome });
+
+/** Registra mudança de etapa com histórico (quem, quando, observação). */
+async function tramitar(sol, etapa, campos = {}, obs = '') {
+  const historico = [...(sol.historico || []), { etapa, em: new Date().toISOString(), por: estado.sessao.nome, obs }];
+  await db.atualizar('solicitacoes', sol.id, { ...campos, etapa, historico });
+  await db.registrarLog('solicitacao.etapa', { numero: sol.numero, etapa, obs });
+}
+
+function datalist(id, itens) {
+  return `<datalist id="${id}">${(itens || []).map(x => `<option value="${esc(x)}">`).join('')}</datalist>`;
+}
+
+function blocoTramitacao(sol) {
+  const e = etapaDe(sol);
+  const cancelada = sol.status === 'cancelada';
+  const passos = ['analise', 'aprovada', 'autorizada', 'empenhada', 'liquidada', 'paga'];
+  const atual = ETAPAS[e].ordem;
+  const linhaTempo = e === 'legado' ? '' : `<ol class="etapas">${passos.map(p => {
+    const feito = e !== 'reprovada' && ETAPAS[p].ordem < atual || e === 'paga';
+    const agora = p === e || (e === 'reprovada' && p === 'analise');
+    const rotulo = { analise: 'Controle Interno', aprovada: 'Assinatura do Prefeito', autorizada: 'Empenho', empenhada: 'Liquidação', liquidada: 'Pagamento', paga: 'Concluída' }[p];
+    return `<li class="${feito ? 'feito' : ''} ${agora ? 'agora' : ''} ${agora && e === 'reprovada' ? 'reprovada' : ''}">${esc(rotulo)}</li>`;
+  }).join('')}</ol>`;
+
+  let acao = '';
+  if (!cancelada) {
+    if (['analise'].includes(e) && pode.analisar()) {
+      acao = `<form id="f-analise" class="grade-2">
+        <label class="campo"><span>Conta de pagamento</span><input name="conta_pagamento" list="dl-contas" value="${esc(sol.conta_pagamento || '')}" placeholder="Ex.: BB 12345-6 — FMS"></label>
+        <label class="campo"><span>Fonte de recursos</span><input name="fonte_recursos" list="dl-fontes" value="${esc(sol.fonte_recursos || '')}" placeholder="Ex.: 1500 — Recursos ordinários"></label>
+        <label class="campo span-2"><span>Parecer / observação do Controle Interno</span><textarea name="parecer" rows="2" maxlength="500">${esc(sol.analise?.parecer || '')}</textarea></label>
+        <div class="acoes-form span-2"><button type="button" class="btn btn-perigo" id="reprovar">✕ Reprovar</button><button class="btn" type="submit">✓ Aprovar</button></div>
+        ${datalist('dl-contas', estado.config.contas_pagamento)}${datalist('dl-fontes', estado.config.fontes_recursos)}
+      </form>`;
+    } else if (e === 'aprovada' && pode.analisar()) {
+      acao = `<p>Imprima o formulário, colha a assinatura do Prefeito e registre a autorização.</p>
+        <form id="f-prefeito" class="linha-form">
+          <label class="campo"><span>Data da assinatura do Prefeito</span><input type="date" name="data_autorizacao" value="${hojeISO()}" required></label>
+          <a class="btn btn-sec" href="#/imprimir/solicitacao/${esc(sol.id)}">🖨 Imprimir para assinatura</a>
+          <button class="btn" type="submit">✓ Autorizada pelo Prefeito</button>
+        </form>
+        <button class="link link-peq" id="desfazer">Desfazer aprovação (voltar para análise)</button>`;
+    } else if (e === 'autorizada' && pode.contabil()) {
+      acao = `<form id="f-empenho" class="grade-3">
+        <label class="campo"><span>Ficha</span><input name="ficha" value="${esc(sol.ficha || '')}" required></label>
+        <label class="campo"><span>Nº do empenho</span><input name="numero_empenho" value="${esc(sol.numero_empenho || '')}" required></label>
+        <label class="campo"><span>Data do empenho</span><input type="date" name="data_empenho" value="${esc(sol.data_empenho || hojeISO())}" required></label>
+        <div class="acoes-form span-3"><button class="btn" type="submit">✓ Registrar empenho</button></div></form>`;
+    } else if (e === 'empenhada' && pode.contabil()) {
+      acao = `<form id="f-liquidacao" class="linha-form">
+        <label class="campo"><span>Data da liquidação</span><input type="date" name="data_liquidacao" value="${hojeISO()}" required></label>
+        <button class="btn" type="submit">✓ Liquidada — enviar ao Financeiro</button></form>`;
+    } else if (e === 'liquidada' && pode.contabil()) {
+      acao = `<form id="f-pagamento" class="linha-form">
+        <label class="campo"><span>Data do pagamento</span><input type="date" name="data_pagamento" value="${hojeISO()}" required></label>
+        <button class="btn" type="submit">✓ Paga pelo Financeiro</button></form>`;
+    } else if (e === 'reprovada') {
+      acao = `<div class="alerta">Reprovada por ${esc(sol.analise?.por?.nome || '')} em ${esc(dataBR(sol.analise?.em))}: ${esc(sol.analise?.motivo || '')}<br>
+        ${pode.solicitar() ? 'Corrija a viagem em "Editar viagem" e salve: ela volta para análise do Controle Interno.' : ''}</div>`;
+    } else if (e === 'legado' && pode.contabil()) {
+      acao = `<form id="f-legado" class="grade-3">
+        <label class="campo"><span>Ficha</span><input name="ficha" value="${esc(sol.ficha || '')}"></label>
+        <label class="campo"><span>Nº do empenho</span><input name="numero_empenho" value="${esc(sol.numero_empenho || '')}"></label>
+        <label class="campo"><span>Data do empenho</span><input type="date" name="data_empenho" value="${esc(sol.data_empenho || '')}"></label>
+        <div class="acoes-form span-3"><button class="btn btn-peq" type="submit">Salvar</button></div></form>`;
+    } else {
+      acao = `<p class="muted">${esc(ETAPAS[e].nome)}.</p>`;
+    }
+  }
+
+  const dados = [
+    sol.analise?.resultado === 'aprovada' ? ['Analisado (Controle Interno)', `${sol.analise.por?.nome || ''} em ${dataBR(sol.analise.em)}`] : null,
+    sol.conta_pagamento ? ['Conta de pagamento', sol.conta_pagamento] : null,
+    sol.fonte_recursos ? ['Fonte de recursos', sol.fonte_recursos] : null,
+    sol.analise?.parecer ? ['Parecer', sol.analise.parecer] : null,
+    sol.data_autorizacao ? ['Autorização do Prefeito', dataBR(sol.data_autorizacao)] : null,
+    sol.ficha ? ['Ficha', sol.ficha] : null,
+    sol.numero_empenho ? ['Empenho', `${sol.numero_empenho}${sol.data_empenho ? ' de ' + dataBR(sol.data_empenho) : ''}`] : null,
+    sol.data_liquidacao ? ['Liquidação', dataBR(sol.data_liquidacao)] : null,
+    sol.data_pagamento ? ['Pagamento', dataBR(sol.data_pagamento)] : null
+  ].filter(Boolean);
+  const corrigirContabil = pode.contabil() && !cancelada && ['empenhada', 'liquidada', 'paga'].includes(e);
+
+  return `<section class="cartao tramitacao">
+    <div class="cab-secao"><h3>Tramitação</h3><span>${esc(cancelada ? 'Cancelada' : ETAPAS[e].nome)}</span></div>
+    ${linhaTempo}
+    ${dados.length ? `<dl class="dl dl-tramite">${dados.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}
+    ${acao}
+    ${corrigirContabil ? '<button class="link link-peq" id="corrigir-contabil">Corrigir ficha/empenho</button>' : ''}
+    ${pode.admin() && !cancelada && !['analise', 'legado'].includes(e) ? '<button class="link link-peq" id="voltar-etapa">Voltar uma etapa (administrador)</button>' : ''}
+    ${(sol.historico || []).length ? `<details><summary>Histórico (${sol.historico.length})</summary><ul class="lista-peq">${sol.historico.map(h =>
+      `<li>${esc(new Date(h.em).toLocaleString('pt-BR'))} — ${esc(ETAPAS[h.etapa]?.curto || h.etapa)} — ${esc(h.por)}${h.obs ? ': ' + esc(h.obs) : ''}</li>`).join('')}</ul></details>` : ''}
+  </section>`;
+}
+
+function ligarTramitacao(el, sol) {
+  const erro = err => toast(mensagemErro(err), 'erro');
+  const fa = $('#f-analise', el);
+  if (fa) {
+    fa.onsubmit = async e => {
+      e.preventDefault();
+      const d = lerForm(fa);
+      if (!d.conta_pagamento || !d.fonte_recursos) return toast('Informe a conta de pagamento e a fonte de recursos para aprovar.', 'erro');
+      if (!(await confirmar(`Aprovar a solicitação ${sol.numero} (${moeda(sol.valor_total)})?`, { ok: 'Aprovar' }))) return;
+      try {
+        await tramitar(sol, 'aprovada', {
+          conta_pagamento: d.conta_pagamento, fonte_recursos: d.fonte_recursos,
+          analise: { resultado: 'aprovada', parecer: d.parecer, por: quem(), em: new Date().toISOString() }
+        }, d.parecer);
+        toast('Solicitação aprovada. Imprima para colher a assinatura do Prefeito.');
+      } catch (err) { erro(err); }
+    };
+    $('#reprovar', el).onclick = async () => {
+      const motivo = await confirmar(`Reprovar a solicitação ${sol.numero}? Quem lançou poderá corrigir e reenviar.`, { titulo: 'Reprovar', ok: 'Reprovar', perigo: true, pedirTexto: 'Motivo da reprovação' });
+      if (!motivo) return;
+      try {
+        await tramitar(sol, 'reprovada', { analise: { resultado: 'reprovada', motivo, parecer: fa.parecer.value.trim(), por: quem(), em: new Date().toISOString() } }, motivo);
+        toast('Solicitação reprovada.');
+      } catch (err) { erro(err); }
+    };
+  }
+  const fp = $('#f-prefeito', el);
+  if (fp) fp.onsubmit = async e => {
+    e.preventDefault();
+    const d = lerForm(fp);
+    if (!d.data_autorizacao) return toast('Informe a data da assinatura.', 'erro');
+    try { await tramitar(sol, 'autorizada', { data_autorizacao: d.data_autorizacao, autorizacao_registrada_por: quem() }); toast('Autorização do Prefeito registrada. Enviada à Contabilidade.'); }
+    catch (err) { erro(err); }
+  };
+  $('#desfazer', el)?.addEventListener('click', async () => {
+    if (!(await confirmar('Voltar esta solicitação para análise?'))) return;
+    try { await tramitar(sol, 'analise', { analise: { ...(sol.analise || {}), resultado: '' } }, 'aprovação desfeita'); } catch (err) { erro(err); }
+  });
+  const fe = $('#f-empenho', el);
+  if (fe) fe.onsubmit = async e => {
+    e.preventDefault();
+    const d = lerForm(fe);
+    if (!d.ficha || !d.numero_empenho || !d.data_empenho) return toast('Preencha ficha, nº e data do empenho.', 'erro');
+    try { await tramitar(sol, 'empenhada', d, `empenho ${d.numero_empenho}`); toast('Empenho registrado.'); } catch (err) { erro(err); }
+  };
+  const fl = $('#f-liquidacao', el);
+  if (fl) fl.onsubmit = async e => {
+    e.preventDefault();
+    try { await tramitar(sol, 'liquidada', lerForm(fl)); toast('Liquidação registrada. Enviada ao Financeiro.'); } catch (err) { erro(err); }
+  };
+  const fg = $('#f-pagamento', el);
+  if (fg) fg.onsubmit = async e => {
+    e.preventDefault();
+    try { await tramitar(sol, 'paga', lerForm(fg)); toast('Pagamento registrado.'); } catch (err) { erro(err); }
+  };
+  const fleg = $('#f-legado', el);
+  if (fleg) fleg.onsubmit = async e => {
+    e.preventDefault();
+    try { await db.atualizar('solicitacoes', sol.id, lerForm(fleg)); await db.registrarLog('solicitacao.empenho', { numero: sol.numero }); toast('Dados salvos.'); } catch (err) { erro(err); }
+  };
+  $('#corrigir-contabil', el)?.addEventListener('click', () => {
+    const m = modal({ titulo: 'Corrigir dados da Contabilidade', largura: 560, corpo: `<form id="fcc" class="grade-2">
+      <label class="campo"><span>Ficha</span><input name="ficha" value="${esc(sol.ficha || '')}"></label>
+      <label class="campo"><span>Nº do empenho</span><input name="numero_empenho" value="${esc(sol.numero_empenho || '')}"></label>
+      <label class="campo"><span>Data do empenho</span><input type="date" name="data_empenho" value="${esc(sol.data_empenho || '')}"></label>
+      <label class="campo"><span>Data da liquidação</span><input type="date" name="data_liquidacao" value="${esc(sol.data_liquidacao || '')}"></label>
+      <label class="campo"><span>Data do pagamento</span><input type="date" name="data_pagamento" value="${esc(sol.data_pagamento || '')}"></label>
+      <div class="acoes-form span-2"><button class="btn" type="submit">Salvar</button></div></form>` });
+    $('#fcc', m.el).onsubmit = async e => {
+      e.preventDefault();
+      try { await db.atualizar('solicitacoes', sol.id, lerForm(e.target)); await db.registrarLog('solicitacao.empenho', { numero: sol.numero, correcao: true }); toast('Corrigido.'); m.fechar(); } catch (err) { erro(err); }
+    };
+  });
+  $('#voltar-etapa', el)?.addEventListener('click', async () => {
+    const ordem = ['analise', 'aprovada', 'autorizada', 'empenhada', 'liquidada', 'paga'];
+    const e = etapaDe(sol);
+    const anterior = e === 'reprovada' ? 'analise' : ordem[Math.max(0, ordem.indexOf(e) - 1)];
+    const motivo = await confirmar(`Voltar de "${ETAPAS[e].curto}" para "${ETAPAS[anterior].curto}"?`, { ok: 'Voltar etapa', pedirTexto: 'Motivo' });
+    if (!motivo) return;
+    try { await tramitar(sol, anterior, {}, 'retorno: ' + motivo); } catch (err) { erro(err); }
+  });
+}
+
 export function telaDetalheSolicitacao(el, { args, query }) {
   if (aguardando(el, ['solicitacoes', 'servidores', 'secretarias', 'config'])) return { viva: true, titulo: 'Solicitação' };
   const sol = porId('solicitacoes', args[0]);
   if (!sol) { el.innerHTML = '<div class="vazio"><h2>Solicitação não encontrada</h2><p><a href="#/solicitacoes">Voltar</a></p></div>'; return { viva: true, titulo: 'Solicitação' }; }
-  const editavel = pode.editar() && sol.status !== 'cancelada';
+  const editavel = podeEditarViagem(sol);
 
   if (query.get('editar') === '1' && editavel) {
     el.innerHTML = cabecalho(`Editar solicitação ${sol.numero}`, `<a class="btn btn-sec" href="#/solicitacoes/${esc(sol.id)}">Voltar</a>`,
-      'Ao salvar, o valor é recalculado com os parâmetros atuais da lei.') + '<div id="form-viagem"></div>';
+      'Ao salvar, o valor é recalculado com os parâmetros atuais da lei.' + (etapaDe(sol) === 'reprovada' ? ' A solicitação volta para análise do Controle Interno.' : '')) + '<div id="form-viagem"></div>';
     montarFormularioViagem($('#form-viagem', el), {
       modo: 'editar', servidores: porId('servidores', sol.servidor_id) ? [sol.servidor_id] : [], solicitacao: sol,
       aoSalvar: async (dados, ids) => {
@@ -447,6 +647,7 @@ export function telaDetalheSolicitacao(el, { args, query }) {
           !(await confirmar(`O valor da diária vai mudar de ${moeda(sol.valor_total)} para ${moeda(novo.valor_total)}. Confirmar?`, { ok: 'Confirmar alteração' }))) {
           throw new Error('Alteração cancelada.');
         }
+        if (etapaDe(sol) === 'reprovada') novo.historico = [...(sol.historico || []), { etapa: 'analise', em: new Date().toISOString(), por: estado.sessao.nome, obs: 'corrigida e reenviada' }];
         await db.atualizar('solicitacoes', sol.id, novo);
         await db.registrarLog('solicitacao.editar', { numero: sol.numero, valor_anterior: sol.valor_total, valor_novo: novo.valor_total });
         toast(`Solicitação ${sol.numero} atualizada.`);
@@ -461,11 +662,12 @@ export function telaDetalheSolicitacao(el, { args, query }) {
     ${cabecalho(`Solicitação ${sol.numero}`, `
       <a class="btn" href="#/imprimir/solicitacao/${esc(sol.id)}">🖨 Imprimir</a>
       ${editavel ? `<a class="btn btn-sec" href="#/solicitacoes/${esc(sol.id)}?editar=1">✎ Editar viagem</a>` : ''}
-      ${pode.editar() && sol.status !== 'cancelada' ? '<button class="btn btn-sec" id="cancelar-sol">Cancelar solicitação</button>' : ''}
-      ${pode.editar() && sol.status === 'cancelada' ? '<button class="btn btn-sec" id="reativar-sol">Reativar</button>' : ''}
+      ${podeCancelar(sol) ? '<button class="btn btn-sec" id="cancelar-sol">Cancelar solicitação</button>' : ''}
+      ${pode.admin() && sol.status === 'cancelada' ? '<button class="btn btn-sec" id="reativar-sol">Reativar</button>' : ''}
       ${pode.admin() ? '<button class="btn btn-perigo" id="excluir-sol">Excluir</button>' : ''}`,
-      `${selo(sol.status)} &nbsp; Emitida em ${esc(dataBR(sol.data_solicitacao))}${sol.criado_por?.nome ? ' por ' + esc(sol.criado_por.nome) : ''}`)}
+      `${seloEtapa(sol)} &nbsp; Emitida em ${esc(dataBR(sol.data_solicitacao))}${sol.criado_por?.nome ? ' por ' + esc(sol.criado_por.nome) : ''}`)}
     ${sol.status === 'cancelada' ? `<div class="alerta">Solicitação cancelada${sol.motivo_cancelamento ? ': ' + esc(sol.motivo_cancelamento) : ''}.</div>` : ''}
+    ${blocoTramitacao(sol)}
     <div class="grade-detalhe">
       <section class="cartao">
         <h3>Servidor</h3>
@@ -489,7 +691,7 @@ export function telaDetalheSolicitacao(el, { args, query }) {
           ${sol.observacoes ? `<dt>Observações</dt><dd class="pre">${esc(sol.observacoes)}</dd>` : ''}
         </dl>
       </section>
-      <section class="cartao">
+      <section class="cartao span-detalhe">
         <h3>Cálculo</h3>
         <dl class="dl">
           <dt>Faixa</dt><dd>${esc(sol.faixa_texto)}</dd>
@@ -503,19 +705,11 @@ export function telaDetalheSolicitacao(el, { args, query }) {
           <ul class="lista-peq">${(sol.justificativa_legal || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul>
         </details>
       </section>
-      <section class="cartao">
-        <h3>Empenho da diária</h3>
-        <form id="form-empenho" class="grade-2">
-          <label class="campo"><span>Nº do empenho</span><input name="numero_empenho" value="${esc(sol.numero_empenho || '')}" ${pode.editar() ? '' : 'disabled'}></label>
-          <label class="campo"><span>Data do empenho</span><input type="date" name="data_empenho" value="${esc(sol.data_empenho || '')}" ${pode.editar() ? '' : 'disabled'}></label>
-          ${pode.editar() ? '<div class="acoes-form span-2"><button class="btn btn-peq" type="submit">Salvar empenho</button></div>' : ''}
-        </form>
-      </section>
     </div>
 
     <section class="cartao">
       <div class="cab-secao"><h3>Reembolsos da viagem</h3>
-        ${pode.editar() ? '<button class="btn btn-peq" id="add-reemb">＋ Lançar reembolso</button>' : ''}</div>
+        ${pode.contabil() ? '<button class="btn btn-peq" id="add-reemb">＋ Lançar reembolso</button>' : ''}</div>
       <div class="tabela-wrap"><table class="tabela">
         <thead><tr><th>Tipo</th><th>Nota (nº/série)</th><th>Data</th><th class="num">Valor</th><th>Empenho</th><th>Descrição</th><th></th></tr></thead>
         <tbody>${reemb.map(r => `<tr>
@@ -525,23 +719,14 @@ export function telaDetalheSolicitacao(el, { args, query }) {
           <td>${esc(r.descricao || '')}</td>
           <td class="acoes-linha">
             <a class="btn btn-sec btn-peq" href="#/imprimir/reembolso/${esc(sol.id)}/${esc(r.id)}" title="Imprimir formulário">🖨</a>
-            ${pode.editar() ? `<button class="btn btn-sec btn-peq" data-editar-r="${esc(r.id)}" title="Editar">✎</button>
+            ${pode.contabil() ? `<button class="btn btn-sec btn-peq" data-editar-r="${esc(r.id)}" title="Editar">✎</button>
             <button class="btn btn-perigo btn-peq" data-excluir-r="${esc(r.id)}" title="Excluir">✕</button>` : ''}
           </td></tr>`).join('') || '<tr><td colspan="7" class="vazio-linha">Nenhum reembolso lançado nesta viagem.</td></tr>'}</tbody>
         ${reemb.length ? `<tfoot><tr><td colspan="3">Total</td><td class="num"><strong>${moeda(totalReembolsos(sol))}</strong></td><td colspan="3"></td></tr></tfoot>` : ''}
       </table></div>
     </section>`;
 
-  const fe = $('#form-empenho', el);
-  if (fe && pode.editar()) fe.onsubmit = async e => {
-    e.preventDefault();
-    const d = lerForm(fe);
-    try {
-      await db.atualizar('solicitacoes', sol.id, { numero_empenho: d.numero_empenho, data_empenho: d.data_empenho });
-      await db.registrarLog('solicitacao.empenho', { numero: sol.numero, empenho: d.numero_empenho });
-      toast('Empenho salvo.');
-    } catch (err) { toast(mensagemErro(err), 'erro'); }
-  };
+  ligarTramitacao(el, sol);
   $('#add-reemb', el)?.addEventListener('click', () => formReembolso(sol, null));
   $$('[data-editar-r]', el).forEach(b => b.onclick = () => formReembolso(sol, reemb.find(r => r.id === b.dataset.editarR)));
   $$('[data-excluir-r]', el).forEach(b => b.onclick = async () => {
@@ -558,7 +743,7 @@ export function telaDetalheSolicitacao(el, { args, query }) {
     const motivo = await confirmar(`Cancelar a solicitação ${sol.numero}? Ela continua registrada (o número não é reutilizado), mas deixa de contar nos totais.`, { titulo: 'Cancelar solicitação', ok: 'Cancelar solicitação', perigo: true, pedirTexto: 'Motivo do cancelamento' });
     if (!motivo) return;
     try {
-      await db.atualizar('solicitacoes', sol.id, { status: 'cancelada', motivo_cancelamento: motivo });
+      await db.atualizar('solicitacoes', sol.id, { status: 'cancelada', motivo_cancelamento: motivo, historico: [...(sol.historico || []), { etapa: etapaDe(sol), em: new Date().toISOString(), por: estado.sessao.nome, obs: 'CANCELADA: ' + motivo }] });
       await db.registrarLog('solicitacao.cancelar', { numero: sol.numero, motivo });
       toast('Solicitação cancelada.');
     } catch (err) { toast(mensagemErro(err), 'erro'); }

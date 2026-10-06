@@ -12,7 +12,11 @@ service cloud.firestore {
     function ativo() { return logado() && exists(caminhoUsuario()) && get(caminhoUsuario()).data.ativo == true; }
     function perfil() { return get(caminhoUsuario()).data.perfil; }
     function admin() { return ativo() && perfil() == 'admin'; }
-    function operador() { return ativo() && perfil() in ['admin', 'operador']; }
+    function operador() { return ativo() && perfil() in ['admin', 'operador']; }          // Contabilidade: cadastros
+    function solicitante() { return ativo() && perfil() in ['admin', 'operador', 'controle_interno']; }
+    function controleInterno() { return ativo() && perfil() == 'controle_interno'; }
+    function contabilidade() { return ativo() && perfil() == 'operador'; }
+    function alterou(campos) { return request.resource.data.diff(resource.data).affectedKeys().hasAny(campos); }
 
     // Marca de "primeiro administrador já criado". Leitura pública (só contém o uid).
     match /sistema/bootstrap {
@@ -69,23 +73,26 @@ service cloud.firestore {
 
     match /solicitacoes/{id} {
       allow read: if ativo();
-      allow create: if operador()
+      allow create: if solicitante()
         && request.resource.data.numero is string
         && request.resource.data.valor_total is number
         && request.resource.data.servidor_id is string;
-      // O número da solicitação nunca muda depois de criado.
-      allow update: if operador() && request.resource.data.numero == resource.data.numero;
+      // O número nunca muda. Controle Interno não mexe nos dados da Contabilidade e vice-versa.
+      allow update: if solicitante()
+        && request.resource.data.numero == resource.data.numero
+        && !(controleInterno() && alterou(['ficha', 'numero_empenho', 'data_empenho', 'data_liquidacao', 'data_pagamento', 'reembolsos', 'total_reembolsos']))
+        && !(contabilidade() && alterou(['analise', 'conta_pagamento', 'fonte_recursos', 'data_autorizacao', 'autorizacao_registrada_por']));
       allow delete: if admin();
     }
 
     match /contadores/{id} {
       allow read: if ativo();
-      allow write: if operador();
+      allow write: if solicitante();
     }
 
     match /distancias/{id} {
       allow read: if ativo();
-      allow write: if operador();
+      allow write: if solicitante();
     }
 
     // Auditoria: qualquer usuário ativo registra a própria ação; ninguém altera ou apaga.

@@ -54,13 +54,16 @@ export function analisarPendencias() {
   const limite = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
   const semEmpenho = sols.filter(s => !s.numero_empenho && s.valor_total > 0 && s.data_solicitacao < limite);
 
+  // 5) Art. 5º: diária deve ser solicitada ANTES da viagem
+  const posteriores = sols.filter(s => s.data_solicitacao && String(s.data_hora_saida).slice(0, 10) < s.data_solicitacao);
+
   const total = grupos.length + distancias.filter(d => d.divergentes.some(x => x.mudaFaixa)).length + cpfs.length;
-  return { grupos, distancias, cpfs, semEmpenho, total };
+  return { grupos, distancias, cpfs, semEmpenho, posteriores, total };
 }
 
 export function telaConferencia(el) {
   if (aguardando(el, ['solicitacoes', 'servidores', 'config'])) return { viva: true, titulo: 'Conferência' };
-  const { grupos, distancias, cpfs, semEmpenho } = analisarPendencias();
+  const { grupos, distancias, cpfs, semEmpenho, posteriores } = analisarPendencias();
   const excessoTotal = grupos.reduce((t, g) => t + g.excesso, 0);
   const impactoDist = distancias.flatMap(d => d.divergentes).reduce((t, x) => t + x.diferenca, 0);
   const link = s => `<a href="#/solicitacoes/${esc(s.id)}">${esc(s.numero)}</a>`;
@@ -72,6 +75,7 @@ export function telaConferencia(el) {
       <div class="kpi ${distancias.length ? 'kpi-alerta' : ''}"><span>Destinos com km divergente</span><strong>${distancias.length}</strong><small>impacto ${moeda(impactoDist)}</small></div>
       <div class="kpi ${cpfs.length ? 'kpi-alerta' : ''}"><span>CPF inválido</span><strong>${cpfs.length}</strong></div>
       <div class="kpi"><span>Sem empenho &gt; 30 dias</span><strong>${semEmpenho.length}</strong></div>
+      <div class="kpi"><span>Solicitadas após a saída</span><strong>${posteriores.length}</strong><small>Art. 5º</small></div>
     </div>
 
     <section class="cartao"><h3>1. Mesmo servidor com viagens no mesmo período</h3>
@@ -95,6 +99,10 @@ export function telaConferencia(el) {
 
     <section class="cartao"><h3>4. Solicitações sem empenho há mais de 30 dias</h3>
       ${semEmpenho.length ? `<div class="pendencia-itens">${semEmpenho.slice(0, 200).map(s => `<span>${link(s)} ${esc(s.servidor?.nome)} · emitida em ${esc(dataBR(s.data_solicitacao))} · ${moeda(s.valor_total)}</span>`).join('')}</div>` : '<p class="ok-txt">✓ Nenhuma pendência.</p>'}
+    </section>
+    <section class="cartao"><h3>5. Solicitadas depois da saída da viagem (Art. 5º)</h3>
+      <p class="muted">A lei determina que as diárias sejam solicitadas previamente à viagem.</p>
+      ${posteriores.length ? `<div class="pendencia-itens">${posteriores.slice(0, 300).map(s => `<span>${link(s)} ${esc(s.servidor?.nome)} · saída ${esc(dataBR(s.data_hora_saida).slice(0, 10))} · solicitada em ${esc(dataBR(s.data_solicitacao))}</span>`).join('')}</div>` : '<p class="ok-txt">✓ Todas solicitadas antes da viagem.</p>'}
     </section>
     <p class="muted">Conferência gerada em ${esc(dataBR(hojeISO()))}.</p>`;
   return { viva: true, titulo: 'Conferência' };

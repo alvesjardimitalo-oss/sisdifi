@@ -11,7 +11,7 @@ export function telaSecretarias(el) {
   el.innerHTML = `
     ${cabecalho('Secretarias', pode.editar() ? '<button class="btn" id="nova-sec">＋ Nova secretaria</button>' : '')}
     <div class="tabela-wrap"><table class="tabela">
-      <thead><tr><th>Secretaria</th><th class="num">Servidores ativos</th><th class="num">Solicitações</th><th class="num">Valor em diárias</th><th>Situação</th><th></th></tr></thead>
+      <thead><tr><th>Secretaria</th><th class="num">Servidores ativos</th><th class="num">Solicitações</th><th class="num">Valor em diárias</th><th class="num">Dotação ${new Date().getFullYear()}</th><th>Situação</th><th></th></tr></thead>
       <tbody>${[...estado.secretarias].sort((a, b) => (b.ativo !== false) - (a.ativo !== false) || a.nome.localeCompare(b.nome, 'pt-BR')).map(s => {
         const sols = validas.filter(x => x.secretaria_id === s.id);
         return `<tr>
@@ -19,9 +19,10 @@ export function telaSecretarias(el) {
           <td class="num">${estado.servidores.filter(x => x.secretaria_id === s.id && x.ativo !== false).length}</td>
           <td class="num">${sols.length}</td>
           <td class="num">${moeda(sols.reduce((t, x) => t + Number(x.valor_total || 0), 0))}</td>
+          <td class="num">${s.dotacao?.[new Date().getFullYear()] ? moeda(s.dotacao[new Date().getFullYear()]) : '—'}</td>
           <td>${s.ativo === false ? '<span class="selo selo-cancelada">Inativa</span>' : '<span class="selo selo-emitida">Ativa</span>'}</td>
           <td class="acoes-linha">${pode.editar() ? `<button class="btn btn-sec btn-peq" data-editar="${esc(s.id)}">✎ Editar</button>` : ''}</td></tr>`;
-      }).join('') || '<tr><td colspan="6" class="vazio-linha">Nenhuma secretaria cadastrada.</td></tr>'}</tbody>
+      }).join('') || '<tr><td colspan="7" class="vazio-linha">Nenhuma secretaria cadastrada.</td></tr>'}</tbody>
     </table></div>`;
   $('#nova-sec', el)?.addEventListener('click', () => formSecretaria(null));
   $$('[data-editar]', el).forEach(b => b.onclick = () => formSecretaria(estado.secretarias.find(s => s.id === b.dataset.editar)));
@@ -33,6 +34,8 @@ function formSecretaria(s) {
     titulo: s ? 'Editar secretaria' : 'Nova secretaria', largura: 480,
     corpo: `<form id="fsec" novalidate>
       <label class="campo"><span>Nome</span><input name="nome" value="${esc(s?.nome || '')}" required maxlength="120"></label>
+      <label class="campo"><span>Dotação prevista para diárias em ${new Date().getFullYear()} (R$, opcional)</span>
+        <input type="number" step="0.01" min="0" name="dotacao" value="${esc(s?.dotacao?.[new Date().getFullYear()] ?? '')}"></label>
       ${s ? `<label class="campo"><span>Situação</span><select name="ativo"><option value="1" ${s.ativo === false ? '' : 'selected'}>Ativa</option><option value="0" ${s.ativo === false ? 'selected' : ''}>Inativa</option></select></label>` : ''}
       <p class="erro-form" id="erro-sec"></p>
       <div class="acoes-form"><button type="button" class="btn btn-sec" data-cancelar>Cancelar</button><button class="btn" type="submit">Salvar</button></div>
@@ -48,7 +51,10 @@ function formSecretaria(s) {
     const dup = estado.secretarias.find(x => normalizar(x.nome) === normalizar(d.nome) && x.id !== s?.id);
     if (dup) return (erro.textContent = `Já existe a secretaria "${dup.nome}"${dup.ativo === false ? ' (inativa — edite-a para reativar)' : ''}.`);
     try {
-      await db.salvar('secretarias', s?.id || null, { nome: d.nome, ativo: s ? d.ativo === '1' : true });
+      const ano = String(new Date().getFullYear());
+      const dados = { nome: d.nome, ativo: s ? d.ativo === '1' : true };
+      if (d.dotacao !== '') dados.dotacao = { ...(s?.dotacao || {}), [ano]: Math.round(Number(d.dotacao) * 100) / 100 };
+      await db.salvar('secretarias', s?.id || null, dados);
       await db.registrarLog(s ? 'secretaria.editar' : 'secretaria.criar', { nome: d.nome });
       toast('Secretaria salva.');
       m.fechar();

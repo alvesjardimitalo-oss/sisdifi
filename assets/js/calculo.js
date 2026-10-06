@@ -199,3 +199,48 @@ export function periodosSobrepostos(aIni, aFim, bIni, bFim) {
   if ([a1, a2, b1, b2].includes(null)) return false;
   return a1 < b2 && b1 < a2;
 }
+
+// ---------- Valor por extenso (reais) ----------
+const UNI = ['', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove', 'dez', 'onze', 'doze', 'treze', 'catorze', 'quinze', 'dezesseis', 'dezessete', 'dezoito', 'dezenove'];
+const DEZ = ['', '', 'vinte', 'trinta', 'quarenta', 'cinquenta', 'sessenta', 'setenta', 'oitenta', 'noventa'];
+const CEN = ['', 'cento', 'duzentos', 'trezentos', 'quatrocentos', 'quinhentos', 'seiscentos', 'setecentos', 'oitocentos', 'novecentos'];
+function ate999(n) {
+  if (n === 0) return '';
+  if (n === 100) return 'cem';
+  const c = Math.floor(n / 100), r = n % 100, partes = [];
+  if (c) partes.push(CEN[c]);
+  if (r < 20) { if (r) partes.push(UNI[r]); }
+  else { partes.push(DEZ[Math.floor(r / 10)] + (r % 10 ? ' e ' + UNI[r % 10] : '')); }
+  return partes.join(' e ');
+}
+function inteiroExtenso(n) {
+  if (n === 0) return 'zero';
+  const grupos = [['', ''], ['mil', 'mil'], ['milhão', 'milhões'], ['bilhão', 'bilhões']];
+  const partes = [];
+  let i = 0;
+  const blocos = [];
+  while (n > 0) { blocos.push(n % 1000); n = Math.floor(n / 1000); }
+  for (i = blocos.length - 1; i >= 0; i--) {
+    const b = blocos[i];
+    if (!b) continue;
+    let t = (i === 1 && b === 1) ? 'mil' : ate999(b) + (i ? ' ' + grupos[i][b === 1 ? 0 : 1] : '');
+    partes.push({ t, b, i });
+  }
+  return partes.map((p, k) => {
+    if (k === 0) return p.t;
+    const ultimo = k === partes.length - 1;
+    return (ultimo ? ((p.b < 100 || p.b % 100 === 0) ? ' e ' : ' ') : ', ') + p.t;
+  }).join('').replace(/^, /, '');
+}
+/** 750 → "setecentos e cinquenta reais"; 1300.5 → "mil e trezentos reais e cinquenta centavos" */
+export function valorPorExtenso(valor) {
+  const total = Math.round(Number(valor || 0) * 100);
+  const reais = Math.floor(total / 100), cent = total % 100;
+  const partes = [];
+  if (reais || !cent) {
+    const t = inteiroExtenso(reais);
+    partes.push(t + (reais === 1 ? ' real' : (/(milhão|milhões|bilhão|bilhões)$/.test(t) ? ' de reais' : ' reais')));
+  }
+  if (cent) partes.push(inteiroExtenso(cent) + (cent === 1 ? ' centavo' : ' centavos'));
+  return partes.join(' e ');
+}

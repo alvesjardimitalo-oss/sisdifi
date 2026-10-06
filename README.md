@@ -7,18 +7,19 @@ conforme a **Lei Ordinária nº 994/2025** (Anexo I). Hospedado no **GitHub Page
 
 ## O que o sistema faz
 
-- **Login por e-mail e senha**, com perfis: *Administrador*, *Operador* e *Somente consulta*. Só entra quem o administrador cadastrar.
+- **Login por e-mail/senha ou Google**, com perfis: *Administrador*, *Contabilidade*, *Controle Interno* e *Somente consulta*. Só entra quem o administrador liberar.
+- **Tramitação**: Solicitação → Controle Interno (aprova/reprova, conta de pagamento e fonte de recursos) → assinatura do Prefeito → Contabilidade (ficha e empenho → liquidação) → Financeiro (pagamento). Cada passo registra quem fez e quando; cada perfil vê a sua fila de trabalho no Painel.
 - **Nova solicitação** com cálculo ao vivo, vários servidores da mesma viagem de uma vez (cada um com a sua categoria) e aviso de viagens sobrepostas.
 - **Numeração automática por ano** (`0001/2026`…), sem risco de número repetido com dois usuários ao mesmo tempo.
 - **Destino escolhido em lista**: estado → município (todos os 5.570 municípios do Brasil). A distância é calculada automaticamente pela rota rodoviária entre a sede de Frei Inocêncio e a sede do destino (OSRM/OpenStreetMap), com ajuste manual permitido e aviso se divergir de viagens anteriores.
 - **Empenho** da diária e **reembolsos** (com leitura do nº/série a partir da chave da NF-e).
 - **Cancelamento** com motivo (mantém o número e o histórico); exclusão definitiva só para administrador.
-- **Documentos para imprimir/PDF**: solicitação (inclusive em lote), formulário de reembolso, relatório do servidor e simulação.
+- **Documentos para imprimir/PDF**: solicitação (com análise do Controle Interno, conta/fonte, ficha/empenho, valor por extenso, assinaturas do servidor, secretário, Controle Interno e Prefeito, QR Code e código de verificação), formulário de reembolso, relatório do servidor, relatório do período por secretaria e simulação.
 - **Painel** com gastos por mês, por secretaria, servidores e destinos.
 - **Conferência automática**: viagens sobrepostas do mesmo servidor, destinos com km divergente que mudam a faixa, CPF inválido e empenhos pendentes.
 - **Parâmetros da lei** editáveis (valores do Anexo I, etapa alimentação, tipos de despesa).
 - **Importador** do banco do SISDIFI desktop (`sisdifi.sqlite`), feito no navegador.
-- **Auditoria** de todas as ações e exportação para planilha (CSV/Excel).
+- **Auditoria** de todas as ações, exportação para planilha (CSV/Excel), cópia de segurança completa (JSON) e dotação de diárias por secretaria com acompanhamento no Painel.
 
 ## Regra de cálculo (Lei nº 994, de 14/04/2025)
 
