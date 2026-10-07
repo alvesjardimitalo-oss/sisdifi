@@ -4,6 +4,9 @@ import { estado, pode, ETAPAS, etapaDe, ETAPAS_EMPENHADAS, totalReembolsos, ativ
 import { moeda } from '../calculo.js';
 import { esc, $, dataBR, lerForm, baixarArquivo, csv, hojeISO, normalizar } from '../ui.js';
 import { aguardando, cabecalho, anosDisponiveis, MESES, opcoesSecretarias } from './comum.js';
+import { rotuloFicha } from './orcamento.js';
+
+const tituloDe = s => { const r = rotuloFicha(s); return r.includes(' — ') ? r.split(' — ').slice(1).join(' — ') : ''; };
 
 const hoje = new Date();
 const filtro = { ano: String(hoje.getFullYear()), mes: String(hoje.getMonth() + 1), base: 'empenho', secretaria: '', fonte: '', situacao: 'empenhadas' };
@@ -73,20 +76,21 @@ export function telaRelatorio(el) {
     ${tabelaGrupo('Por secretaria', agrupar(sols, s => s.secretaria_nome))}
     ${tabelaGrupo('Por fonte de recursos', agrupar(sols, s => s.fonte_recursos))}
     ${tabelaGrupo('Por conta de pagamento', agrupar(sols, s => s.conta_pagamento))}
+    ${tabelaGrupo('Por ficha (ação / atividade)', agrupar(sols, s => rotuloFicha(s)))}
     <section class="cartao"><h3>Solicitações</h3><div class="tabela-wrap"><table class="tabela">
       <thead><tr><th>Nº</th><th>Servidor</th><th>Secretaria</th><th>Destino</th><th>Saída</th><th>Fonte</th><th>Ficha</th><th>Empenho</th><th class="num">Valor</th><th>Etapa</th></tr></thead>
       <tbody>${sols.map(s => `<tr${pode.verValores() ? ` class="clicavel" data-id="${esc(s.id)}"` : ''}><td><strong>${esc(s.numero)}</strong></td><td>${esc(s.servidor?.nome)}</td><td>${esc(s.secretaria_nome)}</td>
         <td>${esc(s.destino_cidade)}/${esc(s.destino_uf)}</td><td>${esc(dataBR(s.data_hora_saida).slice(0, 10))}</td><td>${esc(s.fonte_recursos || '—')}</td>
-        <td>${esc(s.ficha || '—')}</td><td>${esc(s.numero_empenho || '—')}${s.data_empenho ? `<small class="muted bloco">${esc(dataBR(s.data_empenho))}</small>` : ''}</td>
+        <td>${esc(rotuloFicha(s) || '—')}</td><td>${esc(s.numero_empenho || '—')}${s.data_empenho ? `<small class="muted bloco">${esc(dataBR(s.data_empenho))}</small>` : ''}</td>
         <td class="num">${moeda(Number(s.valor_total || 0) + totalReembolsos(s))}</td><td>${esc(ETAPAS[etapaDe(s)].curto)}</td></tr>`).join('') || '<tr><td colspan="10" class="vazio-linha">Nenhuma solicitação no período.</td></tr>'}</tbody>
     </table></div></section>`;
 
   $('#f-rel', el).onchange = e => { Object.assign(filtro, lerForm(e.currentTarget)); telaRelatorio(el); };
   el.querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = () => { location.hash = '#/solicitacoes/' + tr.dataset.id; });
   $('#exp-rel', el).onclick = () => baixarArquivo(`relatorio-diarias-${hojeISO()}.csv`, csv([
-    ['Número', 'Servidor', 'Secretaria', 'Destino', 'Saída', 'Conta de pagamento', 'Fonte de recursos', 'Ficha', 'Empenho', 'Data empenho', 'Diárias', 'Reembolsos', 'Total', 'Etapa'],
+    ['Número', 'Servidor', 'Secretaria', 'Destino', 'Saída', 'Conta de pagamento', 'Fonte de recursos', 'Ficha', 'Título da ficha', 'Empenho', 'Data empenho', 'Diárias', 'Reembolsos', 'Total', 'Etapa'],
     ...sols.map(s => [s.numero, s.servidor?.nome, s.secretaria_nome, `${s.destino_cidade}/${s.destino_uf}`, dataBR(s.data_hora_saida), s.conta_pagamento, s.fonte_recursos,
-      s.ficha, s.numero_empenho, dataBR(s.data_empenho), Number(s.valor_total || 0).toFixed(2).replace('.', ','), totalReembolsos(s).toFixed(2).replace('.', ','),
+      s.ficha, tituloDe(s), s.numero_empenho, dataBR(s.data_empenho), Number(s.valor_total || 0).toFixed(2).replace('.', ','), totalReembolsos(s).toFixed(2).replace('.', ','),
       (Number(s.valor_total || 0) + totalReembolsos(s)).toFixed(2).replace('.', ','), ETAPAS[etapaDe(s)].curto])]));
   return { viva: true, titulo: 'Relatório mensal' };
 }

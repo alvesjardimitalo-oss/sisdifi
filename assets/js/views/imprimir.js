@@ -5,6 +5,7 @@ import { esc, $, dataBR, numeroBR, hojeISO } from '../ui.js';
 import { aguardando, MESES } from './comum.js';
 import { ultimaSimulacao } from './simulador.js';
 import { solicitacoesDoRelatorio, agrupar } from './relatorio.js';
+import { rotuloFicha } from './orcamento.js';
 
 function cidadeOrgao() { return estado.config.origem?.cidade || ''; }
 
@@ -59,7 +60,7 @@ function docSolicitacao(sol) {
       <tr><td class="r">Conta de Pagamento</td><td>${esc(sol.conta_pagamento || '')}</td><td class="r">Fonte de Recursos</td><td>${esc(sol.fonte_recursos || '')}</td></tr>
       ${ci?.parecer ? `<tr><td class="r">Observação</td><td colspan="3" class="pre">${esc(ci.parecer)}</td></tr>` : ''}</table>`)}
     ${secao('5 - Contabilidade', `<table class="doc-tab">
-      <tr><td class="r" style="width:22%">Ficha</td><td style="width:28%">${esc(sol.ficha || '')}</td><td class="r" style="width:22%">Nº / Data do Empenho</td><td>${esc(sol.numero_empenho || '')}${sol.data_empenho ? ' — ' + esc(dataBR(sol.data_empenho)) : ''}</td></tr>
+      <tr><td class="r" style="width:22%">Ficha</td><td style="width:28%">${esc(rotuloFicha(sol))}</td><td class="r" style="width:22%">Nº / Data do Empenho</td><td>${esc(sol.numero_empenho || '')}${sol.data_empenho ? ' — ' + esc(dataBR(sol.data_empenho)) : ''}</td></tr>
       <tr><td class="r">Cálculo conferido por</td><td colspan="3">${esc(sol.calculo_por?.nome || '')}${sol.calculo_em ? ' — ' + esc(dataBR(sol.calculo_em)) : ''}</td></tr></table>`)}
     ${links.length ? secao('Curso / Capacitação / Evento', `<table class="doc-tab"><tr><td><div class="doc-links">${links.map(u => `<div class="doc-link"><div class="doc-qr doc-qr-peq" data-qr="${esc(u)}"></div><span>${esc(u)}</span></div>`).join('')}</div></td></tr></table>`) : ''}
     ${reemb.length ? secao('6 - Reembolsos da Viagem', `<table class="doc-tab"><thead><tr><th>Tipo</th><th>Nº Nota</th><th>Série</th><th>Data</th><th>Valor</th><th>Empenho</th></tr></thead>
@@ -172,9 +173,10 @@ function docRelatorioPeriodo(q) {
     ${tab('1 - Resumo por Secretaria', agrupar(sols, s => s.secretaria_nome))}
     ${tab('2 - Resumo por Fonte de Recursos', agrupar(sols, s => s.fonte_recursos))}
     ${tab('3 - Resumo por Conta de Pagamento', agrupar(sols, s => s.conta_pagamento))}
-    ${secao('4 - Solicitações', `<table class="doc-tab doc-tab-peq"><thead><tr><th style="width:9%">Nº</th><th style="width:21%">Servidor</th><th style="width:13%">Destino</th><th style="width:8%">Saída</th><th style="width:15%">Fonte</th><th style="width:6%">Ficha</th><th style="width:11%">Empenho</th><th style="width:9%">Valor</th><th style="width:8%">Etapa</th></tr></thead>
+    ${tab('4 - Resumo por Ficha (ação / atividade)', agrupar(sols, s => rotuloFicha(s)))}
+    ${secao('5 - Solicitações', `<table class="doc-tab doc-tab-peq"><thead><tr><th style="width:9%">Nº</th><th style="width:18%">Servidor</th><th style="width:11%">Destino</th><th style="width:8%">Saída</th><th style="width:13%">Fonte</th><th style="width:12%">Ficha</th><th style="width:11%">Empenho</th><th style="width:9%">Valor</th><th style="width:8%">Etapa</th></tr></thead>
       <tbody>${sols.map(x => `<tr><td>${esc(x.numero)}</td><td>${esc(x.servidor?.nome)}<br><small>${esc(x.secretaria_nome)}</small></td><td>${esc(x.destino_cidade)}/${esc(x.destino_uf)}</td>
-        <td>${esc(dataBR(x.data_hora_saida).slice(0, 10))}</td><td>${esc(x.fonte_recursos || '')}</td><td>${esc(x.ficha || '')}</td>
+        <td>${esc(dataBR(x.data_hora_saida).slice(0, 10))}</td><td>${esc(x.fonte_recursos || '')}</td><td>${esc(rotuloFicha(x))}</td>
         <td>${esc(x.numero_empenho || '')}${x.data_empenho ? '<br><small>' + esc(dataBR(x.data_empenho)) + '</small>' : ''}</td><td>${moeda(Number(x.valor_total || 0) + totalReembolsos(x))}</td><td>${esc(ETAPAS[etapaDe(x)].curto)}</td></tr>`).join('') || '<tr><td colspan="9">Nenhuma solicitação.</td></tr>'}</tbody></table>`)}
     ${localData(hojeISO())}
     <table class="doc-ass"><tr><td><div class="doc-linha-ass">Responsável<br><small>${esc(estado.sessao.nome)}</small></div></td><td></td></tr></table>

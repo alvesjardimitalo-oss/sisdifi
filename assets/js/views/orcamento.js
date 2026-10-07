@@ -14,6 +14,32 @@ export function fichasDaSecretaria(secId) {
     .sort((a, b) => (b.ano || 0) - (a.ano || 0) || String(a.ficha).localeCompare(String(b.ficha), 'pt-BR', { numeric: true }) || String(a.fonte).localeCompare(String(b.fonte)));
 }
 
+/** Título da ficha = nome da ação/atividade (ex.: MANUTENÇÃO ATENÇÃO BASICA, MANUTENÇÃO CRAS). */
+export function tituloFicha(f) {
+  if (!f) return '';
+  if (f.acao_nome) return f.acao_nome;
+  const a = String(f.acao || '');
+  return a.includes(' — ') ? a.split(' — ').slice(1).join(' — ') : a.replace(/^[\d.\s–-]+/, '').trim() || a;
+}
+const codigoAcao = f => f.acao_codigo || (String(f.acao || '').includes(' — ') ? String(f.acao).split(' — ')[0] : '');
+
+/** Procura a ficha no orçamento da secretaria (mais recente primeiro); com a fonte, prefere a mesma fonte. */
+export function buscarFicha(secId, numero, fonte = '') {
+  if (!secId || !numero) return null;
+  const n = String(numero).trim();
+  const l = fichasDaSecretaria(secId).filter(f => String(f.ficha).trim() === n);
+  return l.find(f => fonte && normalizar(f.fonte) === normalizar(fonte)) || l[0] || null;
+}
+
+/** "228 — MANUTENÇÃO ATENÇÃO BASICA" (o título gravado na solicitação ou, se faltar, o do orçamento). */
+export function rotuloFicha(sol, campo = 'ficha') {
+  const numero = sol[campo];
+  if (!numero) return '';
+  let titulo = sol[campo + '_titulo'];
+  if (!titulo && sol.secretaria_id && estado.fichas.length) titulo = tituloFicha(buscarFicha(sol.secretaria_id, numero, sol.fonte_recursos));
+  return titulo ? `${numero} — ${titulo}` : String(numero);
+}
+
 /** Fichas do orçamento mais recente (as sem ano, cadastradas à mão, sempre entram). */
 export function fichasVigentes(secId) {
   const todas = fichasDaSecretaria(secId);
@@ -23,7 +49,7 @@ export function fichasVigentes(secId) {
 
 function linhaFicha(f, comAcoes) {
   return `<tr>
-    <td><strong>${esc(f.ficha)}</strong></td><td>${esc(f.acao || '')}</td><td>${esc(f.elemento || '')}</td>
+    <td><strong>${esc(f.ficha)}</strong></td><td><strong>${esc(tituloFicha(f))}</strong>${codigoAcao(f) ? `<small class="muted bloco">${esc(codigoAcao(f))}</small>` : ''}</td><td>${esc(f.elemento || '')}</td>
     <td>${esc(f.fonte || '')}</td><td>${esc(f.descricao || '')}${f.ano ? `<small class="muted bloco">Orçamento ${esc(f.ano)}</small>` : ''}</td>
     <td class="num">${f.autorizado !== undefined ? moedaBR(f.autorizado) : '—'}</td>
     ${comAcoes ? `<td class="acoes-linha"><button class="btn btn-sec btn-peq" data-ed-ficha="${esc(f.id)}">✎</button><button class="btn btn-perigo btn-peq" data-del-ficha="${esc(f.id)}">✕</button></td>` : ''}
@@ -62,10 +88,10 @@ export function telaOrcamento(el) {
       <div class="cab-secao"><h3>Fichas e fontes de recurso</h3>
         ${gestor ? '<span><button class="btn btn-peq" id="importar-orc">📄 Ler PDFs do orçamento</button> <button class="btn btn-sec btn-peq" id="colar-fichas">📋 Colar do Excel</button> <button class="btn btn-sec btn-peq" id="nova-ficha">＋ Nova ficha</button></span>' : ''}</div>
       <p class="dica">${ehSecretaria() ? 'Use esta tabela para escolher a ficha e a fonte de recurso ao solicitar uma diária (botão "Consultar fichas" no formulário).' : 'Estas fichas aparecem para a secretaria no formulário de solicitação, em "Consultar fichas".'}</p>
-      <div class="filtros"><label class="campo cresce"><span>Buscar</span><input type="search" id="busca-ficha" value="${esc(filtro.busca)}" placeholder="Ficha, ação, elemento, fonte ou descrição"></label>
+      <div class="filtros"><label class="campo cresce"><span>Buscar</span><input type="search" id="busca-ficha" value="${esc(filtro.busca)}" placeholder="Ficha, título (ex.: CRAS, atenção básica), fonte…"></label>
         <label class="check"><input type="checkbox" id="so-diarias" ${filtro.soDiarias ? 'checked' : ''}> Somente diárias (3.3.90.14)</label></div>
       <div class="tabela-wrap"><table class="tabela">
-        <thead><tr><th>Ficha</th><th>Ação / Projeto</th><th>Elemento de despesa</th><th>Fonte de recurso</th><th>Unidade / uso</th><th class="num">Autorizado</th>${gestor ? '<th></th>' : ''}</tr></thead>
+        <thead><tr><th>Ficha</th><th>Título (ação / atividade)</th><th>Elemento de despesa</th><th>Fonte de recurso</th><th>Unidade / uso</th><th class="num">Autorizado</th>${gestor ? '<th></th>' : ''}</tr></thead>
         <tbody>${fichas.map(f => linhaFicha(f, gestor)).join('') || `<tr><td colspan="${gestor ? 7 : 6}" class="vazio-linha">Nenhuma ficha cadastrada.</td></tr>`}</tbody>
       </table></div>
     </section>`;
@@ -351,7 +377,7 @@ export function consultarFichas(secId, aoEscolher) {
   const temDiarias = lista.some(ehDiaria);
   const m = modal({
     titulo: 'Fichas e fontes — ' + (secretariaNome(secId) || 'secretaria'), largura: 860,
-    corpo: `${lista.length ? `<div class="filtros"><label class="campo cresce"><span>Buscar</span><input type="search" id="bf" placeholder="Ficha, ação, elemento, fonte ou uso"></label>
+    corpo: `${lista.length ? `<div class="filtros"><label class="campo cresce"><span>Buscar</span><input type="search" id="bf" placeholder="Ficha, título (ex.: CRAS, atenção básica), fonte…"></label>
         ${temDiarias ? '<label class="check"><input type="checkbox" id="bf-diarias" checked> Somente fichas de diárias (3.3.90.14)</label>' : ''}</div>` : ''}
       <div id="lf"></div>
       ${estado.orcamentos.some(o => o.secretaria_id === secId) ? '<p class="dica">O PDF completo do orçamento está no menu <a href="#/orcamento">Orçamento</a>.</p>' : ''}`
@@ -360,8 +386,10 @@ export function consultarFichas(secId, aoEscolher) {
     const t = normalizar($('#bf', m.el)?.value || '');
     const soDiarias = $('#bf-diarias', m.el)?.checked;
     const l = lista.filter(f => (!soDiarias || ehDiaria(f)) && (!t || normalizar(`${f.ficha} ${f.acao} ${f.elemento} ${f.fonte} ${f.descricao}`).includes(t)));
-    $('#lf', m.el).innerHTML = l.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Ficha</th><th>Ação</th><th>Elemento</th><th>Fonte</th><th>Unidade / uso</th><th></th></tr></thead>
-      <tbody>${l.map(f => `<tr><td><strong>${esc(f.ficha)}</strong></td><td>${esc(f.acao || '')}</td><td>${esc(f.elemento || '')}</td><td>${esc(f.fonte)}</td><td>${esc(f.descricao || '')}</td>
+    $('#lf', m.el).innerHTML = l.length ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Ficha</th><th>Título</th><th>Fonte de recurso</th><th>Unidade / uso</th><th></th></tr></thead>
+      <tbody>${l.map(f => `<tr><td><strong>${esc(f.ficha)}</strong></td>
+        <td><strong>${esc(tituloFicha(f))}</strong><small class="muted bloco">${esc([codigoAcao(f), f.elemento].filter(Boolean).join(' · '))}</small></td>
+        <td>${esc(f.fonte)}</td><td>${esc(f.descricao || '')}</td>
         <td><button type="button" class="btn btn-peq" data-usar="${esc(f.id)}">Usar</button></td></tr>`).join('')}</tbody></table></div>`
       : `<p class="muted">${lista.length ? 'Nenhuma ficha encontrada com esse filtro.' : 'Nenhuma ficha cadastrada para esta secretaria. Peça à Contabilidade para cadastrar em Orçamento.'}</p>`;
     $$('[data-usar]', m.el).forEach(b => b.onclick = () => { aoEscolher(lista.find(f => f.id === b.dataset.usar)); m.fechar(); });

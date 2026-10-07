@@ -2,7 +2,7 @@
 import * as db from '../db.js';
 import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ETAPAS, etapaDe, ehSecretaria, separarValores, ETAPAS_EMPENHADAS } from '../estado.js';
 import { formServidor, formPix, podeAlterarPix } from './servidores.js';
-import { consultarFichas, fichasDaSecretaria } from './orcamento.js';
+import { consultarFichas, fichasDaSecretaria, buscarFicha, tituloFicha, rotuloFicha } from './orcamento.js';
 import { calcularDiaria, moeda, horasBR, formatarCpf, periodosSobrepostos, GRUPOS, cpfValido } from '../calculo.js';
 import { esc, $, $$, toast, modal, confirmar, hojeISO, dataBR, numeroBR, normalizar, lerForm, baixarArquivo, csv, mensagemErro } from '../ui.js';
 import { listarUFs, listarMunicipios, calcularDistanciaRodoviaria, chaveDistancia } from '../localidades.js';
@@ -174,6 +174,7 @@ function montarDadosSolicitacao(dados, sv, existente = null) {
     conta_pagamento: dados.conta_pagamento || '',
     fonte_recursos: dados.fonte_recursos || '',
     ficha_sugerida: dados.ficha_sugerida || '',
+    ficha_sugerida_titulo: dados.ficha_sugerida ? (dados.ficha_sugerida_titulo || '') : '',
     data_solicitacao: dados.data_solicitacao
   };
   if (!existente) {
@@ -243,8 +244,9 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
           <label class="campo"><span>Fonte de recurso *</span><input name="fonte_recursos" list="dl-fontes-f" value="${esc(sol.fonte_recursos || '')}" required placeholder="Ex.: 1500 — Recursos não vinculados"></label>
         </div>
         <input type="hidden" name="ficha_sugerida" value="${esc(sol.ficha_sugerida || '')}">
+        <input type="hidden" name="ficha_sugerida_titulo" value="${esc(sol.ficha_sugerida_titulo || '')}">
         <div class="linha-form"><button type="button" class="btn btn-sec btn-peq" id="consultar-fichas">📑 Consultar fichas do orçamento</button>
-          <span class="dica" id="ficha-escolhida">${sol.ficha_sugerida ? 'Ficha escolhida: <strong>' + esc(sol.ficha_sugerida) + '</strong>' : ''}</span></div>
+          <span class="dica" id="ficha-escolhida">${sol.ficha_sugerida ? 'Ficha escolhida: <strong>' + esc(rotuloFicha(sol, 'ficha_sugerida')) + '</strong>' : ''}</span></div>
         <datalist id="dl-contas-f"></datalist><datalist id="dl-fontes-f"></datalist>
       </section>
 
@@ -487,8 +489,8 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
     const sec = form.secretaria_id.value;
     if (!sec) return toast('Escolha a secretaria primeiro.', 'erro');
     consultarFichas(sec, f => {
-      form.fonte_recursos.value = f.fonte; form.ficha_sugerida.value = f.ficha;
-      $('#ficha-escolhida', el).innerHTML = `Ficha escolhida: <strong>${esc(f.ficha)}</strong>${f.elemento ? ' · ' + esc(f.elemento) : ''}`;
+      form.fonte_recursos.value = f.fonte; form.ficha_sugerida.value = f.ficha; form.ficha_sugerida_titulo.value = tituloFicha(f);
+      $('#ficha-escolhida', el).innerHTML = `Ficha escolhida: <strong>${esc(f.ficha)} — ${esc(tituloFicha(f))}</strong>${f.descricao ? ' · ' + esc(f.descricao) : ''}`;
       recalcular();
     });
   };
@@ -643,7 +645,8 @@ function blocoTramitacao(sol) {
           <details><summary>Descritivo do cálculo</summary><ul class="lista-peq">${c.descricao_calculo.map(x => `<li>${esc(x)}</li>`).join('')}${c.justificativa_legal.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>
         </div>
         <form id="f-calculo" class="linha-form">
-          <label class="campo"><span>Ficha${sol.ficha_sugerida ? ' (sugerida pela secretaria)' : ''}</span><input name="ficha" value="${esc(sol.ficha || sol.ficha_sugerida || '')}" required></label>
+          <label class="campo"><span>Ficha${sol.ficha_sugerida ? ' (sugerida pela secretaria)' : ''}</span><input name="ficha" value="${esc(sol.ficha || sol.ficha_sugerida || '')}" required data-titulo-ficha>
+            <small class="dica" data-titulo-de-ficha></small></label>
           <button class="btn" type="submit">✓ Confirmar cálculo e ficha</button>
         </form>`;
     } else if (e === 'calculada' && pode.contabil()) {
@@ -655,7 +658,7 @@ function blocoTramitacao(sol) {
         </form>`;
     } else if (e === 'autorizada' && pode.contabil()) {
       acao = `<form id="f-empenho" class="grade-3">
-        <label class="campo"><span>Ficha</span><input name="ficha" value="${esc(sol.ficha || '')}" required></label>
+        <label class="campo"><span>Ficha</span><input name="ficha" value="${esc(sol.ficha || '')}" required data-titulo-ficha><small class="dica" data-titulo-de-ficha></small></label>
         <label class="campo"><span>Nº do empenho</span><input name="numero_empenho" value="${esc(sol.numero_empenho || '')}" required></label>
         <label class="campo"><span>Data do empenho</span><input type="date" name="data_empenho" value="${esc(sol.data_empenho || hojeISO())}" required></label>
         <div class="acoes-form span-3"><button class="btn" type="submit">✓ Registrar empenho</button></div></form>`;
@@ -672,7 +675,7 @@ function blocoTramitacao(sol) {
         ${pode.solicitar() ? 'Corrija a viagem em "Editar viagem" e salve: ela volta para análise do Controle Interno.' : ''}</div>`;
     } else if (e === 'legado' && pode.contabil()) {
       acao = `<form id="f-legado" class="grade-3">
-        <label class="campo"><span>Ficha</span><input name="ficha" value="${esc(sol.ficha || '')}"></label>
+        <label class="campo"><span>Ficha</span><input name="ficha" value="${esc(sol.ficha || '')}" data-titulo-ficha><small class="dica" data-titulo-de-ficha></small></label>
         <label class="campo"><span>Nº do empenho</span><input name="numero_empenho" value="${esc(sol.numero_empenho || '')}"></label>
         <label class="campo"><span>Data do empenho</span><input type="date" name="data_empenho" value="${esc(sol.data_empenho || '')}"></label>
         <div class="acoes-form span-3"><button class="btn btn-peq" type="submit">Salvar</button></div></form>`;
@@ -685,10 +688,10 @@ function blocoTramitacao(sol) {
     sol.analise?.resultado === 'aprovada' ? ['Aprovado pelo Controle Interno', `${sol.analise.por?.nome || ''} em ${dataBR(sol.analise.em)}`] : null,
     sol.conta_pagamento ? ['Conta de pagamento', sol.conta_pagamento] : null,
     sol.fonte_recursos ? ['Fonte de recursos', sol.fonte_recursos] : null,
-    sol.ficha_sugerida && !sol.ficha ? ['Ficha sugerida pela secretaria', sol.ficha_sugerida] : null,
+    sol.ficha_sugerida && !sol.ficha ? ['Ficha sugerida pela secretaria', rotuloFicha(sol, 'ficha_sugerida')] : null,
     sol.analise?.parecer ? ['Parecer', sol.analise.parecer] : null,
     sol.calculado && sol.calculo_por ? ['Calculado pela Contabilidade', `${sol.calculo_por.nome} em ${dataBR(sol.calculo_em)}`] : null,
-    sol.ficha ? ['Ficha', sol.ficha] : null,
+    sol.ficha ? ['Ficha', rotuloFicha(sol)] : null,
     sol.data_autorizacao ? ['Autorização do Prefeito', dataBR(sol.data_autorizacao)] : null,
     sol.numero_empenho ? ['Empenho', `${sol.numero_empenho}${sol.data_empenho ? ' de ' + dataBR(sol.data_empenho) : ''}`] : null,
     sol.data_liquidacao ? ['Liquidação', dataBR(sol.data_liquidacao)] : null,
@@ -709,8 +712,32 @@ function blocoTramitacao(sol) {
   </section>`;
 }
 
+/** Título da ficha para gravar na solicitação: do orçamento ou, se for a mesma ficha, o que a secretaria escolheu. */
+function tituloDaFicha(sol, numero) {
+  if (!numero) return '';
+  const f = buscarFicha(sol.secretaria_id, numero, sol.fonte_recursos);
+  if (f) return tituloFicha(f);
+  if (String(numero).trim() === String(sol.ficha || '').trim() && sol.ficha_titulo) return sol.ficha_titulo;
+  if (String(numero).trim() === String(sol.ficha_sugerida || '').trim()) return sol.ficha_sugerida_titulo || '';
+  return '';
+}
+
+/** Mostra o título (ação/atividade) embaixo do campo "Ficha" enquanto a Contabilidade digita. */
+function ligarTituloFicha(raiz, sol) {
+  raiz.querySelectorAll('[data-titulo-ficha]').forEach(inp => {
+    const dica = inp.parentElement.querySelector('[data-titulo-de-ficha]');
+    const mostrar = () => {
+      const t = tituloDaFicha(sol, inp.value);
+      const f = buscarFicha(sol.secretaria_id, inp.value, sol.fonte_recursos);
+      dica.textContent = !inp.value ? '' : t ? t + (f?.descricao ? ' · ' + f.descricao : '') : 'Ficha não encontrada no orçamento desta secretaria.';
+    };
+    inp.addEventListener('input', mostrar); mostrar();
+  });
+}
+
 function ligarTramitacao(el, sol) {
   const erro = err => toast(mensagemErro(err), 'erro');
+  ligarTituloFicha(el, sol);
   const fa = $('#f-analise', el);
   if (fa) {
     fa.onsubmit = async e => {
@@ -745,7 +772,7 @@ function ligarTramitacao(el, sol) {
     const c = camposCalculo(sol, grupo);
     if (c.erro) return toast(c.erro, 'erro');
     try {
-      await tramitar(sol, 'calculada', { ...c, ficha: d.ficha, calculo_por: quem(), calculo_em: new Date().toISOString(),
+      await tramitar(sol, 'calculada', { ...c, ficha: d.ficha, ficha_titulo: tituloDaFicha(sol, d.ficha), calculo_por: quem(), calculo_em: new Date().toISOString(),
         servidor: { ...(sol.servidor || {}), ...(sv ? { grupo: sv.grupo, categoria_nome: GRUPOS[sv.grupo], chave_pix: sv.chave_pix || '', cargo_funcao: sv.cargo_funcao } : {}) } },
         `valor ${moeda(c.valor_total)} · ficha ${d.ficha}`);
       toast('Cálculo e ficha registrados. Imprima o formulário para a assinatura do Prefeito.');
@@ -765,7 +792,7 @@ function ligarTramitacao(el, sol) {
     e.preventDefault();
     const d = lerForm(fe);
     if (!d.ficha || !d.numero_empenho || !d.data_empenho) return toast('Preencha ficha, nº e data do empenho.', 'erro');
-    try { await tramitar(sol, 'empenhada', d, `empenho ${d.numero_empenho}`); toast('Empenho registrado.'); } catch (err) { erro(err); }
+    try { await tramitar(sol, 'empenhada', { ...d, ficha_titulo: tituloDaFicha(sol, d.ficha) }, `empenho ${d.numero_empenho}`); toast('Empenho registrado.'); } catch (err) { erro(err); }
   };
   const fl = $('#f-liquidacao', el);
   if (fl) fl.onsubmit = async e => {
@@ -780,19 +807,20 @@ function ligarTramitacao(el, sol) {
   const fleg = $('#f-legado', el);
   if (fleg) fleg.onsubmit = async e => {
     e.preventDefault();
-    try { await db.atualizar('solicitacoes', sol.id, lerForm(fleg)); await db.registrarLog('solicitacao.empenho', { numero: sol.numero }); toast('Dados salvos.'); } catch (err) { erro(err); }
+    try { const d = lerForm(fleg); await db.atualizar('solicitacoes', sol.id, { ...d, ficha_titulo: tituloDaFicha(sol, d.ficha) }); await db.registrarLog('solicitacao.empenho', { numero: sol.numero }); toast('Dados salvos.'); } catch (err) { erro(err); }
   };
   $('#corrigir-contabil', el)?.addEventListener('click', () => {
     const m = modal({ titulo: 'Corrigir dados da Contabilidade', largura: 560, corpo: `<form id="fcc" class="grade-2">
-      <label class="campo"><span>Ficha</span><input name="ficha" value="${esc(sol.ficha || '')}"></label>
+      <label class="campo"><span>Ficha</span><input name="ficha" value="${esc(sol.ficha || '')}" data-titulo-ficha><small class="dica" data-titulo-de-ficha></small></label>
       <label class="campo"><span>Nº do empenho</span><input name="numero_empenho" value="${esc(sol.numero_empenho || '')}"></label>
       <label class="campo"><span>Data do empenho</span><input type="date" name="data_empenho" value="${esc(sol.data_empenho || '')}"></label>
       <label class="campo"><span>Data da liquidação</span><input type="date" name="data_liquidacao" value="${esc(sol.data_liquidacao || '')}"></label>
       <label class="campo"><span>Data do pagamento</span><input type="date" name="data_pagamento" value="${esc(sol.data_pagamento || '')}"></label>
       <div class="acoes-form span-2"><button class="btn" type="submit">Salvar</button></div></form>` });
+    ligarTituloFicha(m.el, sol);
     $('#fcc', m.el).onsubmit = async e => {
       e.preventDefault();
-      try { await db.atualizar('solicitacoes', sol.id, lerForm(e.target)); await db.registrarLog('solicitacao.empenho', { numero: sol.numero, correcao: true }); toast('Corrigido.'); m.fechar(); } catch (err) { erro(err); }
+      try { const d = lerForm(e.target); await db.atualizar('solicitacoes', sol.id, { ...d, ficha_titulo: tituloDaFicha(sol, d.ficha) }); await db.registrarLog('solicitacao.empenho', { numero: sol.numero, correcao: true }); toast('Corrigido.'); m.fechar(); } catch (err) { erro(err); }
     };
   });
   $('#voltar-etapa', el)?.addEventListener('click', async () => {
