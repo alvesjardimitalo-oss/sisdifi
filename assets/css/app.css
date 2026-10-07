@@ -290,3 +290,10 @@ progress { width: 260px; vertical-align: middle; }
 .dotacao td .linha-barra-trilho { min-width: 120px; }
 .linha-barra-trilho .estouro { background: var(--vermelho) !important; }
 @media (max-width: 820px) { .etapas { grid-template-columns: repeat(3, 1fr); row-gap: 10px; } .grade-3 .span-3 { grid-column: auto; } }
+
+/* Telas largas: usa a largura toda; rótulos do gráfico sem corte */
+main { max-width: none; }
+.grade-painel { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+.barras-mes { padding-top: 34px; height: 250px; }
+.barra-valor { transform: none; font-size: 9.5px; height: auto; }
+@media (max-width: 1500px) { .barra-valor { display: none; } }
