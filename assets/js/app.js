@@ -3,7 +3,7 @@
 // Inicialização, login e navegação
 // =============================================================
 import * as db from './db.js';
-import { estado, mesclarConfig, PERFIS, pode, ehSecretaria, secretariaNome } from './estado.js';
+import { estado, mesclarConfig, PERFIS, pode, ehSecretaria, secretariaNome, CAMPOS_VALOR } from './estado.js';
 import { esc, $, toast, mensagemErro, lerForm } from './ui.js';
 import { telaPainel } from './views/painel.js';
 import { telaListaSolicitacoes, telaNovaSolicitacao, telaDetalheSolicitacao } from './views/solicitacoes.js';
@@ -27,8 +27,8 @@ const MENU = [
   { rota: 'solicitacoes', icone: '☰', texto: 'Solicitações' },
   { rota: 'servidores', icone: '👤', texto: 'Servidores', interno: true },
   { rota: 'secretarias', icone: '🏛', texto: 'Secretarias', interno: true },
-  { rota: 'conferencia', icone: '✓', texto: 'Conferência', interno: true },
-  { rota: 'simulador', icone: '∑', texto: 'Simulador', interno: true },
+  { rota: 'conferencia', icone: '✓', texto: 'Conferência', interno: true, valores: true },
+  { rota: 'simulador', icone: '∑', texto: 'Simulador', interno: true, valores: true },
   { grupo: 'Administração', admin: true },
   { rota: 'parametros', icone: '⚙', texto: 'Parâmetros da lei', admin: true },
   { rota: 'usuarios', icone: '🔑', texto: 'Usuários', admin: true },
@@ -198,10 +198,22 @@ function iniciarDados() {
   ouvintes.push(db.ouvir('servidores', l => { estado.servidores = l.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')); pronto('servidores'); }, erro('servidores')));
   ouvintes.push(db.ouvir('secretarias', l => { estado.secretarias = l.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')); pronto('secretarias'); }, erro('secretarias')));
   // Secretaria só recebe as solicitações da própria secretaria (as regras do Firestore também garantem isso).
-  ouvintes.push(db.ouvir('solicitacoes', l => {
-    estado.solicitacoes = l.sort((a, b) => (b.ano - a.ano) || (b.sequencia - a.sequencia));
+  // Os valores ficam na coleção protegida "valores" e só são lidos por quem pode vê-los.
+  let base = null, valores = pode.verValores() ? null : {};
+  const juntar = () => {
+    if (!base || !valores) return;
+    estado.solicitacoesBrutas = base;
+    estado.solicitacoes = base.map(s => {
+      const v = valores[s.id];
+      if (!v) return s;
+      const extra = {};
+      for (const k of CAMPOS_VALOR) if (v[k] !== undefined) extra[k] = v[k];
+      return { ...s, ...extra };
+    }).sort((a, b) => (b.ano - a.ano) || (b.sequencia - a.sequencia));
     pronto('solicitacoes');
-  }, erro('solicitações'), ehSecretaria() ? ['secretaria_id', estado.sessao.secretaria_id || '-'] : null));
+  };
+  ouvintes.push(db.ouvir('solicitacoes', l => { base = l; juntar(); }, erro('solicitações'), ehSecretaria() ? ['secretaria_id', estado.sessao.secretaria_id || '-'] : null));
+  if (pode.verValores()) ouvintes.push(db.ouvir('valores', l => { valores = Object.fromEntries(l.map(v => [v.id, v])); juntar(); }, erro('valores')));
   ouvintes.push(db.ouvir('distancias', l => { estado.distancias = Object.fromEntries(l.map(d => [d.id, d])); pronto('distancias'); }, () => {}));
   ouvintes.push(db.ouvirDoc('config', 'parametros', d => { estado.config = mesclarConfig(d); pronto('config'); }, erro('parâmetros')));
   if (pode.admin()) ouvintes.push(db.ouvir('usuarios', l => { estado.usuarios = l; pronto('usuarios'); }, erro('usuários')));
@@ -228,7 +240,7 @@ function montarLayout() {
     <div class="layout">
       <aside class="lateral" id="lateral">
         ${marca()}
-        <nav>${MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.solicitar()) && (!m.interno || !ehSecretaria())).map(m => m.grupo
+        <nav>${MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.solicitar()) && (!m.interno || !ehSecretaria()) && (!m.valores || pode.verValores())).map(m => m.grupo
           ? `<div class="menu-grupo">${esc(m.grupo)}</div>`
           : `<a href="#/${m.rota}" data-rota="${m.rota}"><span class="ico" aria-hidden="true">${m.icone}</span>${esc(m.texto)}</a>`).join('')}
         </nav>
@@ -258,14 +270,14 @@ const ROTAS = [
   [/^servidores\/([\w-]+)$/, telaPerfilServidor, 'interno'],
   [/^servidores$/, telaServidores, 'interno'],
   [/^secretarias$/, telaSecretarias, 'interno'],
-  [/^simulador$/, telaSimulador, 'interno'],
-  [/^conferencia$/, telaConferencia, 'interno'],
+  [/^simulador$/, telaSimulador, 'valores'],
+  [/^conferencia$/, telaConferencia, 'valores'],
   [/^parametros$/, telaParametros, 'admin'],
   [/^usuarios$/, telaUsuarios, 'admin'],
   [/^importar$/, telaImportar, 'admin'],
   [/^auditoria$/, telaAuditoria, 'admin'],
   [/^conta$/, telaConta],
-  [/^imprimir\/(.+)$/, telaImprimir, 'interno']
+  [/^imprimir\/(.+)$/, telaImprimir, 'valores']
 ];
 
 function rotaAtual() {
@@ -287,6 +299,7 @@ function desenharTela(atualizacao) {
     if (m) {
       if (req === 'admin' && !pode.admin()) break;
       if (req === 'interno' && ehSecretaria()) break;
+      if (req === 'valores' && (ehSecretaria() || !pode.verValores())) break;
       alvo = fn; args = m.slice(1); break;
     }
   }

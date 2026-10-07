@@ -28,12 +28,13 @@ export const PERFIS = {
 export const ETAPAS = {
   analise:    { nome: 'Aguardando Controle Interno', curto: 'Em análise', ordem: 1 },
   reprovada:  { nome: 'Reprovada pelo Controle Interno', curto: 'Reprovada', ordem: 0 },
-  aprovada:   { nome: 'Aprovada — aguardando assinatura do Prefeito', curto: 'Aguard. Prefeito', ordem: 2 },
-  autorizada: { nome: 'Autorizada pelo Prefeito — aguardando empenho', curto: 'Aguard. empenho', ordem: 3 },
-  empenhada:  { nome: 'Empenhada — aguardando liquidação', curto: 'Empenhada', ordem: 4 },
-  liquidada:  { nome: 'Liquidada — aguardando pagamento', curto: 'Liquidada', ordem: 5 },
-  paga:       { nome: 'Paga', curto: 'Paga', ordem: 6 },
-  legado:     { nome: 'Registro do sistema antigo', curto: 'Histórico', ordem: 7 }
+  aprovada:   { nome: 'Aprovada pelo Controle Interno — aguardando cálculo e ficha da Contabilidade', curto: 'Aguard. cálculo', ordem: 2 },
+  calculada:  { nome: 'Calculada — aguardando assinatura do Prefeito', curto: 'Aguard. Prefeito', ordem: 3 },
+  autorizada: { nome: 'Autorizada pelo Prefeito — aguardando empenho', curto: 'Aguard. empenho', ordem: 4 },
+  empenhada:  { nome: 'Empenhada — aguardando liquidação', curto: 'Empenhada', ordem: 5 },
+  liquidada:  { nome: 'Liquidada — aguardando pagamento', curto: 'Liquidada', ordem: 6 },
+  paga:       { nome: 'Paga', curto: 'Paga', ordem: 7 },
+  legado:     { nome: 'Registro do sistema antigo', curto: 'Histórico', ordem: 8 }
 };
 export const etapaDe = sol => sol.etapa || 'legado';
 
@@ -42,6 +43,7 @@ export const estado = {
   servidores: [],
   secretarias: [],
   solicitacoes: [],
+  solicitacoesBrutas: [],
   distancias: {},        // chave → { cidade, uf, km }
   config: structuredClone(CONFIG_PADRAO),
   usuarios: [],
@@ -68,9 +70,9 @@ export const pode = {
   editar: () => ['admin', 'operador'].includes(perfilAtual()),
   // criar/editar solicitações (antes da aprovação)
   solicitar: () => ['admin', 'operador', 'controle_interno', 'secretaria'].includes(perfilAtual()),
-  // valores de diária: a Secretaria solicitante não vê
-  verValores: () => perfilAtual() !== 'secretaria',
-  // aprovar/reprovar, conta de pagamento e fonte, registrar assinatura do Prefeito
+  // valores de diária: Secretaria e Controle Interno não veem (o valor só é calculado na Contabilidade)
+  verValores: () => !['secretaria', 'controle_interno'].includes(perfilAtual()),
+  // aprovar/reprovar (confere o servidor), ajustar conta de pagamento e fonte
   analisar: () => ['admin', 'controle_interno'].includes(perfilAtual()),
   // ficha, empenho, liquidação, pagamento e reembolsos
   contabil: () => ['admin', 'operador'].includes(perfilAtual()),
@@ -90,3 +92,17 @@ export function totalReembolsos(sol) {
 
 /** Solicitações válidas (não canceladas). */
 export const ativas = lista => lista.filter(s => s.status !== 'cancelada');
+
+/**
+ * Campos com valores da diária. Ficam na coleção protegida "valores" (mesmo id da solicitação),
+ * que Secretaria e Controle Interno não conseguem ler. O app junta os dois ao exibir.
+ */
+export const CAMPOS_VALOR = ['valor_total', 'valor_pernoite', 'valor_simples', 'valor_alimentacao', 'quantidade_pernoite',
+  'quantidade_simples', 'quantidade_alimentacao', 'horas_total', 'faixa_codigo', 'faixa_texto', 'descricao_calculo',
+  'justificativa_legal', 'reembolsos', 'total_reembolsos'];
+
+export function separarValores(dados) {
+  const base = {}, val = {};
+  for (const [k, v] of Object.entries(dados)) (CAMPOS_VALOR.includes(k) ? val : base)[k] = v;
+  return { base, val };
+}

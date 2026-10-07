@@ -78,3 +78,10 @@ export async function criarConta(email, senha) { const uid = 'u' + (contador++);
 export function dadosUsuarioAtual() { return usuarioAtual ? { ...usuarioAtual, provedores: ['password'] } : null; }
 export async function reivindicarAdmin(nome) { const u = usuarios.get(usuarioAtual.uid) || { email: usuarioAtual.email }; usuarios.set(usuarioAtual.uid, { ...u, nome: nome || u.email, perfil: 'admin', ativo: true }); }
 export async function solicitarAcesso() { usuarios.set(usuarioAtual.uid, { nome: usuarioAtual.email, email: usuarioAtual.email, perfil: 'consulta', ativo: false, pendente: true }); }
+export async function moverValoresProtegidos(lista) {
+  for (const { id, valores } of lista) {
+    garantir('valores').set(id, { ...(colecoes.valores.get(id) || {}), ...valores });
+    const s = colecoes.solicitacoes.get(id); for (const k of Object.keys(valores)) delete s[k];
+  }
+  notificar('valores'); notificar('solicitacoes');
+}

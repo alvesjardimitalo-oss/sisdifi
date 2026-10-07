@@ -12,7 +12,7 @@ import {
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   doc, getDoc, setDoc, updateDoc, deleteDoc, collection, onSnapshot, runTransaction,
-  writeBatch, serverTimestamp, addDoc, query, orderBy, limit as limitar, getDocs, where
+  writeBatch, serverTimestamp, addDoc, query, orderBy, limit as limitar, getDocs, where, deleteField
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 export const configurado = !Object.values(firebaseConfig).some(v => !v || String(v).includes('COLE_AQUI'));
@@ -201,4 +201,17 @@ export async function registrarLog(acao, detalhe = {}) {
   try {
     await addDoc(collection(fs, 'logs'), { acao, detalhe, uid: sessao.uid, nome: sessao.nome || sessao.email, em: serverTimestamp() });
   } catch { /* log nunca impede a operação */ }
+}
+
+/** Move campos de valor do documento da solicitação para a coleção protegida "valores". lista = [{ id, valores }] */
+export async function moverValoresProtegidos(lista, progresso) {
+  for (let i = 0; i < lista.length; i += 200) {
+    const b = writeBatch(fs);
+    for (const { id, valores } of lista.slice(i, i + 200)) {
+      b.set(doc(fs, 'valores', id), valores, { merge: true });
+      b.update(doc(fs, 'solicitacoes', id), Object.fromEntries(Object.keys(valores).map(k => [k, deleteField()])));
+    }
+    await b.commit();
+    progresso && progresso(Math.min(i + 200, lista.length), lista.length);
+  }
 }

@@ -8,18 +8,19 @@ import { aguardando, cabecalho } from './comum.js';
 export function telaSecretarias(el) {
   if (aguardando(el, ['secretarias', 'servidores', 'solicitacoes'])) return { viva: true, titulo: 'Secretarias' };
   const validas = ativas(estado.solicitacoes);
+  const vv = pode.verValores();
   el.innerHTML = `
     ${cabecalho('Secretarias', pode.editar() ? '<button class="btn" id="nova-sec">＋ Nova secretaria</button>' : '')}
     <div class="tabela-wrap"><table class="tabela">
-      <thead><tr><th>Secretaria</th><th class="num">Servidores ativos</th><th class="num">Solicitações</th><th class="num">Valor em diárias</th><th class="num">Dotação ${new Date().getFullYear()}</th><th>Situação</th><th></th></tr></thead>
+      <thead><tr><th>Secretaria</th><th class="num">Servidores ativos</th><th class="num">Solicitações</th>${vv ? `<th class="num">Valor em diárias</th><th class="num">Dotação ${new Date().getFullYear()}</th>` : ''}<th>Situação</th><th></th></tr></thead>
       <tbody>${[...estado.secretarias].sort((a, b) => (b.ativo !== false) - (a.ativo !== false) || a.nome.localeCompare(b.nome, 'pt-BR')).map(s => {
         const sols = validas.filter(x => x.secretaria_id === s.id);
         return `<tr>
           <td><strong>${esc(s.nome)}</strong></td>
           <td class="num">${estado.servidores.filter(x => x.secretaria_id === s.id && x.ativo !== false).length}</td>
           <td class="num">${sols.length}</td>
-          <td class="num">${moeda(sols.reduce((t, x) => t + Number(x.valor_total || 0), 0))}</td>
-          <td class="num">${s.dotacao?.[new Date().getFullYear()] ? moeda(s.dotacao[new Date().getFullYear()]) : '—'}</td>
+          ${vv ? `<td class="num">${moeda(sols.reduce((t, x) => t + Number(x.valor_total || 0), 0))}</td>
+          <td class="num">${s.dotacao?.[new Date().getFullYear()] ? moeda(s.dotacao[new Date().getFullYear()]) : '—'}</td>` : ''}
           <td>${s.ativo === false ? '<span class="selo selo-cancelada">Inativa</span>' : '<span class="selo selo-emitida">Ativa</span>'}</td>
           <td class="acoes-linha">${pode.editar() ? `<button class="btn btn-sec btn-peq" data-editar="${esc(s.id)}">✎ Editar</button>` : ''}</td></tr>`;
       }).join('') || '<tr><td colspan="7" class="vazio-linha">Nenhuma secretaria cadastrada.</td></tr>'}</tbody>

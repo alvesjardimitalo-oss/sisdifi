@@ -26,7 +26,9 @@ function docSolicitacao(sol) {
   const e = etapaDe(sol);
   const ci = sol.analise?.resultado === 'aprovada' ? sol.analise : null;
   const marca = sol.status === 'cancelada' ? 'CANCELADA' : e === 'reprovada' ? 'REPROVADA' : '';
-  const aviso = sol.status !== 'cancelada' && e === 'analise' ? '<div class="doc-aviso">Aguardando análise do Controle Interno — documento ainda não aprovado.</div>' : '';
+  const aviso = sol.status !== 'cancelada' && e === 'analise' ? '<div class="doc-aviso">Aguardando análise do Controle Interno — documento ainda não aprovado.</div>'
+    : (sol.etapa && !sol.calculado ? '<div class="doc-aviso">Valor ainda não calculado pela Contabilidade.</div>' : '');
+  const links = sol.links || [];
   const nomeCI = ci?.por?.nome || '';
   return `<div class="folha">
     ${marca ? `<div class="doc-marca-cancelada">${marca}</div>` : ''}
@@ -56,7 +58,9 @@ function docSolicitacao(sol) {
       <tr><td class="r">Conta de Pagamento</td><td>${esc(sol.conta_pagamento || '')}</td><td class="r">Fonte de Recursos</td><td>${esc(sol.fonte_recursos || '')}</td></tr>
       ${ci?.parecer ? `<tr><td class="r">Observação</td><td colspan="3" class="pre">${esc(ci.parecer)}</td></tr>` : ''}</table>`)}
     ${secao('5 - Contabilidade', `<table class="doc-tab">
-      <tr><td class="r" style="width:22%">Ficha</td><td style="width:28%">${esc(sol.ficha || '')}</td><td class="r" style="width:22%">Nº / Data do Empenho</td><td>${esc(sol.numero_empenho || '')}${sol.data_empenho ? ' — ' + esc(dataBR(sol.data_empenho)) : ''}</td></tr></table>`)}
+      <tr><td class="r" style="width:22%">Ficha</td><td style="width:28%">${esc(sol.ficha || '')}</td><td class="r" style="width:22%">Nº / Data do Empenho</td><td>${esc(sol.numero_empenho || '')}${sol.data_empenho ? ' — ' + esc(dataBR(sol.data_empenho)) : ''}</td></tr>
+      <tr><td class="r">Cálculo conferido por</td><td colspan="3">${esc(sol.calculo_por?.nome || '')}${sol.calculo_em ? ' — ' + esc(dataBR(sol.calculo_em)) : ''}</td></tr></table>`)}
+    ${links.length ? secao('Curso / Capacitação / Evento', `<table class="doc-tab"><tr><td><div class="doc-links">${links.map(u => `<div class="doc-link"><div class="doc-qr doc-qr-peq" data-qr="${esc(u)}"></div><span>${esc(u)}</span></div>`).join('')}</div></td></tr></table>`) : ''}
     ${reemb.length ? secao('6 - Reembolsos da Viagem', `<table class="doc-tab"><thead><tr><th>Tipo</th><th>Nº Nota</th><th>Série</th><th>Data</th><th>Valor</th><th>Empenho</th></tr></thead>
       <tbody>${reemb.map(r => `<tr><td>${esc(r.tipo)}</td><td>${esc(r.numero_nota)}</td><td>${esc(r.serie_nota)}</td><td>${esc(dataBR(r.data_nota))}</td><td>${moeda(r.valor)}</td><td>${esc(r.numero_empenho)}</td></tr>`).join('')}</tbody></table>
       <div class="doc-total">Total Reembolso: ${moeda(totalReembolsos(sol))}</div>`) : ''}
@@ -215,13 +219,16 @@ export function telaImprimir(el, { args, query }) {
     html = docSimulacao(); voltar = '#/simulador'; titulo = 'Simulação';
   } else html = naoAchou;
 
+  const linksDoc = partes[0] === 'solicitacao' ? (porId('solicitacoes', partes[1])?.links || []) : [];
   el.innerHTML = `<div class="barra-impressao">
       <button class="btn" id="btn-imprimir">🖨 Imprimir / Salvar PDF</button>
+      ${linksDoc.map((u, i) => `<a class="btn btn-sec" href="${esc(u)}" target="_blank" rel="noopener noreferrer" title="${esc(u)}">🔗 Abrir link do curso${linksDoc.length > 1 ? ' ' + (i + 1) : ''} para imprimir</a>`).join('')}
       <a class="btn btn-sec" href="${esc(voltar)}">⬅ Voltar</a>
       <span class="muted">Dica: no destino da impressão escolha "Salvar como PDF". Papel A4, margens padrão.</span>
     </div><div class="documentos">${html}</div>`;
   $('#btn-imprimir', el).onclick = () => window.print();
   desenharQRs(el);
   // Se o documento acabou de ser criado e ainda não chegou do servidor, a tela se atualiza sozinha quando chegar.
-  return { titulo, viva: html.includes('Documento não encontrado') };
+  // Tela viva: se os dados (ex.: valores recém-calculados) chegarem depois, o documento se atualiza sozinho.
+  return { titulo, viva: true };
 }

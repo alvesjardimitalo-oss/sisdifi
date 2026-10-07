@@ -2,6 +2,7 @@
 // Função pura: recebe as tabelas lidas do SQLite e devolve as gravações a fazer.
 import { GRUPOS, limparCpf, PARAMETROS_PADRAO } from './calculo.js';
 import { chaveDistancia } from './localidades.js';
+import { separarValores } from './estado.js';
 
 const FAIXA_TEXTO_PARA_CODIGO = { '0 a 149 KM': '0_149', '150 a 300 KM': '150_300', 'Acima de 300 KM': 'ACIMA_300' };
 
@@ -75,8 +76,7 @@ export function mapearBancoAntigo(t, { agora = new Date().toISOString() } = {}) 
     numerosVistos.add(s.numero);
     contadores[ano] = Math.max(contadores[ano] || 0, sequencia);
     const reembolsos = reembPorSol[s.id] || [];
-    ops.push({
-      colecao: 'solicitacoes', id: 'sol_' + s.id, dados: {
+    const dadosSol = {
         numero: txt(s.numero), ano, sequencia,
         servidor_id: 'srv_' + s.servidor_id,
         servidor: { nome: sv.nome, cpf: sv.cpf, chave_pix: sv.chave_pix, cargo_funcao: sv.cargo_funcao, grupo: sv.grupo, categoria_nome: GRUPOS[sv.grupo] },
@@ -96,8 +96,11 @@ export function mapearBancoAntigo(t, { agora = new Date().toISOString() } = {}) 
         data_solicitacao: txt(s.data_solicitacao).slice(0, 10),
         reembolsos, total_reembolsos: Math.round(reembolsos.reduce((a, r) => a + r.valor, 0) * 100) / 100,
         legado_id: s.id, importado_em: agora, criado_por: origem
-      }
-    });
+    };
+    // valores vão para a coleção protegida (Secretaria e Controle Interno não leem)
+    const { base, val } = separarValores(dadosSol);
+    ops.push({ colecao: 'solicitacoes', id: 'sol_' + s.id, dados: { ...base, calculado: true } });
+    ops.push({ colecao: 'valores', id: 'sol_' + s.id, dados: val });
     if (s.destino_cidade && s.destino_uf && num(s.distancia_km) > 0) {
       const k = chaveDistancia(txt(s.destino_cidade), txt(s.destino_uf).toUpperCase());
       // Guarda a distância MAIS USADA para o destino (o banco antigo tem km errados pontuais, ex.: 1,47 km para Gov. Valadares).

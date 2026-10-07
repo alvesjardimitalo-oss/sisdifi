@@ -149,7 +149,7 @@ export function telaPerfilServidor(el, { args }) {
   el.innerHTML = `
     ${cabecalho(s.nome, `
       ${pode.solicitar() && s.ativo !== false ? `<a class="btn" href="#/solicitacoes/nova?servidor=${esc(s.id)}">＋ Nova solicitação</a>` : ''}
-      <a class="btn btn-sec" href="#/imprimir/servidor/${esc(s.id)}?mes=${esc(filtroPerfil.mes)}&ano=${esc(filtroPerfil.ano)}">🖨 Relatório</a>
+      ${pode.verValores() ? `<a class="btn btn-sec" href="#/imprimir/servidor/${esc(s.id)}?mes=${esc(filtroPerfil.mes)}&ano=${esc(filtroPerfil.ano)}">🖨 Relatório</a>` : ''}
       ${pode.editar() ? '<button class="btn btn-sec" id="editar-sv">✎ Editar cadastro</button>' : ''}`,
       `${s.ativo === false ? '<span class="selo selo-cancelada">Inativo</span> ' : ''}${esc(s.cargo_funcao)} · ${esc(GRUPOS[s.grupo] || '')}`)}
     <div class="grade-detalhe">
@@ -167,20 +167,20 @@ export function telaPerfilServidor(el, { args }) {
         </form>
         <div class="kpis kpis-peq">
           <div class="kpi"><span>Viagens</span><strong>${validas.length}</strong></div>
-          <div class="kpi"><span>Diárias</span><strong>${moeda(tDiarias)}</strong></div>
+          ${pode.verValores() ? `<div class="kpi"><span>Diárias</span><strong>${moeda(tDiarias)}</strong></div>
           <div class="kpi"><span>Reembolsos</span><strong>${moeda(tReemb)}</strong></div>
-          <div class="kpi"><span>Total</span><strong>${moeda(tDiarias + tReemb)}</strong></div>
+          <div class="kpi"><span>Total</span><strong>${moeda(tDiarias + tReemb)}</strong></div>` : ''}
         </div>
       </section>
     </div>
     <section class="cartao">
       <h3>Viagens</h3>
       <div class="tabela-wrap"><table class="tabela">
-        <thead><tr><th>Nº</th><th>Destino</th><th>Saída</th><th>Retorno</th><th class="num">Diárias</th><th class="num">Reemb.</th><th>Empenho</th><th>Situação</th></tr></thead>
+        <thead><tr><th>Nº</th><th>Destino</th><th>Saída</th><th>Retorno</th>${pode.verValores() ? '<th class="num">Diárias</th><th class="num">Reemb.</th>' : ''}<th>Empenho</th><th>Situação</th></tr></thead>
         <tbody>${doPeriodo.map(x => `<tr class="clicavel" data-id="${esc(x.id)}">
           <td><strong>${esc(x.numero)}</strong></td><td>${esc(x.destino_cidade)}/${esc(x.destino_uf)}</td>
           <td>${esc(dataBR(x.data_hora_saida))}</td><td>${esc(dataBR(x.data_hora_retorno))}</td>
-          <td class="num">${moeda(x.valor_total)}</td><td class="num">${totalReembolsos(x) ? moeda(totalReembolsos(x)) : '—'}</td>
+          ${pode.verValores() ? `<td class="num">${moeda(x.valor_total)}</td><td class="num">${totalReembolsos(x) ? moeda(totalReembolsos(x)) : '—'}</td>` : ''}
           <td>${esc(x.numero_empenho || '—')}</td><td>${selo(x.status)}</td></tr>`).join('') || '<tr><td colspan="8" class="vazio-linha">Nenhuma viagem no período.</td></tr>'}</tbody>
       </table></div>
     </section>`;

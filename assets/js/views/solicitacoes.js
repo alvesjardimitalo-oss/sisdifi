@@ -1,8 +1,8 @@
 // SISDIFI — Solicitações de diária: lista, nova, detalhe/edição, empenho e reembolsos
 import * as db from '../db.js';
-import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ETAPAS, etapaDe, ehSecretaria } from '../estado.js';
+import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ETAPAS, etapaDe, ehSecretaria, separarValores } from '../estado.js';
 import { formServidor } from './servidores.js';
-import { calcularDiaria, moeda, horasBR, formatarCpf, periodosSobrepostos, GRUPOS } from '../calculo.js';
+import { calcularDiaria, moeda, horasBR, formatarCpf, periodosSobrepostos, GRUPOS, cpfValido } from '../calculo.js';
 import { esc, $, $$, toast, modal, confirmar, hojeISO, dataBR, numeroBR, normalizar, lerForm, baixarArquivo, csv, mensagemErro } from '../ui.js';
 import { listarUFs, listarMunicipios, calcularDistanciaRodoviaria, chaveDistancia } from '../localidades.js';
 import { aguardando, cabecalho, selo, seloEtapa, opcoesSecretarias, anosDisponiveis, MESES } from './comum.js';
@@ -71,7 +71,7 @@ export function telaListaSolicitacoes(el, { query }) {
           <td>${esc(s.destino_cidade)}/${esc(s.destino_uf)}<small class="muted bloco">${numeroBR(s.distancia_km)} km</small></td>
           <td>${esc(dataBR(s.data_hora_saida))}</td>
           <td>${esc(dataBR(s.data_hora_retorno))}</td>
-          ${vv ? `<td class="num">${moeda(s.valor_total)}</td>
+          ${vv ? `<td class="num">${s.etapa && !s.calculado ? '<span class="muted">a calcular</span>' : moeda(s.valor_total)}</td>
           <td class="num">${totalReembolsos(s) ? moeda(totalReembolsos(s)) : '—'}</td>
           <td>${s.numero_empenho ? esc(s.numero_empenho) : '<span class="muted">—</span>'}</td>` : ''}
           <td>${seloEtapa(s)}</td>
@@ -143,32 +143,47 @@ function snapshotServidor(sv) {
   return { nome: sv.nome, cpf: sv.cpf, chave_pix: sv.chave_pix || '', cargo_funcao: sv.cargo_funcao, grupo: sv.grupo, categoria_nome: GRUPOS[sv.grupo] };
 }
 
+/** Campos do cálculo da diária (feito pela Contabilidade). */
+function camposCalculo(viagem, grupo) {
+  const calc = calcularDiaria({ grupo, km: viagem.distancia_km, saida: viagem.data_hora_saida, retorno: viagem.data_hora_retorno, dentroMunicipio: !!viagem.dentro_municipio, parametros: estado.config });
+  if (calc.erro) return calc;
+  const { tipo_resumo, ...campos } = calc;
+  return { ...campos, calculado: true };
+}
+
+function listaLinks(dados) {
+  return [dados.link1, dados.link2, dados.link3].map(x => String(x || '').trim()).filter(Boolean);
+}
+
 function montarDadosSolicitacao(dados, sv, existente = null) {
-  const calc = calcularDiaria({ grupo: sv.grupo, km: dados.distancia_km, saida: dados.data_hora_saida, retorno: dados.data_hora_retorno, dentroMunicipio: !!dados.dentro_municipio, parametros: estado.config });
-  const { tipo_resumo, faixa_codigo, ...camposCalc } = calc;
-  return {
+  const base = {
     servidor_id: sv.id,
     servidor: snapshotServidor(sv),
     secretaria_id: dados.secretaria_id,
     secretaria_nome: secretariaNome(dados.secretaria_id),
     destino_uf: dados.destino_uf,
     destino_cidade: dados.destino_cidade,
+    distancia_km: Math.round(Number(dados.distancia_km || 0) * 100) / 100,
+    dentro_municipio: !!dados.dentro_municipio,
     data_hora_saida: dados.data_hora_saida,
     data_hora_retorno: dados.data_hora_retorno,
     objetivo: dados.objetivo,
     observacoes: dados.observacoes || '',
+    links: listaLinks(dados),
     conta_pagamento: dados.conta_pagamento || '',
     fonte_recursos: dados.fonte_recursos || '',
-    data_solicitacao: dados.data_solicitacao,
-    ...camposCalc,
-    faixa_codigo,
-    status: existente?.status || 'emitida',
-    // nova → vai para análise do Controle Interno; reprovada e corrigida → volta para análise
-    etapa: !existente ? 'analise' : (existente.etapa === 'reprovada' ? 'analise' : (existente.etapa || 'legado')),
-    reembolsos: existente?.reembolsos || [],
-    numero_empenho: existente?.numero_empenho || '',
-    data_empenho: existente?.data_empenho || ''
+    data_solicitacao: dados.data_solicitacao
   };
+  if (!existente) {
+    // O valor NÃO é calculado aqui: só a Contabilidade calcula, depois da aprovação do Controle Interno.
+    return { ...base, calculado: false, status: 'emitida', etapa: 'analise', numero_empenho: '', data_empenho: '', ficha: '' };
+  }
+  const r = { ...base };
+  // reprovada e corrigida → volta para análise
+  if (existente.etapa === 'reprovada') r.etapa = 'analise';
+  // já calculada (ou registro antigo): quem pode ver valores recalcula ao editar a viagem
+  if ((existente.calculado || !existente.etapa) && pode.verValores()) Object.assign(r, camposCalculo(base, sv.grupo));
+  return r;
 }
 
 /**
@@ -233,6 +248,10 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
         <textarea name="objetivo" rows="3" maxlength="500" required>${esc(sol.objetivo || '')}</textarea>
         <h3 class="mt">5. Observações</h3>
         <textarea name="observacoes" rows="2" maxlength="500">${esc(sol.observacoes || '')}</textarea>
+        <h3 class="mt">6. Link do curso, capacitação ou evento <small class="muted">(opcional)</small></h3>
+        <p class="dica">Cole o endereço da página do curso, convite, programação ou inscrição. A Contabilidade abre e imprime junto com o formulário.</p>
+        ${[0, 1, 2].map(i => `<label class="campo"><span class="sr-only">Link ${i + 1}</span><input type="url" name="link${i + 1}" placeholder="https://…" value="${esc((sol.links || [])[i] || '')}" ${i > 0 && !(sol.links || [])[i] ? 'data-extra hidden' : ''}></label>`).join('')}
+        <button type="button" class="link link-peq" id="mais-link">＋ adicionar outro link</button>
       </section>
     </div>
 
@@ -455,6 +474,7 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
   form.addEventListener('change', recalcular);
 
   $('#cancelar-fv', el).onclick = () => history.back();
+  $('#mais-link', el).onclick = () => { const x = form.querySelector('[data-extra][hidden]'); if (x) { x.hidden = false; x.removeAttribute('data-extra'); x.focus(); } if (!form.querySelector('[data-extra][hidden]')) $('#mais-link', el).hidden = true; };
 
   form.onsubmit = async e => {
     e.preventDefault();
@@ -471,12 +491,12 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
     if (!d.conta_pagamento) faltando.push('conta para pagamento');
     if (!d.fonte_recursos) faltando.push('fonte de recurso');
     if (!d.objetivo) faltando.push('objetivo');
+    const linkRuim = listaLinks(d).find(u => !/^https?:\/\/[^\s.]+\.[^\s]+$/i.test(u));
+    if (linkRuim) { erro.textContent = `Link inválido: "${linkRuim}". Use o endereço completo começando com https://`; return; }
     if (!d.data_solicitacao) faltando.push('data da solicitação');
     if (faltando.length) { erro.textContent = 'Preencha: ' + faltando.join(', ') + '.'; return; }
-    for (const id of selecionados) {
-      const c = calcularDiaria({ grupo: porId('servidores', id).grupo, km: d.distancia_km, saida: d.data_hora_saida, retorno: d.data_hora_retorno, dentroMunicipio: !!d.dentro_municipio, parametros: estado.config });
-      if (c.erro) { erro.textContent = c.erro; return; }
-    }
+    const c0 = calcularDiaria({ grupo: 'DEMAIS_SERVIDORES', km: d.distancia_km || 1, saida: d.data_hora_saida, retorno: d.data_hora_retorno, dentroMunicipio: !!d.dentro_municipio, parametros: estado.config });
+    if (c0.erro) { erro.textContent = c0.erro; return; }
     if ($('#avisos .alerta', el) && !(await confirmar('Há sobreposição de período com outra solicitação do mesmo servidor. Deseja salvar mesmo assim?', { ok: 'Salvar mesmo assim' }))) return;
     erro.textContent = '';
     const btn = $('#salvar-fv', el);
@@ -518,10 +538,17 @@ function podeCancelar(sol) {
 
 const quem = () => ({ uid: estado.sessao.uid, nome: estado.sessao.nome });
 
+/** Grava a solicitação separando os valores (coleção protegida "valores"). */
+async function gravarSolicitacao(id, dados) {
+  const { base, val } = separarValores(dados);
+  if (Object.keys(val).length) await db.salvar('valores', id, val);
+  if (Object.keys(base).length) await db.atualizar('solicitacoes', id, base);
+}
+
 /** Registra mudança de etapa com histórico (quem, quando, observação). */
 async function tramitar(sol, etapa, campos = {}, obs = '') {
   const historico = [...(sol.historico || []), { etapa, em: new Date().toISOString(), por: estado.sessao.nome, obs }];
-  await db.atualizar('solicitacoes', sol.id, { ...campos, etapa, historico });
+  await gravarSolicitacao(sol.id, { ...campos, etapa, historico });
   await db.registrarLog('solicitacao.etapa', { numero: sol.numero, etapa, obs });
 }
 
@@ -529,38 +556,84 @@ function datalist(id, itens) {
   return `<datalist id="${id}">${(itens || []).map(x => `<option value="${esc(x)}">`).join('')}</datalist>`;
 }
 
+/** Verificações do Controle Interno sobre o servidor (sem valores). */
+function checklistServidor(sol) {
+  const sv = porId('servidores', sol.servidor_id);
+  const itens = [
+    ['Servidor cadastrado no sistema', !!sv],
+    ['Cadastro ativo', !!sv && sv.ativo !== false],
+    ['CPF válido', !!sv && cpfValido(sv.cpf)],
+    ['Chave Pix informada', !!(sv?.chave_pix || sol.servidor?.chave_pix)],
+    ['Cargo/função informado', !!(sv?.cargo_funcao)],
+    ['Conta para pagamento e fonte de recurso informadas', !!(sol.conta_pagamento && sol.fonte_recursos)]
+  ];
+  const conflito = ativas(estado.solicitacoes).find(o => o.servidor_id === sol.servidor_id && o.id !== sol.id &&
+    periodosSobrepostos(o.data_hora_saida, o.data_hora_retorno, sol.data_hora_saida, sol.data_hora_retorno));
+  itens.push([conflito ? `Sem outra viagem no mesmo período — CONFLITO com ${conflito.numero}` : 'Sem outra viagem no mesmo período', !conflito]);
+  return `<div class="verificacao">
+    <p><strong>${esc(sol.servidor?.nome)}</strong> · ${esc(formatarCpf(sol.servidor?.cpf))} · ${esc(sol.servidor?.cargo_funcao)} · enquadramento <strong>${esc(GRUPOS[sv?.grupo || sol.servidor?.grupo] || '')}</strong>
+      · lotação ${esc(secretariaNome(sv?.secretaria_id) || '—')}${sol.criado_por?.nome ? ` · enviado por ${esc(sol.criado_por.nome)}` : ''}</p>
+    <ul class="checklist">${itens.map(([t, okk]) => `<li class="${okk ? 'ok' : 'falha'}">${okk ? '✓' : '✕'} ${esc(t)}</li>`).join('')}</ul>
+  </div>`;
+}
+
+function blocoLinks(sol) {
+  const links = sol.links || [];
+  if (!links.length) return '';
+  return `<div class="links-curso"><strong>Link do curso/evento:</strong> ${links.map(u => `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(u)}</a>`).join(' · ')}</div>`;
+}
+
 function blocoTramitacao(sol) {
   const e = etapaDe(sol);
   const cancelada = sol.status === 'cancelada';
-  const passos = ['analise', 'aprovada', 'autorizada', 'empenhada', 'liquidada', 'paga'];
+  const passos = ['analise', 'aprovada', 'calculada', 'autorizada', 'empenhada', 'liquidada', 'paga'];
+  const rotulos = { analise: 'Controle Interno', aprovada: 'Cálculo e ficha', calculada: 'Assinatura do Prefeito', autorizada: 'Empenho', empenhada: 'Liquidação', liquidada: 'Pagamento', paga: 'Concluída' };
   const atual = ETAPAS[e].ordem;
-  const linhaTempo = e === 'legado' ? '' : `<ol class="etapas">${passos.map(p => {
-    const feito = e !== 'reprovada' && ETAPAS[p].ordem < atual || e === 'paga';
+  const linhaTempo = e === 'legado' ? '' : `<ol class="etapas etapas-7">${passos.map(p => {
+    const feito = (e !== 'reprovada' && ETAPAS[p].ordem < atual) || e === 'paga';
     const agora = p === e || (e === 'reprovada' && p === 'analise');
-    const rotulo = { analise: 'Controle Interno', aprovada: 'Assinatura do Prefeito', autorizada: 'Empenho', empenhada: 'Liquidação', liquidada: 'Pagamento', paga: 'Concluída' }[p];
-    return `<li class="${feito ? 'feito' : ''} ${agora ? 'agora' : ''} ${agora && e === 'reprovada' ? 'reprovada' : ''}">${esc(rotulo)}</li>`;
+    return `<li class="${feito ? 'feito' : ''} ${agora ? 'agora' : ''} ${agora && e === 'reprovada' ? 'reprovada' : ''}">${esc(rotulos[p])}</li>`;
   }).join('')}</ol>`;
 
   let acao = '';
   if (!cancelada) {
-    if (['analise'].includes(e) && pode.analisar()) {
-      acao = `<div class="alerta alerta-info">Confira: <strong>${esc(sol.servidor?.nome)}</strong> — ${esc(sol.servidor?.cargo_funcao)} — enquadramento <strong>${esc(GRUPOS[sol.servidor?.grupo] || '')}</strong>
-        · ${esc(sol.faixa_texto)} · valor calculado <strong>${moeda(sol.valor_total)}</strong>${sol.criado_por?.nome ? ` · enviado por ${esc(sol.criado_por.nome)}` : ''}</div>
+    if (e === 'analise' && pode.analisar()) {
+      acao = `${checklistServidor(sol)}
       <form id="f-analise" class="grade-2">
-        <label class="campo"><span>Conta de pagamento</span><input name="conta_pagamento" list="dl-contas" value="${esc(sol.conta_pagamento || '')}" placeholder="Ex.: BB 12345-6 — FMS"></label>
-        <label class="campo"><span>Fonte de recursos</span><input name="fonte_recursos" list="dl-fontes" value="${esc(sol.fonte_recursos || '')}" placeholder="Ex.: 1500 — Recursos ordinários"></label>
+        <label class="campo"><span>Conta de pagamento</span><input name="conta_pagamento" list="dl-contas" value="${esc(sol.conta_pagamento || '')}"></label>
+        <label class="campo"><span>Fonte de recursos</span><input name="fonte_recursos" list="dl-fontes" value="${esc(sol.fonte_recursos || '')}"></label>
         <label class="campo span-2"><span>Parecer / observação do Controle Interno</span><textarea name="parecer" rows="2" maxlength="500">${esc(sol.analise?.parecer || '')}</textarea></label>
-        <div class="acoes-form span-2"><button type="button" class="btn btn-perigo" id="reprovar">✕ Reprovar</button><button class="btn" type="submit">✓ Aprovar</button></div>
+        <div class="acoes-form span-2"><button type="button" class="btn btn-perigo" id="reprovar">✕ Reprovar</button><button class="btn" type="submit">✓ Aprovar e enviar à Contabilidade</button></div>
         ${datalist('dl-contas', estado.config.contas_pagamento)}${datalist('dl-fontes', estado.config.fontes_recursos)}
       </form>`;
-    } else if (e === 'aprovada' && pode.analisar()) {
-      acao = `<p>Imprima o formulário, colha a assinatura do Prefeito e registre a autorização.</p>
+    } else if (e === 'aprovada' && pode.contabil()) {
+      const sv = porId('servidores', sol.servidor_id);
+      const grupo = sv?.grupo || sol.servidor?.grupo;
+      const c = camposCalculo(sol, grupo);
+      acao = c.erro ? `<div class="alerta">Não foi possível calcular: ${esc(c.erro)}. Corrija a viagem em "Editar viagem".</div>` : `
+        <div class="calculo-contab">
+          <dl class="dl-calc">
+            <dt>Enquadramento</dt><dd>${esc(GRUPOS[grupo])}</dd>
+            <dt>Faixa</dt><dd>${esc(c.faixa_texto)} (${numeroBR(c.distancia_km)} km)</dd>
+            <dt>Tempo fora</dt><dd>${horasBR(c.horas_total)} h</dd>
+            <dt>Pernoite</dt><dd>${c.quantidade_pernoite} × ${moeda(c.valor_pernoite)}</dd>
+            <dt>Simples</dt><dd>${c.quantidade_simples} × ${moeda(c.valor_simples)}</dd>
+            <dt>Alimentação</dt><dd>${c.quantidade_alimentacao} × ${moeda(c.valor_alimentacao)}</dd>
+          </dl>
+          <div class="calc-total grande"><span>Valor da diária</span><strong>${moeda(c.valor_total)}</strong></div>
+          <details><summary>Descritivo do cálculo</summary><ul class="lista-peq">${c.descricao_calculo.map(x => `<li>${esc(x)}</li>`).join('')}${c.justificativa_legal.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>
+        </div>
+        <form id="f-calculo" class="linha-form">
+          <label class="campo"><span>Ficha</span><input name="ficha" value="${esc(sol.ficha || '')}" required></label>
+          <button class="btn" type="submit">✓ Confirmar cálculo e ficha</button>
+        </form>`;
+    } else if (e === 'calculada' && (pode.contabil() || pode.analisar())) {
+      acao = `<p>Imprima o formulário${(sol.links || []).length ? ' e o conteúdo do link do curso' : ''}, colha a assinatura do Prefeito e registre a autorização.</p>
         <form id="f-prefeito" class="linha-form">
+          ${pode.verValores() ? `<a class="btn btn-sec" href="#/imprimir/solicitacao/${esc(sol.id)}">🖨 Imprimir formulário</a>` : ''}
           <label class="campo"><span>Data da assinatura do Prefeito</span><input type="date" name="data_autorizacao" value="${hojeISO()}" required></label>
-          <a class="btn btn-sec" href="#/imprimir/solicitacao/${esc(sol.id)}">🖨 Imprimir para assinatura</a>
           <button class="btn" type="submit">✓ Autorizada pelo Prefeito</button>
-        </form>
-        <button class="link link-peq" id="desfazer">Desfazer aprovação (voltar para análise)</button>`;
+        </form>`;
     } else if (e === 'autorizada' && pode.contabil()) {
       acao = `<form id="f-empenho" class="grade-3">
         <label class="campo"><span>Ficha</span><input name="ficha" value="${esc(sol.ficha || '')}" required></label>
@@ -590,21 +663,23 @@ function blocoTramitacao(sol) {
   }
 
   const dados = [
-    sol.analise?.resultado === 'aprovada' ? ['Analisado (Controle Interno)', `${sol.analise.por?.nome || ''} em ${dataBR(sol.analise.em)}`] : null,
+    sol.analise?.resultado === 'aprovada' ? ['Aprovado pelo Controle Interno', `${sol.analise.por?.nome || ''} em ${dataBR(sol.analise.em)}`] : null,
     sol.conta_pagamento ? ['Conta de pagamento', sol.conta_pagamento] : null,
     sol.fonte_recursos ? ['Fonte de recursos', sol.fonte_recursos] : null,
     sol.analise?.parecer ? ['Parecer', sol.analise.parecer] : null,
-    sol.data_autorizacao ? ['Autorização do Prefeito', dataBR(sol.data_autorizacao)] : null,
+    sol.calculado && sol.calculo_por ? ['Calculado pela Contabilidade', `${sol.calculo_por.nome} em ${dataBR(sol.calculo_em)}`] : null,
     sol.ficha ? ['Ficha', sol.ficha] : null,
+    sol.data_autorizacao ? ['Autorização do Prefeito', dataBR(sol.data_autorizacao)] : null,
     sol.numero_empenho ? ['Empenho', `${sol.numero_empenho}${sol.data_empenho ? ' de ' + dataBR(sol.data_empenho) : ''}`] : null,
     sol.data_liquidacao ? ['Liquidação', dataBR(sol.data_liquidacao)] : null,
     sol.data_pagamento ? ['Pagamento', dataBR(sol.data_pagamento)] : null
   ].filter(Boolean);
-  const corrigirContabil = pode.contabil() && !cancelada && ['empenhada', 'liquidada', 'paga'].includes(e);
+  const corrigirContabil = pode.contabil() && !cancelada && ['calculada', 'autorizada', 'empenhada', 'liquidada', 'paga'].includes(e);
 
   return `<section class="cartao tramitacao">
     <div class="cab-secao"><h3>Tramitação</h3><span>${esc(cancelada ? 'Cancelada' : ETAPAS[e].nome)}</span></div>
     ${linhaTempo}
+    ${blocoLinks(sol)}
     ${dados.length ? `<dl class="dl dl-tramite">${dados.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}
     ${acao}
     ${corrigirContabil ? '<button class="link link-peq" id="corrigir-contabil">Corrigir ficha/empenho</button>' : ''}
@@ -622,13 +697,14 @@ function ligarTramitacao(el, sol) {
       e.preventDefault();
       const d = lerForm(fa);
       if (!d.conta_pagamento || !d.fonte_recursos) return toast('Informe a conta de pagamento e a fonte de recursos para aprovar.', 'erro');
-      if (!(await confirmar(`Aprovar a solicitação ${sol.numero} (${moeda(sol.valor_total)})?`, { ok: 'Aprovar' }))) return;
+      const falhas = [...el.querySelectorAll('.verificacao .falha')].length;
+      if (!(await confirmar(falhas ? `Há ${falhas} item(ns) da verificação do servidor não atendido(s). Aprovar mesmo assim?` : `Aprovar a solicitação ${sol.numero} e enviar à Contabilidade para cálculo?`, { ok: 'Aprovar', perigo: !!falhas }))) return;
       try {
         await tramitar(sol, 'aprovada', {
           conta_pagamento: d.conta_pagamento, fonte_recursos: d.fonte_recursos,
           analise: { resultado: 'aprovada', parecer: d.parecer, por: quem(), em: new Date().toISOString() }
         }, d.parecer);
-        toast('Solicitação aprovada. Imprima para colher a assinatura do Prefeito.');
+        toast('Solicitação aprovada e enviada à Contabilidade.');
       } catch (err) { erro(err); }
     };
     $('#reprovar', el).onclick = async () => {
@@ -640,18 +716,31 @@ function ligarTramitacao(el, sol) {
       } catch (err) { erro(err); }
     };
   }
+  const fc = $('#f-calculo', el);
+  if (fc) fc.onsubmit = async e => {
+    e.preventDefault();
+    const d = lerForm(fc);
+    if (!d.ficha) return toast('Informe a ficha.', 'erro');
+    const sv = porId('servidores', sol.servidor_id);
+    const grupo = sv?.grupo || sol.servidor?.grupo;
+    const c = camposCalculo(sol, grupo);
+    if (c.erro) return toast(c.erro, 'erro');
+    try {
+      await tramitar(sol, 'calculada', { ...c, ficha: d.ficha, calculo_por: quem(), calculo_em: new Date().toISOString(),
+        servidor: { ...(sol.servidor || {}), ...(sv ? { grupo: sv.grupo, categoria_nome: GRUPOS[sv.grupo], chave_pix: sv.chave_pix || '', cargo_funcao: sv.cargo_funcao } : {}) } },
+        `valor ${moeda(c.valor_total)} · ficha ${d.ficha}`);
+      toast('Cálculo e ficha registrados. Imprima o formulário para a assinatura do Prefeito.');
+      location.hash = '#/imprimir/solicitacao/' + sol.id;
+    } catch (err) { erro(err); }
+  };
   const fp = $('#f-prefeito', el);
   if (fp) fp.onsubmit = async e => {
     e.preventDefault();
     const d = lerForm(fp);
     if (!d.data_autorizacao) return toast('Informe a data da assinatura.', 'erro');
-    try { await tramitar(sol, 'autorizada', { data_autorizacao: d.data_autorizacao, autorizacao_registrada_por: quem() }); toast('Autorização do Prefeito registrada. Enviada à Contabilidade.'); }
+    try { await tramitar(sol, 'autorizada', { data_autorizacao: d.data_autorizacao, autorizacao_registrada_por: quem() }); toast('Autorização do Prefeito registrada.'); }
     catch (err) { erro(err); }
   };
-  $('#desfazer', el)?.addEventListener('click', async () => {
-    if (!(await confirmar('Voltar esta solicitação para análise?'))) return;
-    try { await tramitar(sol, 'analise', { analise: { ...(sol.analise || {}), resultado: '' } }, 'aprovação desfeita'); } catch (err) { erro(err); }
-  });
   const fe = $('#f-empenho', el);
   if (fe) fe.onsubmit = async e => {
     e.preventDefault();
@@ -688,7 +777,7 @@ function ligarTramitacao(el, sol) {
     };
   });
   $('#voltar-etapa', el)?.addEventListener('click', async () => {
-    const ordem = ['analise', 'aprovada', 'autorizada', 'empenhada', 'liquidada', 'paga'];
+    const ordem = ['analise', 'aprovada', 'calculada', 'autorizada', 'empenhada', 'liquidada', 'paga'];
     const e = etapaDe(sol);
     const anterior = e === 'reprovada' ? 'analise' : ordem[Math.max(0, ordem.indexOf(e) - 1)];
     const motivo = await confirmar(`Voltar de "${ETAPAS[e].curto}" para "${ETAPAS[anterior].curto}"?`, { ok: 'Voltar etapa', pedirTexto: 'Motivo' });
@@ -716,7 +805,7 @@ export function telaDetalheSolicitacao(el, { args, query }) {
           throw new Error('Alteração cancelada.');
         }
         if (etapaDe(sol) === 'reprovada') novo.historico = [...(sol.historico || []), { etapa: 'analise', em: new Date().toISOString(), por: estado.sessao.nome, obs: 'corrigida e reenviada' }];
-        await db.atualizar('solicitacoes', sol.id, novo);
+        await gravarSolicitacao(sol.id, novo);
         await db.registrarLog('solicitacao.editar', { numero: sol.numero, valor_anterior: sol.valor_total, valor_novo: novo.valor_total });
         toast(`Solicitação ${sol.numero} atualizada.`);
         location.hash = '#/solicitacoes/' + sol.id;
@@ -728,7 +817,7 @@ export function telaDetalheSolicitacao(el, { args, query }) {
   const reemb = sol.reembolsos || [];
   el.innerHTML = `
     ${cabecalho(`Solicitação ${sol.numero}`, `
-      ${pode.verValores() ? `<a class="btn" href="#/imprimir/solicitacao/${esc(sol.id)}">🖨 Imprimir</a>` : ''}
+      ${pode.verValores() && (sol.calculado || !sol.etapa) ? `<a class="btn" href="#/imprimir/solicitacao/${esc(sol.id)}">🖨 Imprimir</a>` : ''}
       ${editavel ? `<a class="btn btn-sec" href="#/solicitacoes/${esc(sol.id)}?editar=1">✎ Editar viagem</a>` : ''}
       ${podeCancelar(sol) ? '<button class="btn btn-sec" id="cancelar-sol">Cancelar solicitação</button>' : ''}
       ${pode.admin() && sol.status === 'cancelada' ? '<button class="btn btn-sec" id="reativar-sol">Reativar</button>' : ''}
@@ -754,12 +843,14 @@ export function telaDetalheSolicitacao(el, { args, query }) {
           <dt>Destino</dt><dd>${esc(sol.destino_cidade)}/${esc(sol.destino_uf)} · ${numeroBR(sol.distancia_km)} km</dd>
           <dt>Saída</dt><dd>${esc(dataBR(sol.data_hora_saida))}</dd>
           <dt>Retorno</dt><dd>${esc(dataBR(sol.data_hora_retorno))}</dd>
-          <dt>Tempo fora</dt><dd>${horasBR(sol.horas_total)} h</dd>
+          <dt>Tempo fora</dt><dd>${horasBR(sol.horas_total ?? (calcularDiaria({ grupo: 'DEMAIS_SERVIDORES', km: 1, saida: sol.data_hora_saida, retorno: sol.data_hora_retorno }).horas_total || 0))} h</dd>
           <dt>Objetivo</dt><dd class="pre">${esc(sol.objetivo)}</dd>
           ${sol.observacoes ? `<dt>Observações</dt><dd class="pre">${esc(sol.observacoes)}</dd>` : ''}
         </dl>
       </section>
-      ${pode.verValores() ? `<section class="cartao span-detalhe">
+      ${pode.verValores() && sol.etapa && !sol.calculado ? `<section class="cartao span-detalhe"><h3>Cálculo</h3>
+        <p class="muted">Ainda não calculado. O valor é calculado pela Contabilidade depois da aprovação do Controle Interno.</p></section>` : ''}
+      ${pode.verValores() && (sol.calculado || !sol.etapa) ? `<section class="cartao span-detalhe">
         <h3>Cálculo</h3>
         <dl class="dl">
           <dt>Faixa</dt><dd>${esc(sol.faixa_texto)}</dd>
@@ -772,7 +863,8 @@ export function telaDetalheSolicitacao(el, { args, query }) {
           <ul class="lista-peq">${(sol.descricao_calculo || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul>
           <ul class="lista-peq">${(sol.justificativa_legal || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul>
         </details>
-      </section>` : `<section class="cartao span-detalhe"><h3>Pagamento</h3><dl class="dl"><dt>Conta para pagamento</dt><dd>${esc(sol.conta_pagamento || '—')}</dd><dt>Fonte de recurso</dt><dd>${esc(sol.fonte_recursos || '—')}</dd></dl></section>`}
+      </section>` : ''}
+
     </div>
 
     ${pode.verValores() ? '' : '<!--'}<section class="cartao">
@@ -802,7 +894,7 @@ export function telaDetalheSolicitacao(el, { args, query }) {
     if (!(await confirmar(`Excluir o reembolso de ${r.tipo} (${moeda(r.valor)})?`, { perigo: true, ok: 'Excluir' }))) return;
     const lista = reemb.filter(x => x.id !== r.id);
     try {
-      await db.atualizar('solicitacoes', sol.id, { reembolsos: lista, total_reembolsos: soma(lista) });
+      await db.salvar('valores', sol.id, { reembolsos: lista, total_reembolsos: soma(lista) });
       await db.registrarLog('reembolso.excluir', { numero: sol.numero, tipo: r.tipo, valor: r.valor });
       toast('Reembolso excluído.');
     } catch (err) { toast(mensagemErro(err), 'erro'); }
@@ -878,7 +970,7 @@ function formReembolso(sol, r) {
     const item = { ...d, valor: Math.round(Number(d.valor) * 100) / 100, chave_nota: d.chave_nota.replace(/\D/g, ''), id: r?.id || ('r' + Date.now().toString(36)), lancado_em: r?.lancado_em || new Date().toISOString() };
     const lista = r ? (sol.reembolsos || []).map(x => x.id === r.id ? item : x) : [...(sol.reembolsos || []), item];
     try {
-      await db.atualizar('solicitacoes', sol.id, { reembolsos: lista, total_reembolsos: soma(lista) });
+      await db.salvar('valores', sol.id, { reembolsos: lista, total_reembolsos: soma(lista) });
       await db.registrarLog(r ? 'reembolso.editar' : 'reembolso.lancar', { numero: sol.numero, tipo: item.tipo, valor: item.valor });
       toast(r ? 'Reembolso atualizado.' : 'Reembolso lançado.');
       m.fechar();

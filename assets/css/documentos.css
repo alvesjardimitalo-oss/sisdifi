@@ -52,3 +52,6 @@
 .doc-qr { width: 64px; height: 64px; flex: none; }
 .doc-qr img, .doc-qr canvas { width: 64px !important; height: 64px !important; }
 .doc-tab-peq td, .doc-tab-peq th { font-size: 9.5px; padding: 2px 3px; }
+.doc-links { display: flex; flex-direction: column; gap: 6px; }
+.doc-link { display: flex; align-items: center; gap: 8px; word-break: break-all; }
+.doc-qr-peq, .doc-qr-peq img, .doc-qr-peq canvas { width: 52px !important; height: 52px !important; flex: none; }

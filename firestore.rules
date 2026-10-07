@@ -18,6 +18,8 @@ service cloud.firestore {
     function minhaSecretaria() { return get(caminhoUsuario()).data.secretaria_id; }
     function controleInterno() { return ativo() && perfil() == 'controle_interno'; }
     function contabilidade() { return ativo() && perfil() == 'operador'; }
+    function camposValor() { return ['valor_total', 'valor_pernoite', 'valor_simples', 'valor_alimentacao', 'quantidade_pernoite', 'quantidade_simples', 'quantidade_alimentacao', 'horas_total', 'faixa_codigo', 'faixa_texto', 'descricao_calculo', 'justificativa_legal', 'reembolsos', 'total_reembolsos']; }
+    function podeVerValores() { return ativo() && perfil() in ['admin', 'operador', 'consulta']; }
     function alterou(campos) { return request.resource.data.diff(resource.data).affectedKeys().hasAny(campos); }
 
     // Marca de "primeiro administrador já criado". Leitura pública (só contém o uid).
@@ -84,8 +86,8 @@ service cloud.firestore {
       allow read: if ativo() && (!secretaria() || resource.data.secretaria_id == minhaSecretaria());
       allow create: if solicitante()
         && request.resource.data.numero is string
-        && request.resource.data.valor_total is number
         && request.resource.data.servidor_id is string
+        && (podeVerValores() || !request.resource.data.keys().hasAny(camposValor()))
         && (!secretaria() || (request.resource.data.secretaria_id == minhaSecretaria() && request.resource.data.etapa == 'analise'));
       // Secretaria só altera/cancela enquanto está em análise ou reprovada, sem tocar em análise, autorização ou contabilidade.
       allow update: if secretaria()
@@ -94,13 +96,20 @@ service cloud.firestore {
         && request.resource.data.secretaria_id == minhaSecretaria()
         && resource.data.etapa in ['analise', 'reprovada']
         && request.resource.data.etapa in ['analise', 'reprovada']
-        && !alterou(['analise', 'data_autorizacao', 'autorizacao_registrada_por', 'ficha', 'numero_empenho', 'data_empenho', 'data_liquidacao', 'data_pagamento', 'reembolsos', 'total_reembolsos']);
+        && !alterou(['analise', 'data_autorizacao', 'autorizacao_registrada_por', 'ficha', 'numero_empenho', 'data_empenho', 'data_liquidacao', 'data_pagamento', 'calculado', 'calculo_por'])
+        && !alterou(camposValor());
       // O número nunca muda. Controle Interno não mexe nos dados da Contabilidade e vice-versa.
       allow update: if solicitante() && !secretaria()
         && request.resource.data.numero == resource.data.numero
-        && !(controleInterno() && alterou(['ficha', 'numero_empenho', 'data_empenho', 'data_liquidacao', 'data_pagamento', 'reembolsos', 'total_reembolsos']))
-        && !(contabilidade() && alterou(['analise', 'data_autorizacao', 'autorizacao_registrada_por']));
+        && !(controleInterno() && (alterou(['ficha', 'numero_empenho', 'data_empenho', 'data_liquidacao', 'data_pagamento', 'calculado', 'calculo_por']) || alterou(camposValor())))
+        && !(contabilidade() && alterou(['analise']));
       allow delete: if admin();
+    }
+
+    // Valores das diárias: só Contabilidade, administrador e consulta leem. Secretaria e Controle Interno não.
+    match /valores/{id} {
+      allow read: if podeVerValores();
+      allow write: if operador();
     }
 
     match /contadores/{id} {

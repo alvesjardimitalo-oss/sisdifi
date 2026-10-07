@@ -9,7 +9,8 @@ conforme a **Lei Ordinária nº 994/2025** (Anexo I). Hospedado no **GitHub Page
 
 - **Login por e-mail/senha ou Google**, com perfis: *Administrador*, *Contabilidade*, *Controle Interno*, *Secretaria (solicitante)* e *Somente consulta*. Só entra quem o administrador liberar.
 - **Secretarias solicitantes**: cada secretaria tem seu usuário, cadastra o servidor na hora (nome, CPF, Pix, cargo) e envia a solicitação para análise com conta para pagamento e fonte de recurso obrigatórias. Não vê valores nem pedidos de outras secretarias.
-- **Tramitação**: Solicitação → Controle Interno (aprova/reprova, conta de pagamento e fonte de recursos) → assinatura do Prefeito → Contabilidade (ficha e empenho → liquidação) → Financeiro (pagamento). Cada passo registra quem fez e quando; cada perfil vê a sua fila de trabalho no Painel.
+- **Tramitação**: Secretaria envia (com conta para pagamento, fonte de recurso e link do curso opcional) → Controle Interno confere o servidor e aprova/reprova → Contabilidade calcula o valor e preenche a ficha, imprime o formulário e o link do curso → assinatura do Prefeito → empenho → liquidação → pagamento. Cada passo registra quem fez e quando.
+- **Sigilo dos valores**: o valor só é calculado na Contabilidade e fica na coleção protegida `valores`, que Secretaria e Controle Interno não conseguem ler (nem pelo navegador).
 - **Nova solicitação** com cálculo ao vivo, vários servidores da mesma viagem de uma vez (cada um com a sua categoria) e aviso de viagens sobrepostas.
 - **Numeração automática por ano** (`0001/2026`…), sem risco de número repetido com dois usuários ao mesmo tempo.
 - **Destino escolhido em lista**: estado → município (todos os 5.570 municípios do Brasil). A distância é calculada automaticamente pela rota rodoviária entre a sede de Frei Inocêncio e a sede do destino (OSRM/OpenStreetMap), com ajuste manual permitido e aviso se divergir de viagens anteriores.

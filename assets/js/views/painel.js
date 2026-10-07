@@ -10,7 +10,7 @@ const filtro = { ano: String(new Date().getFullYear()), mes: '' };
 
 export function telaPainel(el) {
   if (aguardando(el, ['solicitacoes', 'servidores', 'secretarias'])) return { viva: true, titulo: 'Painel' };
-  if (ehSecretaria()) return painelSecretaria(el);
+  if (!pode.verValores()) return painelSemValores(el);
   const doAno = ativas(estado.solicitacoes).filter(s => !filtro.ano || String(s.data_hora_saida).startsWith(filtro.ano));
   const periodo = doAno.filter(s => !filtro.mes || String(s.data_hora_saida).slice(5, 7) === filtro.mes.padStart(2, '0'));
   const tDiarias = periodo.reduce((t, s) => t + Number(s.valor_total || 0), 0);
@@ -99,8 +99,8 @@ function filaDeTrabalho() {
   const sols = ativas(estado.solicitacoes);
   const n = e => sols.filter(s => etapaDe(s) === e).length;
   const itens = [];
-  if (pode.analisar()) itens.push(['analise', 'Para analisar (Controle Interno)'], ['aprovada', 'Aguardando assinatura do Prefeito']);
-  if (pode.contabil()) itens.push(['autorizada', 'Autorizadas — empenhar'], ['empenhada', 'Empenhadas — liquidar'], ['liquidada', 'Liquidadas — aguardando pagamento']);
+  if (pode.analisar()) itens.push(['analise', 'Para analisar (Controle Interno)']);
+  if (pode.contabil()) itens.push(['aprovada', 'Aprovadas — calcular e preencher ficha'], ['calculada', 'Aguardando assinatura do Prefeito'], ['autorizada', 'Autorizadas — empenhar'], ['empenhada', 'Empenhadas — liquidar'], ['liquidada', 'Liquidadas — aguardando pagamento']);
   if (pode.solicitar()) itens.push(['reprovada', 'Reprovadas — corrigir']);
   const vistos = new Set();
   const cards = itens.filter(([e]) => !vistos.has(e) && vistos.add(e)).map(([e, t]) => {
@@ -126,25 +126,32 @@ function blocoDotacao(ano) {
   </section>`;
 }
 
-/** Painel do usuário de Secretaria: acompanha os próprios pedidos, sem valores. */
-function painelSecretaria(el) {
+/** Painel de quem não vê valores (Secretaria e Controle Interno): acompanha a tramitação. */
+function painelSemValores(el) {
+  const sec = ehSecretaria();
   const sols = estado.solicitacoes.filter(s => s.status !== 'cancelada');
   const conta = (...es) => sols.filter(s => es.includes(etapaDe(s))).length;
-  const cards = [
+  const cards = sec ? [
     ['reprovada', 'Reprovadas — corrigir e reenviar', conta('reprovada')],
     ['analise', 'Em análise no Controle Interno', conta('analise')],
-    ['aprovada', 'Aprovadas — aguardando Prefeito', conta('aprovada')],
-    ['autorizada', 'Autorizadas — na Contabilidade', conta('autorizada', 'empenhada', 'liquidada')],
+    ['aprovada', 'Aprovadas — na Contabilidade', conta('aprovada', 'calculada', 'autorizada', 'empenhada', 'liquidada')],
     ['paga', 'Pagas', conta('paga')]
+  ] : [
+    ['analise', 'Para analisar', conta('analise')],
+    ['reprovada', 'Reprovadas — aguardando correção', conta('reprovada')],
+    ['aprovada', 'Aprovadas — na Contabilidade', conta('aprovada')],
+    ['calculada', 'Aguardando assinatura do Prefeito', conta('calculada')]
   ];
+  const recentes = (sec ? estado.solicitacoes : estado.solicitacoes.filter(s => s.etapa)).slice(0, 15);
   el.innerHTML = `
-    ${cabecalho('Painel', '<a class="btn" href="#/solicitacoes/nova">＋ Nova solicitação</a>', `Olá, ${esc(estado.sessao.nome.split(' ')[0])}. Solicitações da ${esc(estado.sessao.secretaria_nome || secretariaNome(estado.sessao.secretaria_id))}.`)}
-    ${!estado.sessao.secretaria_id ? '<div class="alerta">Seu usuário ainda não está vinculado a uma secretaria. Peça ao administrador para ajustar em Usuários.</div>' : ''}
-    <div class="fila">${cards.map(([e, t, n]) => `<a href="#/solicitacoes?etapa=${e}"><div class="kpi ${n ? '' : 'zero'} ${e === 'reprovada' && n ? 'kpi-alerta' : ''}"><span>${esc(t)}</span><strong>${n}</strong></div></a>`).join('')}</div>
+    ${cabecalho('Painel', pode.solicitar() ? '<a class="btn" href="#/solicitacoes/nova">＋ Nova solicitação</a>' : '',
+      `Olá, ${esc(estado.sessao.nome.split(' ')[0])}. ${sec ? 'Solicitações da ' + esc(estado.sessao.secretaria_nome || secretariaNome(estado.sessao.secretaria_id)) + '.' : 'Solicitações para conferência do Controle Interno.'}`)}
+    ${sec && !estado.sessao.secretaria_id ? '<div class="alerta">Seu usuário ainda não está vinculado a uma secretaria. Peça ao administrador para ajustar em Usuários.</div>' : ''}
+    <div class="fila">${cards.map(([e, t, n]) => `<a href="#/solicitacoes?etapa=${e}"><div class="kpi ${n ? '' : 'zero'} ${(e === 'reprovada' && sec || e === 'analise' && !sec) && n ? 'kpi-alerta' : ''}"><span>${esc(t)}</span><strong>${n}</strong></div></a>`).join('')}</div>
     <section class="cartao"><h3>Últimas solicitações</h3>
-      <div class="tabela-wrap"><table class="tabela"><thead><tr><th>Nº</th><th>Servidor</th><th>Destino</th><th>Saída</th><th>Etapa</th></tr></thead>
-      <tbody>${estado.solicitacoes.slice(0, 15).map(s => `<tr class="clicavel" data-id="${esc(s.id)}"><td><strong>${esc(s.numero)}</strong></td><td>${esc(s.servidor?.nome)}</td>
-        <td>${esc(s.destino_cidade)}/${esc(s.destino_uf)}</td><td>${esc(dataBR(s.data_hora_saida))}</td><td>${seloEtapa(s)}</td></tr>`).join('') || '<tr><td colspan="5" class="vazio-linha">Nenhuma solicitação ainda.</td></tr>'}</tbody></table></div>
+      <div class="tabela-wrap"><table class="tabela"><thead><tr><th>Nº</th><th>Servidor</th>${sec ? '' : '<th>Secretaria</th>'}<th>Destino</th><th>Saída</th><th>Etapa</th></tr></thead>
+      <tbody>${recentes.map(s => `<tr class="clicavel" data-id="${esc(s.id)}"><td><strong>${esc(s.numero)}</strong></td><td>${esc(s.servidor?.nome)}</td>${sec ? '' : `<td>${esc(s.secretaria_nome)}</td>`}
+        <td>${esc(s.destino_cidade)}/${esc(s.destino_uf)}</td><td>${esc(dataBR(s.data_hora_saida))}</td><td>${seloEtapa(s)}</td></tr>`).join('') || `<tr><td colspan="${sec ? 5 : 6}" class="vazio-linha">Nenhuma solicitação ainda.</td></tr>`}</tbody></table></div>
     </section>`;
   el.querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = () => { location.hash = '#/solicitacoes/' + tr.dataset.id; });
   return { viva: true, titulo: 'Painel' };

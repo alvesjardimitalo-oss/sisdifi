@@ -1,6 +1,6 @@
 // SISDIFI — Administração: parâmetros da lei, usuários, importação do banco antigo, auditoria e minha conta
 import * as db from '../db.js';
-import { estado, PERFIS, CONFIG_PADRAO, pode } from '../estado.js';
+import { estado, PERFIS, CONFIG_PADRAO, pode, CAMPOS_VALOR } from '../estado.js';
 import { GRUPOS, FAIXAS, moeda } from '../calculo.js';
 import { esc, $, $$, toast, modal, confirmar, lerForm, mensagemErro, dataBR, baixarArquivo } from '../ui.js';
 import { aguardando, cabecalho, opcoesSecretarias } from './comum.js';
@@ -181,6 +181,12 @@ export function telaImportar(el) {
         <button class="btn" id="bkp-json">⭳ Baixar cópia completa (.json)</button>
       </div>
     </section>
+    ${(() => {
+      const expostos = (estado.solicitacoesBrutas || []).filter(x => CAMPOS_VALOR.some(k => x[k] !== undefined)).length;
+      return expostos ? `<section class="cartao"><h3>Proteger valores</h3>
+        <div class="alerta">${expostos} solicitação(ões) ainda guardam os valores junto com os dados da viagem (importação anterior). Clique para mover os valores para a área protegida — assim Secretaria e Controle Interno não conseguem lê-los.</div>
+        <button class="btn" id="proteger">🔒 Proteger valores agora</button> <span id="prog-proteger"></span></section>` : '';
+    })()}
     <h3>Importar banco do SISDIFI antigo</h3>
     <section class="cartao">
       <ol class="passos">
@@ -197,6 +203,19 @@ export function telaImportar(el) {
     baixarArquivo(`sisdifi-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(dados, (k, v) => (v && typeof v.toDate === 'function') ? v.toDate().toISOString() : v, 2), 'application/json');
     await db.registrarLog('backup.baixar', { solicitacoes: estado.solicitacoes.length });
   };
+  $('#proteger', el)?.addEventListener('click', async () => {
+    const lista = (estado.solicitacoesBrutas || []).map(x => {
+      const valores = {};
+      for (const k of CAMPOS_VALOR) if (x[k] !== undefined) valores[k] = x[k];
+      return { id: x.id, valores };
+    }).filter(x => Object.keys(x.valores).length);
+    try {
+      await db.moverValoresProtegidos(lista, (f, t) => { $('#prog-proteger', el).textContent = `${f}/${t}`; });
+      await db.registrarLog('valores.proteger', { quantidade: lista.length });
+      toast('Valores protegidos.');
+      window.dispatchEvent(new Event('sisdifi:redesenhar'));
+    } catch (err) { toast(mensagemErro(err), 'erro'); }
+  });
   $('#arq', el).onchange = async e => {
     const arq = e.target.files[0];
     if (!arq) return;
@@ -207,7 +226,9 @@ export function telaImportar(el) {
       const r = mapearBancoAntigo(tabelas);
       const existentes = estado.solicitacoes.filter(s => !s.legado_id).length;
       // Registros já importados antes NÃO são sobrescritos (preserva cancelamentos/edições feitas no sistema novo).
-      const jaExiste = o => o.colecao === 'distancias' ? !!estado.distancias[o.id] : estado[o.colecao]?.some?.(x => x.id === o.id);
+      const jaExiste = o => o.colecao === 'distancias' ? !!estado.distancias[o.id]
+        : o.colecao === 'valores' ? estado.solicitacoes.some(x => x.id === o.id)
+        : estado[o.colecao]?.some?.(x => x.id === o.id);
       const novos = r.operacoes.filter(o => !jaExiste(o));
       const mantidos = r.operacoes.length - novos.length;
       r.operacoes = novos;
