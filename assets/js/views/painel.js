@@ -54,7 +54,7 @@ export function telaPainel(el) {
       <label class="campo"><span>Ano</span><select name="ano"><option value="">Todos</option>${anosDisponiveis().map(a => `<option ${String(a) === filtro.ano ? 'selected' : ''}>${a}</option>`).join('')}</select></label>
       <label class="campo"><span>Mês</span><select name="mes"><option value="">Todos</option>${MESES.map((m, i) => `<option value="${i + 1}" ${String(i + 1) === filtro.mes ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
       <div class="filtro-rotulo">${esc(rotulo)}</div>
-      <a class="btn btn-sec btn-peq" style="margin:0 0 14px auto" href="#/imprimir/mensal?ano=${esc(filtro.ano)}&mes=${esc(filtro.mes)}">🖨 Relatório do período</a>
+      <a class="btn btn-sec btn-peq" style="margin:0 0 14px auto" href="#/relatorio">▤ Relatório mensal</a>
     </form>
     <div class="kpis">
       <div class="kpi"><span>Viagens</span><strong>${periodo.length}</strong></div>

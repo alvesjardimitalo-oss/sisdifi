@@ -117,7 +117,8 @@ service cloud.firestore {
 
     // Valores das diárias: só Contabilidade, administrador e consulta leem. Secretaria e Controle Interno não.
     match /valores/{id} {
-      allow read: if podeVerValores();
+      // Controle Interno só lê valores liberados após o empenho (relatório mensal).
+      allow read: if podeVerValores() || (controleInterno() && resource.data.liberado_ci == true);
       allow write: if operador();
     }
 

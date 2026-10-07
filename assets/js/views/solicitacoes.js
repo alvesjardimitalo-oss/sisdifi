@@ -1,6 +1,6 @@
 // SISDIFI — Solicitações de diária: lista, nova, detalhe/edição, empenho e reembolsos
 import * as db from '../db.js';
-import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ETAPAS, etapaDe, ehSecretaria, separarValores } from '../estado.js';
+import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ETAPAS, etapaDe, ehSecretaria, separarValores, ETAPAS_EMPENHADAS } from '../estado.js';
 import { formServidor, formPix, podeAlterarPix } from './servidores.js';
 import { calcularDiaria, moeda, horasBR, formatarCpf, periodosSobrepostos, GRUPOS, cpfValido } from '../calculo.js';
 import { esc, $, $$, toast, modal, confirmar, hojeISO, dataBR, numeroBR, normalizar, lerForm, baixarArquivo, csv, mensagemErro } from '../ui.js';
@@ -552,6 +552,9 @@ async function gravarSolicitacao(id, dados) {
 /** Registra mudança de etapa com histórico (quem, quando, observação). */
 async function tramitar(sol, etapa, campos = {}, obs = '') {
   const historico = [...(sol.historico || []), { etapa, em: new Date().toISOString(), por: estado.sessao.nome, obs }];
+  // Após o empenho, os valores ficam visíveis para o relatório do Controle Interno.
+  const liberar = ETAPAS_EMPENHADAS.includes(etapa);
+  if (pode.contabil() && liberar !== !!sol.liberado_ci) campos = { ...campos, liberado_ci: liberar };
   await gravarSolicitacao(sol.id, { ...campos, etapa, historico });
   await db.registrarLog('solicitacao.etapa', { numero: sol.numero, etapa, obs });
 }

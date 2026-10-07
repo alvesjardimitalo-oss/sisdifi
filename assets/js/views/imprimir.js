@@ -1,9 +1,10 @@
 // SISDIFI — Documentos para impressão / PDF (formato A4, mesmo modelo do sistema anterior)
-import { estado, porId, totalReembolsos, ativas, secretariaNome, ETAPAS, etapaDe } from '../estado.js';
+import { estado, porId, totalReembolsos, ativas, secretariaNome, ETAPAS, etapaDe, pode } from '../estado.js';
 import { formatarCpf, moeda, horasBR, GRUPOS, valorPorExtenso } from '../calculo.js';
 import { esc, $, dataBR, numeroBR, hojeISO } from '../ui.js';
 import { aguardando, MESES } from './comum.js';
 import { ultimaSimulacao } from './simulador.js';
+import { solicitacoesDoRelatorio, agrupar } from './relatorio.js';
 
 function cidadeOrgao() { return estado.config.origem?.cidade || ''; }
 
@@ -153,28 +154,30 @@ function docRelatorioServidor(sv, mes, ano) {
   </div>`;
 }
 
-function docRelatorioPeriodo(mes, ano) {
-  const sols = ativas(estado.solicitacoes).filter(x => (!ano || String(x.data_hora_saida).startsWith(ano)) && (!mes || String(x.data_hora_saida).slice(5, 7) === mes.padStart(2, '0')))
-    .sort((a, b) => String(a.secretaria_nome).localeCompare(String(b.secretaria_nome), 'pt-BR') || a.data_hora_saida.localeCompare(b.data_hora_saida));
-  const periodo = mes && ano ? `${MESES[Number(mes) - 1]}/${ano}` : mes ? MESES[Number(mes) - 1] : ano ? `Ano ${ano}` : 'Todo o período';
-  const porSec = {};
-  for (const x of sols) {
-    const k = x.secretaria_nome || '—';
-    porSec[k] = porSec[k] || { n: 0, d: 0, r: 0 };
-    porSec[k].n++; porSec[k].d += Number(x.valor_total || 0); porSec[k].r += totalReembolsos(x);
-  }
-  const tot = Object.values(porSec).reduce((a, v) => ({ n: a.n + v.n, d: a.d + v.d, r: a.r + v.r }), { n: 0, d: 0, r: 0 });
+function docRelatorioPeriodo(q) {
+  const f = { ano: q.get('ano') || '', mes: q.get('mes') || '', base: q.get('base') || 'viagem', secretaria: q.get('secretaria') || '', fonte: q.get('fonte') || '', situacao: q.get('situacao') || 'empenhadas' };
+  const sols = solicitacoesDoRelatorio(f);
+  const periodo = f.mes && f.ano ? `${MESES[Number(f.mes) - 1]}/${f.ano}` : f.mes ? MESES[Number(f.mes) - 1] : f.ano ? `Ano ${f.ano}` : 'Todo o período';
+  const ref = f.base === 'empenho' ? 'data do empenho' : 'data de saída da viagem';
+  const sit = (!pode.verValores() || f.situacao === 'empenhadas') ? 'solicitações empenhadas, liquidadas e pagas' : 'todas as solicitações calculadas';
+  const filtros = [f.secretaria ? 'Secretaria: ' + (estado.secretarias.find(x => x.id === f.secretaria)?.nome || '') : '', f.fonte ? 'Fonte: ' + f.fonte : ''].filter(Boolean).join(' · ');
+  const tab = (titulo, linhas) => {
+    const tot = linhas.reduce((a, [, v]) => ({ n: a.n + v.n, d: a.d + v.d, r: a.r + v.r }), { n: 0, d: 0, r: 0 });
+    return secao(titulo, `<table class="doc-tab"><thead><tr><th style="width:40%"></th><th>Qtd.</th><th>Diárias</th><th>Reembolsos</th><th>Total</th></tr></thead>
+      <tbody>${linhas.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v.n}</td><td>${moeda(v.d)}</td><td>${moeda(v.r)}</td><td><strong>${moeda(v.d + v.r)}</strong></td></tr>`).join('') || '<tr><td colspan="5">Nada no período.</td></tr>'}
+      <tr><td class="r">TOTAL</td><td class="r">${tot.n}</td><td class="r">${moeda(tot.d)}</td><td class="r">${moeda(tot.r)}</td><td class="r">${moeda(tot.d + tot.r)}</td></tr></tbody></table>`);
+  };
   return `<div class="folha folha-relatorio">
-    ${cabecalhoDoc('Relatório de Diárias', 'Período: ' + periodo + ' (data de saída da viagem) — solicitações canceladas não incluídas')}
-    ${secao('1 - Resumo por Secretaria', `<table class="doc-tab"><thead><tr><th>Secretaria</th><th>Viagens</th><th>Diárias</th><th>Reembolsos</th><th>Total</th></tr></thead>
-      <tbody>${Object.entries(porSec).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v.n}</td><td>${moeda(v.d)}</td><td>${moeda(v.r)}</td><td><strong>${moeda(v.d + v.r)}</strong></td></tr>`).join('') || '<tr><td colspan="5">Nenhuma viagem no período.</td></tr>'}
-      <tr><td class="r">TOTAL</td><td class="r">${tot.n}</td><td class="r">${moeda(tot.d)}</td><td class="r">${moeda(tot.r)}</td><td class="r">${moeda(tot.d + tot.r)}</td></tr></tbody></table>`)}
-    ${secao('2 - Solicitações', `<table class="doc-tab doc-tab-peq"><thead><tr><th style="width:9%">Nº</th><th style="width:20%">Servidor</th><th style="width:13%">Destino</th><th style="width:8%">Saída</th><th style="width:9%">Valor</th><th style="width:14%">Conta / Fonte</th><th style="width:6%">Ficha</th><th style="width:10%">Empenho</th><th style="width:11%">Etapa</th></tr></thead>
+    ${cabecalhoDoc('Relatório de Diárias', `Período: ${periodo} (pela ${ref}) — ${sit}${filtros ? ' — ' + filtros : ''}`)}
+    ${tab('1 - Resumo por Secretaria', agrupar(sols, s => s.secretaria_nome))}
+    ${tab('2 - Resumo por Fonte de Recursos', agrupar(sols, s => s.fonte_recursos))}
+    ${tab('3 - Resumo por Conta de Pagamento', agrupar(sols, s => s.conta_pagamento))}
+    ${secao('4 - Solicitações', `<table class="doc-tab doc-tab-peq"><thead><tr><th style="width:9%">Nº</th><th style="width:21%">Servidor</th><th style="width:13%">Destino</th><th style="width:8%">Saída</th><th style="width:15%">Fonte</th><th style="width:6%">Ficha</th><th style="width:11%">Empenho</th><th style="width:9%">Valor</th><th style="width:8%">Etapa</th></tr></thead>
       <tbody>${sols.map(x => `<tr><td>${esc(x.numero)}</td><td>${esc(x.servidor?.nome)}<br><small>${esc(x.secretaria_nome)}</small></td><td>${esc(x.destino_cidade)}/${esc(x.destino_uf)}</td>
-        <td>${esc(dataBR(x.data_hora_saida).slice(0, 10))}</td><td>${moeda(Number(x.valor_total || 0) + totalReembolsos(x))}</td>
-        <td>${esc(x.conta_pagamento || '')}${x.fonte_recursos ? '<br><small>' + esc(x.fonte_recursos) + '</small>' : ''}</td><td>${esc(x.ficha || '')}</td>
-        <td>${esc(x.numero_empenho || '')}</td><td>${esc(ETAPAS[etapaDe(x)].curto)}</td></tr>`).join('') || '<tr><td colspan="9">Nenhuma solicitação.</td></tr>'}</tbody></table>`)}
+        <td>${esc(dataBR(x.data_hora_saida).slice(0, 10))}</td><td>${esc(x.fonte_recursos || '')}</td><td>${esc(x.ficha || '')}</td>
+        <td>${esc(x.numero_empenho || '')}${x.data_empenho ? '<br><small>' + esc(dataBR(x.data_empenho)) + '</small>' : ''}</td><td>${moeda(Number(x.valor_total || 0) + totalReembolsos(x))}</td><td>${esc(ETAPAS[etapaDe(x)].curto)}</td></tr>`).join('') || '<tr><td colspan="9">Nenhuma solicitação.</td></tr>'}</tbody></table>`)}
     ${localData(hojeISO())}
+    <table class="doc-ass"><tr><td><div class="doc-linha-ass">Responsável<br><small>${esc(estado.sessao.nome)}</small></div></td><td></td></tr></table>
   </div>`;
 }
 
@@ -214,7 +217,7 @@ export function telaImprimir(el, { args, query }) {
     const sv = porId('servidores', partes[1]);
     html = sv ? docRelatorioServidor(sv, query.get('mes') || '', query.get('ano') || '') : naoAchou; voltar = '#/servidores/' + partes[1]; titulo = sv ? 'Relatório — ' + sv.nome : titulo;
   } else if (partes[0] === 'mensal') {
-    html = docRelatorioPeriodo(query.get('mes') || '', query.get('ano') || ''); voltar = '#/painel'; titulo = 'Relatório de diárias';
+    html = docRelatorioPeriodo(query); voltar = '#/relatorio'; titulo = 'Relatório de diárias';
   } else if (partes[0] === 'simulacao') {
     html = docSimulacao(); voltar = '#/simulador'; titulo = 'Simulação';
   } else html = naoAchou;

@@ -78,6 +78,8 @@ export const pode = {
   analisar: () => ['admin', 'controle_interno'].includes(perfilAtual()),
   // ficha, empenho, liquidação, pagamento e reembolsos
   contabil: () => ['admin', 'operador'].includes(perfilAtual()),
+  // relatório mensal com valores: quem vê valores + Controle Interno (só das solicitações já empenhadas)
+  relatorio: () => ['admin', 'operador', 'consulta', 'controle_interno'].includes(perfilAtual()),
   admin: () => perfilAtual() === 'admin'
 };
 
@@ -101,7 +103,10 @@ export const ativas = lista => lista.filter(s => s.status !== 'cancelada');
  */
 export const CAMPOS_VALOR = ['valor_total', 'valor_pernoite', 'valor_simples', 'valor_alimentacao', 'quantidade_pernoite',
   'quantidade_simples', 'quantidade_alimentacao', 'horas_total', 'faixa_codigo', 'faixa_texto', 'descricao_calculo',
-  'justificativa_legal', 'reembolsos', 'total_reembolsos'];
+  'justificativa_legal', 'reembolsos', 'total_reembolsos', 'liberado_ci'];
+
+/** Etapas a partir do empenho: os valores ficam liberados para o relatório do Controle Interno. */
+export const ETAPAS_EMPENHADAS = ['empenhada', 'liquidada', 'paga'];
 
 export function separarValores(dados) {
   const base = {}, val = {};
