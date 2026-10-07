@@ -304,7 +304,7 @@ const NOMES_ACAO = {
   'reembolso.lancar': 'Lançou reembolso', 'reembolso.editar': 'Editou reembolso', 'reembolso.excluir': 'Excluiu reembolso',
   'servidor.criar': 'Cadastrou servidor', 'servidor.editar': 'Editou servidor', 'secretaria.criar': 'Cadastrou secretaria',
   'secretaria.editar': 'Editou secretaria', 'parametros.alterar': 'Alterou parâmetros', 'usuario.criar': 'Criou usuário',
-  'usuario.editar': 'Editou usuário', 'importacao.banco_antigo': 'Importou banco antigo', 'solicitacao.etapa': 'Tramitou solicitação', 'backup.baixar': 'Baixou cópia de segurança'
+  'usuario.editar': 'Editou usuário', 'importacao.banco_antigo': 'Importou banco antigo', 'solicitacao.etapa': 'Tramitou solicitação', 'backup.baixar': 'Baixou cópia de segurança', 'servidor.pix': 'Alterou chave Pix', 'valores.proteger': 'Protegeu valores'
 };
 export function telaAuditoria(el) {
   el.innerHTML = cabecalho('Auditoria', '', 'Últimas 300 ações registradas no sistema.') + '<div id="logs" class="carregando"><div class="spinner"></div></div>';

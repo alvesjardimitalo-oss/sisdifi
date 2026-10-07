@@ -244,3 +244,19 @@ export function valorPorExtenso(valor) {
   if (cent) partes.push(inteiroExtenso(cent) + (cent === 1 ? ' centavo' : ' centavos'));
   return partes.join(' e ');
 }
+
+// ---------- Chave Pix ----------
+/** Identifica e valida a chave Pix. Retorna { ok, tipo, valor } com o valor normalizado. */
+export function analisarPix(chave) {
+  const v = String(chave || '').trim();
+  if (!v) return { ok: false, tipo: '', valor: '' };
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return { ok: true, tipo: 'E-mail', valor: v.toLowerCase() };
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)) return { ok: true, tipo: 'Chave aleatória', valor: v.toLowerCase() };
+  const d = v.replace(/\D/g, '');
+  if (/^\+?55/.test(v.replace(/[\s()-]/g, '')) && (d.length === 12 || d.length === 13)) return { ok: true, tipo: 'Telefone', valor: '+' + d };
+  // 11 dígitos com dígito verificador de CPF válido e sem formatação de telefone → CPF
+  if (d.length === 11 && cpfValido(d) && !/[()+\s]/.test(v)) return { ok: true, tipo: 'CPF', valor: d };
+  if (d.length === 14 && !/[a-z]/i.test(v)) return { ok: true, tipo: 'CNPJ', valor: d };
+  if ((d.length === 10 || d.length === 11) && !/[a-z]/i.test(v)) return { ok: true, tipo: 'Telefone', valor: '+55' + d };
+  return { ok: false, tipo: '', valor: v };
+}

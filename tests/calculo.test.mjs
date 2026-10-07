@@ -1,5 +1,5 @@
 // Testes do motor de cálculo: node tests/calculo.test.mjs [registros_antigos.json]
-import { calcularDiaria, faixaDistancia, cpfValido, periodosSobrepostos, valorPorExtenso } from '../assets/js/calculo.js';
+import { calcularDiaria, faixaDistancia, cpfValido, periodosSobrepostos, valorPorExtenso, analisarPix } from '../assets/js/calculo.js';
 import fs from 'node:fs';
 let falhas = 0;
 const ok = (cond, msg) => { if (!cond) { falhas++; console.log('FALHA:', msg); } };
@@ -36,6 +36,11 @@ ok(valorPorExtenso(750) === 'setecentos e cinquenta reais', 'extenso 750');
 ok(valorPorExtenso(7560) === 'sete mil quinhentos e sessenta reais', 'extenso 7560');
 ok(valorPorExtenso(1300) === 'mil e trezentos reais', 'extenso 1300');
 ok(valorPorExtenso(30.5) === 'trinta reais e cinquenta centavos', 'extenso centavos');
+
+ok(analisarPix('529.982.247-25').tipo === 'CPF', 'pix cpf');
+ok(analisarPix('(33) 99855-6503').valor === '+5533998556503', 'pix telefone');
+ok(analisarPix('a@b.com').tipo === 'E-mail', 'pix email');
+ok(!analisarPix('12345').ok, 'pix inválido');
 
 // Comparação com o banco antigo (opcional)
 const arq = process.argv[2];

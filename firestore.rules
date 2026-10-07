@@ -62,6 +62,11 @@ service cloud.firestore {
 
     match /secretarias/{id} {
       allow read: if ativo();
+      // Secretaria pode incluir a chave Pix (servidor sem Pix) ou alterá-la nos servidores da própria secretaria — somente esse campo.
+      allow update: if secretaria()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['chave_pix', 'atualizado_em', 'atualizado_por'])
+        && request.resource.data.chave_pix is string && request.resource.data.chave_pix.size() > 0
+        && (resource.data.get('chave_pix', '') == '' || resource.data.get('secretaria_id', '') == minhaSecretaria());
       allow create, update: if operador() && request.resource.data.nome is string && request.resource.data.nome.size() > 0;
       allow delete: if admin();
     }

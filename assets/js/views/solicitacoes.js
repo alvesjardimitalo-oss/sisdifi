@@ -1,7 +1,7 @@
 // SISDIFI — Solicitações de diária: lista, nova, detalhe/edição, empenho e reembolsos
 import * as db from '../db.js';
 import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ETAPAS, etapaDe, ehSecretaria, separarValores } from '../estado.js';
-import { formServidor } from './servidores.js';
+import { formServidor, formPix, podeAlterarPix } from './servidores.js';
 import { calcularDiaria, moeda, horasBR, formatarCpf, periodosSobrepostos, GRUPOS, cpfValido } from '../calculo.js';
 import { esc, $, $$, toast, modal, confirmar, hojeISO, dataBR, numeroBR, normalizar, lerForm, baixarArquivo, csv, mensagemErro } from '../ui.js';
 import { listarUFs, listarMunicipios, calcularDistanciaRodoviaria, chaveDistancia } from '../localidades.js';
@@ -284,10 +284,13 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
       const s = porId('servidores', id);
       if (!s) return '';
       return `<div class="sv-item"><div><strong>${esc(s.nome)}</strong>
-        <small>${esc(formatarCpf(s.cpf))} · ${esc(s.cargo_funcao)} · ${esc(GRUPOS[s.grupo] || '')}${s.chave_pix ? ' · Pix: ' + esc(s.chave_pix) : ''}</small></div>
+        <small>${esc(formatarCpf(s.cpf))} · ${esc(s.cargo_funcao)} · ${esc(GRUPOS[s.grupo] || '')}${s.chave_pix ? ' · Pix: ' + esc(s.chave_pix) : ''}</small>
+        ${!s.chave_pix ? `<small class="erro-txt">⚠ Servidor sem chave Pix.</small>` : ''}
+        ${podeAlterarPix(s) ? `<button type="button" class="link link-peq" data-pix-sv="${esc(id)}">${s.chave_pix ? 'alterar chave Pix' : '＋ adicionar chave Pix'}</button>` : ''}</div>
         ${multiplo || selecionados.length > 1 ? `<button type="button" class="btn-icone" data-remover="${esc(id)}" aria-label="Remover">✕</button>` : ''}</div>`;
     }).join('') || '<p class="muted">Nenhum servidor selecionado.</p>';
     $$('[data-remover]', el).forEach(b => b.onclick = () => { selecionados = selecionados.filter(x => x !== b.dataset.remover); desenharSelecionados(); recalcular(); });
+    $$('[data-pix-sv]', el).forEach(b => b.onclick = () => formPix(porId('servidores', b.dataset.pixSv), () => setTimeout(() => { desenharSelecionados(); recalcular(); }, 150)));
   }
   function adicionar(id) {
     if (!multiplo) selecionados = [id];
@@ -445,6 +448,7 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
       // Secretaria não vê valores: mostra só a conferência do que falta preencher.
       const itens = [
         ['Servidor(es)', selecionados.length > 0],
+        ['Chave Pix do(s) servidor(es)', selecionados.length > 0 && selecionados.every(id => porId('servidores', id)?.chave_pix)],
         ['Saída e chegada', !!(d.data_hora_saida && d.data_hora_retorno) && !linhas.some(l => l.erro && /retorno|data/i.test(l.erro))],
         ['Destino', !!(d.destino_cidade)],
         ['Conta para pagamento', !!d.conta_pagamento],
