@@ -71,7 +71,7 @@ export function secretariaDaLotacao(texto, secretarias) {
 
 /** Enquadramento sugerido pela lotação: agente político e vice-prefeito → secretários; demais → demais servidores. */
 export function grupoSugerido(vinculo) {
-  return /AGENTE POL|VICE[- ]PREFEITO/i.test(vinculo || '') ? 'VICE_SECRETARIO_JURIDICO' : 'DEMAIS_SERVIDORES';
+  return /AGENTES? POL|VICE[- ]PREFEITO/i.test(vinculo || '') ? 'VICE_SECRETARIO_JURIDICO' : 'DEMAIS_SERVIDORES';
 }
 export const ehInativo = p => /APOSENTAD|PENS[OÕ]ES|PENSIONIST|INATIVOS/i.test([p.vinculo, ...(p.lotacao || [])].join(' '));
 

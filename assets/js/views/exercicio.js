@@ -5,7 +5,7 @@ import { GRUPOS } from '../calculo.js';
 import { esc, $, $$, toast, confirmar, mensagemErro, dataBR } from '../ui.js';
 import { aguardando, cabecalho, anosDisponiveis } from './comum.js';
 import { importarPDFsOrcamento } from './orcamento.js';
-import { importarRelacao, revisarCategorias, categoriaEsperada } from './servidores.js';
+import { importarRelacao, importarFolha, revisarCategorias, categoriaEsperada } from './servidores.js';
 
 /** Perguntas da abertura do exercício: [chave, pergunta, o que fazer se mudou]. */
 export const PERGUNTAS = [
@@ -70,7 +70,7 @@ export function telaExercicio(el) {
             <label class="check"><input type="radio" name="p-${k}" value="sim" ${resp[k] === 'sim' ? 'checked' : ''}> Sim, mudou</label>
           </div>
           ${resp[k] === 'sim' ? `<div class="alerta alerta-info">${esc(acao)}
-            ${k === 'agentes' ? `<br><button class="btn btn-sec btn-peq" id="ab-relacao">📄 Importar relação de servidores</button> <button class="btn btn-sec btn-peq" id="ab-categorias">⚖ Revisar categorias${foraDaRegra ? ` (${foraDaRegra} fora da regra)` : ''}</button>` : ''}
+            ${k === 'agentes' ? `<br><button class="btn btn-sec btn-peq" id="ab-relacao">📄 Importar relação de servidores</button> <button class="btn btn-sec btn-peq" id="ab-folha">📄 Atualizar pela folha</button> <button class="btn btn-sec btn-peq" id="ab-categorias">⚖ Revisar categorias${foraDaRegra ? ` (${foraDaRegra} fora da regra)` : ''}</button>` : ''}
             ${k === 'lei' && pode.admin() ? '<br><a class="btn btn-sec btn-peq" href="#/parametros">Abrir Parâmetros da lei</a>' : ''}
             ${k === 'contas' ? '<br><a class="btn btn-sec btn-peq" href="#/secretarias">Abrir Secretarias</a>' : ''}
             ${k === 'usuarios' && pode.admin() ? '<br><a class="btn btn-sec btn-peq" href="#/usuarios">Abrir Usuários</a>' : ''}</div>` : ''}
@@ -92,6 +92,7 @@ export function telaExercicio(el) {
   $$('.sim-nao input', el).forEach(r => r.onchange = () => salvar({ respostas: { [r.name.slice(2)]: r.value } }));
   $('#ab-orc', el).onclick = () => importarPDFsOrcamento();
   $('#ab-relacao', el)?.addEventListener('click', () => importarRelacao());
+  $('#ab-folha', el)?.addEventListener('click', () => importarFolha());
   $('#ab-categorias', el)?.addEventListener('click', () => revisarCategorias());
   $('#ab-concluir', el).onclick = async () => {
     if (!okOrc && !(await confirmar(`O orçamento de ${ano} ainda não foi importado. Concluir a abertura mesmo assim?`, { ok: 'Concluir' }))) return;

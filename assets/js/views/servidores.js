@@ -6,6 +6,7 @@ import { esc, $, $$, toast, modal, dataBR, numeroBR, normalizar, lerForm, mensag
 import { aguardando, cabecalho, selo, opcoesSecretarias, anosDisponiveis, MESES } from './comum.js';
 import { extrairLinhas } from '../orcamento-pdf.js';
 import { temPix, cpfOk, cpfExibir, pixExibir } from '../privacidade.js';
+import { analisarFolha, cruzarFolha, cargoDaFolha } from '../folha-pdf.js';
 import { analisarRelacaoServidores, compararComCadastro, secretariaDaLotacao, grupoSugerido, nomeProprio, SITUACOES } from '../servidores-pdf.js';
 
 const filtros = { busca: '', secretaria: '', status: '1', grupo: '', pix: '', ordem: 'az', pagina: 1 };
@@ -34,7 +35,7 @@ export function telaServidores(el) {
   const semCargo = estado.servidores.filter(s => s.ativo !== false && !s.cargo_funcao).length;
 
   el.innerHTML = `
-    ${cabecalho('Servidores', `${ehSecretaria() ? '' : '<button class="btn btn-sec" id="exp-sv">⭳ Exportar</button>'}${pode.editar() ? '<button class="btn btn-sec" id="revisar-cat">⚖ Revisar categorias</button><button class="btn btn-sec" id="importar-rel">📄 Importar relação (PDF)</button>' : ''}${pode.solicitar() ? '<button class="btn" id="novo-sv">＋ Novo servidor</button>' : ''}`,
+    ${cabecalho('Servidores', `${ehSecretaria() ? '' : '<button class="btn btn-sec" id="exp-sv">⭳ Exportar</button>'}${pode.editar() ? '<button class="btn btn-sec" id="revisar-cat">⚖ Revisar categorias</button><button class="btn btn-sec" id="importar-rel">📄 Importar relação (PDF)</button><button class="btn btn-sec" id="importar-folha">📄 Atualizar pela folha (PDF)</button>' : ''}${pode.solicitar() ? '<button class="btn" id="novo-sv">＋ Novo servidor</button>' : ''}`,
       ehSecretaria() ? 'Pesquise no banco de servidores da Prefeitura. Complete a chave Pix e o cargo de quem estiver pendente, ou cadastre um servidor novo.' : '')}
     ${semPix ? `<div class="alerta">⚠ ${semPix} servidor(es) ativo(s) sem chave Pix. Use o filtro "Pendências" → "Sem chave Pix" e clique no botão "＋" da linha para completar.</div>` : ''}
     ${semCargo ? `<div class="alerta">⚠ ${semCargo} servidor(es) ativo(s) sem cargo/função informado. Use o filtro "Pendências" → "Sem cargo" e clique no botão "＋" da linha.</div>` : ''}
@@ -87,6 +88,7 @@ export function telaServidores(el) {
     ? formServidor(null, { secretariaFixa: estado.sessao.secretaria_id, aoSalvar: () => {} })
     : formServidor(null));
   $('#importar-rel', el)?.addEventListener('click', () => importarRelacao());
+  $('#importar-folha', el)?.addEventListener('click', () => importarFolha());
   $('#revisar-cat', el)?.addEventListener('click', () => revisarCategorias());
   $$('[data-pix]', el).forEach(b => b.onclick = ev => { ev.stopPropagation(); formPix(porId('servidores', b.dataset.pix)); });
   if ($('#exp-sv', el)) $('#exp-sv', el).onclick = () => baixarArquivo(`servidores-${hojeISO()}.csv`, csv([
@@ -424,13 +426,136 @@ export function importarRelacao() {
   };
 }
 
+// ---------- Atualização pela Folha de Pagamento (cargo, vínculo e secretaria) ----------
+// A folha não tem CPF: o cruzamento é pela matrícula (e pelo nome, se faltar). Salários e descontos são ignorados.
+const GRUPOS_FOLHA = {
+  preencher: { nome: 'Cargo a preencher', dica: 'sem cargo no cadastro' },
+  cargo: { nome: 'Cargo diferente', dica: 'confira antes de trocar' },
+  secretaria: { nome: 'Mudou de secretaria', dica: 'lotação atual na folha' },
+  fora: { nome: 'Fora da folha', dica: 'ativos que não estão nela' },
+  sem: { nome: 'Sem cadastro', dica: 'importe a relação de pessoal (tem CPF)' }
+};
+export function importarFolha() {
+  const m = modal({
+    titulo: 'Atualizar servidores pela folha de pagamento', largura: 1120,
+    corpo: `<p>Escolha o PDF da <strong>Folha de Pagamento</strong> (ordem lotação/alfabética). O sistema cruza cada servidor pela
+      <strong>matrícula</strong> e atualiza <strong>cargo, vínculo e secretaria</strong>. Salários e descontos não são lidos nem guardados.
+      Nada é criado: quem não tem cadastro aparece para você importar pela relação de pessoal, que traz o CPF.</p>
+      <label class="campo"><span>Arquivo PDF</span><input type="file" id="fl-arq" accept="application/pdf,.pdf"></label>
+      <div id="fl-prev"></div>
+      <p class="erro-form" id="fl-erro"></p><div id="fl-prog"></div>
+      <div class="acoes-form"><button type="button" class="btn btn-sec" data-cancelar>Cancelar</button><button class="btn" id="fl-aplicar" disabled>Aplicar</button></div>`
+  });
+  m.el.querySelector('[data-cancelar]').onclick = m.fechar;
+  let r = null, filtro = 'preencher', ref = '';
+  const linhasDe = g => !r ? [] : g === 'fora' ? r.fora : g === 'sem' ? r.itens.filter(i => !i.servidor)
+    : g === 'preencher' ? r.itens.filter(i => i.mudancas.cargo_funcao && !i.servidor.cargo_funcao)
+    : g === 'cargo' ? r.itens.filter(i => i.mudancas.cargo_funcao && i.servidor.cargo_funcao)
+    : r.itens.filter(i => i.mudancas.secretaria_id);
+
+  const desenhar = () => {
+    if (!r) { $('#fl-prev', m.el).innerHTML = ''; return; }
+    const vis = linhasDe(filtro);
+    const nVinc = r.itens.filter(i => i.mudancas.vinculo).length;
+    const col = filtro === 'secretaria' ? 'sec' : filtro === 'fora' ? 'inativar' : 'cargo';
+    const marcado = x => filtro === 'fora' ? !!x.inativar : filtro === 'secretaria' ? x.usarSec : x.usarCargo;
+    $('#fl-prev', m.el).innerHTML = `
+      <div class="kpis kpis-peq">${Object.entries(GRUPOS_FOLHA).map(([k, v]) => `<button type="button" class="kpi ${filtro === k ? 'kpi-ativo' : ''}" data-g="${k}"><span>${esc(v.nome)}</span><strong>${linhasDe(k).length}</strong><small class="muted">${esc(v.dica)}</small></button>`).join('')}</div>
+      <p class="muted">${r.itens.length} pessoa(s) na folha${ref ? ` de ${esc(ref)}` : ''} · ${r.itens.filter(i => i.por === 'matricula').length} encontradas pela matrícula, ${r.itens.filter(i => i.por === 'nome').length} pelo nome ·
+        ${nVinc} vínculo(s) (efetivo, contratado, agente político…) serão atualizados.</p>
+      ${filtro === 'cargo' ? '<p class="dica">A folha traz o cargo oficial (às vezes abreviado). Desmarque quem deve manter o cargo do cadastro, por exemplo uma função mais específica.</p>' : ''}
+      ${filtro === 'fora' ? '<p class="dica">Podem ser servidores que saíram, aposentados e pensionistas, ou cadastros antigos. Marque só quem deve ficar inativo: ele some das novas solicitações, e o histórico continua.</p>' : ''}
+      <div class="tabela-wrap tabela-rolagem"><table class="tabela tabela-peq">
+        <thead><tr>${filtro === 'sem' ? '' : `<th><input type="checkbox" id="fl-todos" title="Marcar/desmarcar todos"></th>`}<th>Servidor</th><th>Matrícula</th>
+          ${filtro === 'fora' ? '<th>Cargo</th><th>Secretaria</th>' : filtro === 'sem' ? '<th>Cargo na folha</th><th>Lotação</th>' : filtro === 'secretaria' ? '<th>Secretaria hoje</th><th>Na folha</th>' : '<th>Cargo hoje</th><th>Na folha</th>'}</tr></thead>
+        <tbody>${vis.map(x => {
+          const idx = filtro === 'fora' ? r.fora.indexOf(x) : r.itens.indexOf(x);
+          if (filtro === 'fora') return `<tr><td><input type="checkbox" data-x="${idx}" ${marcado(x) ? 'checked' : ''}></td><td><strong>${esc(x.nome)}</strong><small class="muted bloco">${esc(nomeProprio(x.vinculo || '') || 'sem vínculo')}</small></td>
+            <td>${esc(x.matricula || '—')}</td><td>${esc(x.cargo_funcao || '—')}</td><td>${esc(secretariaNome(x.secretaria_id) || '—')}</td></tr>`;
+          const f = x.folha;
+          if (filtro === 'sem') return `<tr><td><strong>${esc(nomeProprio(f.nome))}</strong><small class="muted bloco">${esc(nomeProprio(f.situacao))}</small></td><td>${esc(f.matricula)}</td><td>${esc(cargoDaFolha(f.funcao))}</td><td>${esc(f.secretaria_texto)}</td></tr>`;
+          const sv = x.servidor;
+          const [hoje, folha] = filtro === 'secretaria' ? [secretariaNome(sv.secretaria_id) || '—', secretariaNome(x.mudancas.secretaria_id)] : [sv.cargo_funcao || '—', x.mudancas.cargo_funcao];
+          return `<tr><td><input type="checkbox" data-x="${idx}" ${marcado(x) ? 'checked' : ''}></td>
+            <td><strong>${esc(sv.nome)}</strong><small class="muted bloco">${esc(nomeProprio(f.situacao))}${x.por === 'nome' ? ' · achado pelo nome' : ''}</small></td><td>${esc(f.matricula)}</td>
+            <td>${esc(hoje)}</td><td><strong>${esc(folha)}</strong>${filtro === 'secretaria' ? `<small class="muted bloco">${esc(nomeProprio(f.lotacao.slice(1).join(' / ')))}</small>` : ''}</td></tr>`;
+        }).join('') || `<tr><td colspan="5" class="vazio-linha">Ninguém nesta situação.</td></tr>`}</tbody></table></div>`;
+    $$('[data-g]', m.el).forEach(b => b.onclick = () => { filtro = b.dataset.g; desenhar(); });
+    const marcar = (x, v) => { if (filtro === 'fora') x.inativar = v; else if (filtro === 'secretaria') x.usarSec = v; else x.usarCargo = v; };
+    const lista = filtro === 'fora' ? r.fora : r.itens;
+    $$('[data-x]', m.el).forEach(c => c.onchange = () => { marcar(lista[c.dataset.x], c.checked); contar(); });
+    $('#fl-todos', m.el)?.addEventListener('change', e => { vis.forEach(x => marcar(x, e.target.checked)); desenhar(); });
+    contar();
+  };
+  const montarOps = () => {
+    const agora = new Date().toISOString(), ops = [];
+    for (const it of r.itens) {
+      if (!it.servidor) continue;
+      const d = {}, md = it.mudancas;
+      if (md.vinculo) d.vinculo = md.vinculo;
+      if (md.matricula) d.matricula = md.matricula;
+      if (md.cargo_funcao && it.usarCargo) { d.cargo_funcao = md.cargo_funcao; if (it.servidor.cargo_funcao) d.cargo_anterior = it.servidor.cargo_funcao; }
+      if (md.secretaria_id && it.usarSec) d.secretaria_id = md.secretaria_id;
+      if (Object.keys(d).length) ops.push({ colecao: 'servidores', id: it.servidor.id, dados: { ...d, folha_referencia: ref || null, atualizado_em: agora } });
+    }
+    for (const s of r.fora) if (s.inativar) ops.push({ colecao: 'servidores', id: s.id, dados: { ativo: false, inativado_motivo: `fora da folha ${ref}`.trim(), atualizado_em: agora } });
+    return ops;
+  };
+  const contar = () => {
+    const ops = montarOps(), btn = $('#fl-aplicar', m.el);
+    const n = k => ops.filter(o => k in o.dados).length;
+    btn.disabled = !ops.length;
+    btn.textContent = `Aplicar (${n('cargo_funcao')} cargo(s), ${n('secretaria_id')} secretaria(s), ${n('vinculo')} vínculo(s)${n('ativo') ? `, ${n('ativo')} inativado(s)` : ''})`;
+  };
+
+  $('#fl-arq', m.el).onchange = async e => {
+    const arq = e.target.files[0];
+    r = null; ref = ''; $('#fl-erro', m.el).textContent = ''; desenhar();
+    if (!arq) return;
+    $('#fl-prog', m.el).textContent = 'Lendo o PDF…';
+    try {
+      const linhas = await extrairLinhas(await arq.arrayBuffer());
+      ref = (linhas.join(' ').match(/REFER[EÊ]NCIA:\s*([A-ZÇ]+\/\d{4})/i) || [])[1] || '';
+      const folha = analisarFolha(linhas);
+      if (!folha.length) throw new Error('Não encontrei servidores neste PDF (é a "Folha de Pagamento" em ordem de lotação?).');
+      r = cruzarFolha(folha, estado.servidores, estado.secretarias);
+      r.itens.forEach(i => { i.usarCargo = true; i.usarSec = true; });
+      filtro = Object.keys(GRUPOS_FOLHA).find(g => linhasDe(g).length) || 'preencher';
+      $('#fl-prog', m.el).textContent = '';
+    } catch (err) {
+      $('#fl-prog', m.el).textContent = '';
+      $('#fl-erro', m.el).textContent = /import|fetch|module/i.test(String(err?.message)) ? 'Não foi possível carregar o leitor de PDF (verifique a internet).' : (err?.message || String(err));
+    }
+    desenhar();
+  };
+
+  $('#fl-aplicar', m.el).onclick = async () => {
+    const btn = $('#fl-aplicar', m.el); btn.disabled = true;
+    const ops = montarOps();
+    try {
+      const falhas = await db.gravarEmLote(ops, (i, n) => { $('#fl-prog', m.el).innerHTML = `<progress max="${n}" value="${i}"></progress> ${i}/${n}`; });
+      const n = k => ops.filter(o => k in o.dados).length;
+      await db.registrarLog('servidor.atualizar_folha', { referencia: ref, cargos: n('cargo_funcao'), secretarias: n('secretaria_id'), vinculos: n('vinculo'), inativados: n('ativo'), falhas: falhas.length });
+      if (falhas.length) {
+        $('#fl-erro', m.el).innerHTML = `${falhas.length} registro(s) não foram gravados: ${falhas.slice(0, 5).map(f => esc(f.nome) + ' (' + esc(f.erro) + ')').join(', ')}`;
+        btn.disabled = false; return;
+      }
+      m.fechar();
+      toast(`Folha ${ref} aplicada: ${n('cargo_funcao')} cargo(s), ${n('secretaria_id')} secretaria(s) e ${n('vinculo')} vínculo(s) atualizados.`);
+      // com o vínculo novo, os agentes políticos ficam identificados: abre a revisão das categorias se houver ajuste
+      setTimeout(() => { if (estado.servidores.some(s => s.ativo !== false && categoriaEsperada(s) !== s.grupo)) revisarCategorias(); }, 800);
+    } catch (err) { $('#fl-erro', m.el).textContent = mensagemErro(err); btn.disabled = false; }
+  };
+}
+
 // ---------- Revisão das categorias (Anexo I) ----------
 // Regra da Prefeitura: todos são "Demais Servidores", exceto agentes políticos (secretários) e vice-prefeito,
 // identificados pelo vínculo da relação de pessoal; o Prefeito mantém a própria categoria.
 const CARGO_POLITICO = /^\s*(secret[aá]ri[oa](\s+(municipal|adjunt[oa]|de|da|do)\b.*)?|vice[- ]?prefeit[oa])\s*$/i;
 export function categoriaEsperada(sv) {
   if (sv.grupo === 'PREFEITO') return 'PREFEITO';
-  if (/AGENTE POL|VICE[- ]?PREFEITO/i.test(sv.vinculo || '')) return 'VICE_SECRETARIO_JURIDICO';
+  if (/AGENTES? POL/i.test(sv.vinculo || '') && /^\s*prefeit[oa]\s*$/i.test(sv.cargo_funcao || '')) return 'PREFEITO';
+  if (/AGENTES? POL|VICE[- ]?PREFEITO/i.test(sv.vinculo || '')) return 'VICE_SECRETARIO_JURIDICO';
   // sem o vínculo da relação de pessoal, o cargo "Secretário(a) …" ou "Vice-Prefeito" indica agente político
   if (!sv.vinculo && CARGO_POLITICO.test(sv.cargo_funcao || '')) return 'VICE_SECRETARIO_JURIDICO';
   return 'DEMAIS_SERVIDORES';
