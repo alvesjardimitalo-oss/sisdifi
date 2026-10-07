@@ -78,11 +78,12 @@ service cloud.firestore {
         && (!alterou(['cargo_funcao']) || (request.resource.data.cargo_funcao is string && request.resource.data.cargo_funcao.size() > 0
             && (resource.data.get('cargo_funcao', '') == '' || resource.data.get('secretaria_id', '') == minhaSecretaria())));
       // Secretaria pode cadastrar servidor novo (lotado nela); nos existentes, só completa Pix e cargo (regra acima).
+      // A categoria (Anexo I) é sempre "Demais Servidores": só a Contabilidade enquadra agentes políticos.
       allow create: if secretaria()
         && request.resource.data.secretaria_id == minhaSecretaria()
         && request.resource.data.nome is string
         && request.resource.data.cpf is string && request.resource.data.cpf.size() == 11
-        && request.resource.data.grupo in ['PREFEITO', 'VICE_SECRETARIO_JURIDICO', 'DEMAIS_SERVIDORES'];
+        && request.resource.data.grupo == 'DEMAIS_SERVIDORES';
       allow create, update: if operador()
         && request.resource.data.nome is string
         && request.resource.data.cpf is string && request.resource.data.cpf.size() == 11

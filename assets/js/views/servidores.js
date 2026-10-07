@@ -33,7 +33,7 @@ export function telaServidores(el) {
   const semCargo = estado.servidores.filter(s => s.ativo !== false && !s.cargo_funcao).length;
 
   el.innerHTML = `
-    ${cabecalho('Servidores', `${ehSecretaria() ? '' : '<button class="btn btn-sec" id="exp-sv">⭳ Exportar</button>'}${pode.editar() ? '<button class="btn btn-sec" id="importar-rel">📄 Importar relação (PDF)</button>' : ''}${pode.solicitar() ? '<button class="btn" id="novo-sv">＋ Novo servidor</button>' : ''}`,
+    ${cabecalho('Servidores', `${ehSecretaria() ? '' : '<button class="btn btn-sec" id="exp-sv">⭳ Exportar</button>'}${pode.editar() ? '<button class="btn btn-sec" id="revisar-cat">⚖ Revisar categorias</button><button class="btn btn-sec" id="importar-rel">📄 Importar relação (PDF)</button>' : ''}${pode.solicitar() ? '<button class="btn" id="novo-sv">＋ Novo servidor</button>' : ''}`,
       ehSecretaria() ? 'Pesquise no banco de servidores da Prefeitura. Complete a chave Pix e o cargo de quem estiver pendente, ou cadastre um servidor novo.' : '')}
     ${semPix ? `<div class="alerta">⚠ ${semPix} servidor(es) ativo(s) sem chave Pix. Use o filtro "Pendências" → "Sem chave Pix" e clique no botão "＋" da linha para completar.</div>` : ''}
     ${semCargo ? `<div class="alerta">⚠ ${semCargo} servidor(es) ativo(s) sem cargo/função informado. Use o filtro "Pendências" → "Sem cargo" e clique no botão "＋" da linha.</div>` : ''}
@@ -86,6 +86,7 @@ export function telaServidores(el) {
     ? formServidor(null, { secretariaFixa: estado.sessao.secretaria_id, aoSalvar: () => {} })
     : formServidor(null));
   $('#importar-rel', el)?.addEventListener('click', () => importarRelacao());
+  $('#revisar-cat', el)?.addEventListener('click', () => revisarCategorias());
   $$('[data-pix]', el).forEach(b => b.onclick = ev => { ev.stopPropagation(); formPix(porId('servidores', b.dataset.pix)); });
   if ($('#exp-sv', el)) $('#exp-sv', el).onclick = () => baixarArquivo(`servidores-${hojeISO()}.csv`, csv([
     ['Nome', 'CPF', 'Matrícula', 'Chave Pix', 'Cargo/Função', 'Vínculo', 'Categoria', 'Secretaria', 'Situação'],
@@ -109,8 +110,9 @@ export function formServidor(s, { rapido = false, inicial = {}, secretariaFixa =
       <label class="campo"><span>CPF *</span><input name="cpf" value="${esc(formatarCpf(v.cpf || ''))}" inputmode="numeric" maxlength="14" required></label>
       <label class="campo"><span>Chave Pix * <small class="muted" id="pix-tipo"></small></span><input name="chave_pix" value="${esc(v.chave_pix || '')}" maxlength="120" required placeholder="CPF, e-mail, telefone ou chave aleatória"></label>
       <label class="campo"><span>Cargo/Função *</span><input name="cargo_funcao" value="${esc(v.cargo_funcao || '')}" required maxlength="120"></label>
-      <label class="campo"><span>Enquadramento do cargo (Anexo I) *</span><select name="grupo" required>
-        ${Object.entries(GRUPOS).map(([k, n]) => `<option value="${k}" ${(v.grupo || 'DEMAIS_SERVIDORES') === k ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+      ${pode.editar() ? `<label class="campo"><span>Enquadramento do cargo (Anexo I) *</span><select name="grupo" required>
+        ${Object.entries(GRUPOS).map(([k, n]) => `<option value="${k}" ${(v.grupo || 'DEMAIS_SERVIDORES') === k ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>`
+        : `<input type="hidden" name="grupo" value="DEMAIS_SERVIDORES"><div class="campo"><span>Enquadramento do cargo (Anexo I)</span><input value="${esc(GRUPOS.DEMAIS_SERVIDORES)}" disabled><small class="dica">Só a Contabilidade altera a categoria (ex.: agentes políticos).</small></div>`}
       ${fixa
         ? `<input type="hidden" name="secretaria_id" value="${esc(secretariaFixa)}">`
         : `<label class="campo"><span>Secretaria de lotação</span><select name="secretaria_id">${opcoesSecretarias(v.secretaria_id || secretariaFixa || '', { vazio: '— Nenhuma —' })}</select></label>`}
@@ -139,7 +141,7 @@ export function formServidor(s, { rapido = false, inicial = {}, secretariaFixa =
       if (rapido && aoSalvar && dup.ativo !== false) { toast(`${dup.nome} já estava cadastrado — incluído na solicitação.`, 'aviso'); m.fechar(); aoSalvar(dup.id); return; }
       return (erro.textContent = `Já existe servidor com este CPF: ${dup.nome}${dup.ativo === false ? ' (inativo — peça à Contabilidade para reativar)' : ''}.`);
     }
-    const dados = { nome: d.nome.replace(/\s+/g, ' ').trim(), cpf, chave_pix: d.chave_pix, cargo_funcao: d.cargo_funcao, grupo: d.grupo, secretaria_id: d.secretaria_id || null, ativo: d.ativo === '1' };
+    const dados = { nome: d.nome.replace(/\s+/g, ' ').trim(), cpf, chave_pix: d.chave_pix, cargo_funcao: d.cargo_funcao, grupo: pode.editar() ? d.grupo : 'DEMAIS_SERVIDORES', secretaria_id: d.secretaria_id || null, ativo: d.ativo === '1' };
     try {
       const id = await db.salvar('servidores', s?.id || null, dados);
       await db.registrarLog(s ? 'servidor.editar' : 'servidor.criar', { nome: dados.nome, ...(s && s.grupo !== dados.grupo ? { categoria_anterior: s.grupo, categoria_nova: dados.grupo } : {}) });
@@ -414,4 +416,53 @@ export function importarRelacao() {
       m.fechar();
     } catch (err) { $('#rel-erro', m.el).textContent = mensagemErro(err); btn.disabled = false; }
   };
+}
+
+// ---------- Revisão das categorias (Anexo I) ----------
+// Regra da Prefeitura: todos são "Demais Servidores", exceto agentes políticos (secretários) e vice-prefeito,
+// identificados pelo vínculo da relação de pessoal; o Prefeito mantém a própria categoria.
+const CARGO_POLITICO = /^\s*(secret[aá]ri[oa](\s+(municipal|adjunt[oa]|de|da|do)\b.*)?|vice[- ]?prefeit[oa])\s*$/i;
+export function categoriaEsperada(sv) {
+  if (sv.grupo === 'PREFEITO') return 'PREFEITO';
+  if (/AGENTE POL|VICE[- ]?PREFEITO/i.test(sv.vinculo || '')) return 'VICE_SECRETARIO_JURIDICO';
+  // sem o vínculo da relação de pessoal, o cargo "Secretário(a) …" ou "Vice-Prefeito" indica agente político
+  if (!sv.vinculo && CARGO_POLITICO.test(sv.cargo_funcao || '')) return 'VICE_SECRETARIO_JURIDICO';
+  return 'DEMAIS_SERVIDORES';
+}
+
+function revisarCategorias() {
+  const lista = estado.servidores.filter(s => s.ativo !== false && categoriaEsperada(s) !== s.grupo)
+    .map(s => ({ s, nova: categoriaEsperada(s), conferir: !s.vinculo }))
+    .sort((a, b) => (a.conferir - b.conferir) || a.s.nome.localeCompare(b.s.nome, 'pt-BR'));
+  const politicos = estado.servidores.filter(s => s.ativo !== false && categoriaEsperada(s) === 'VICE_SECRETARIO_JURIDICO');
+  const m = modal({
+    titulo: 'Revisar categorias dos servidores', largura: 900,
+    corpo: `<p>Regra: todos ficam em <strong>${esc(GRUPOS.DEMAIS_SERVIDORES)}</strong>, exceto os <strong>agentes políticos</strong> e o vice-prefeito
+      (pelo vínculo da relação de pessoal), que ficam em <strong>${esc(GRUPOS.VICE_SECRETARIO_JURIDICO)}</strong>. O Prefeito não é alterado.</p>
+      <details><summary>Agentes políticos identificados (${politicos.length})</summary>
+        <p class="muted">${politicos.map(s => esc(s.nome) + ' · ' + esc(secretariaNome(s.secretaria_id) || '—')).join('<br>') || 'Nenhum — importe a relação de servidores para trazer o vínculo.'}</p></details>
+      ${lista.length ? `<div class="tabela-wrap tabela-rolagem"><table class="tabela tabela-peq">
+        <thead><tr><th><input type="checkbox" id="cat-todos"></th><th>Servidor</th><th>Vínculo</th><th>Categoria atual</th><th>Passa a ser</th></tr></thead>
+        <tbody>${lista.map((x, i) => `<tr><td><input type="checkbox" data-cat="${i}" ${x.conferir ? '' : 'checked'}></td>
+          <td><strong>${esc(x.s.nome)}</strong><small class="muted bloco">${esc(x.s.cargo_funcao || 'cargo a informar')} · ${esc(secretariaNome(x.s.secretaria_id) || '—')}</small></td>
+          <td>${x.s.vinculo ? esc(nomeProprio(x.s.vinculo)) : '<span class="selo selo-pendente">sem vínculo — confira</span>'}</td>
+          <td>${esc(GRUPOS[x.s.grupo] || x.s.grupo)}</td><td><strong>${esc(GRUPOS[x.nova])}</strong></td></tr>`).join('')}</tbody></table></div>
+        <p class="dica">Quem está "sem vínculo" não veio na relação de pessoal: fica desmarcado para você conferir.</p>`
+        : '<p class="ok-txt">✓ Todas as categorias já seguem a regra.</p>'}
+      <p class="erro-form" id="cat-erro"></p>
+      <div class="acoes-form"><button type="button" class="btn btn-sec" data-cancelar>Fechar</button>${lista.length ? '<button class="btn" id="cat-aplicar">Aplicar nas marcadas</button>' : ''}</div>`
+  });
+  m.el.querySelector('[data-cancelar]').onclick = m.fechar;
+  $('#cat-todos', m.el)?.addEventListener('change', e => $$('[data-cat]', m.el).forEach(c => { c.checked = e.target.checked; }));
+  $('#cat-aplicar', m.el)?.addEventListener('click', async () => {
+    const marcados = $$('[data-cat]', m.el).filter(c => c.checked).map(c => lista[c.dataset.cat]);
+    if (!marcados.length) return ($('#cat-erro', m.el).textContent = 'Marque ao menos um servidor.');
+    try {
+      const falhas = await db.gravarEmLote(marcados.map(x => ({ colecao: 'servidores', id: x.s.id, dados: { grupo: x.nova, categoria_anterior: x.s.grupo } })));
+      await db.registrarLog('servidor.categorias', { alterados: marcados.length - falhas.length });
+      if (falhas.length) return ($('#cat-erro', m.el).textContent = `${falhas.length} não foram gravados.`);
+      toast(`${marcados.length} categoria(s) ajustada(s). Solicitações ainda não calculadas usam a nova categoria.`);
+      m.fechar();
+    } catch (err) { $('#cat-erro', m.el).textContent = mensagemErro(err); }
+  });
 }
