@@ -21,6 +21,7 @@ export const PERFIS = {
   operador: 'Contabilidade',
   controle_interno: 'Controle Interno',
   secretaria: 'Secretaria (solicitante)',
+  rh: 'RH (acompanha pagamentos)',
   consulta: 'Somente consulta'
 };
 
@@ -68,22 +69,26 @@ export function mesclarConfig(doc) {
 const perfilAtual = () => estado.sessao?.perfil;
 export const ehSecretaria = () => perfilAtual() === 'secretaria';
 // Secretaria e Controle Interno só trabalham com as solicitações (sem cadastros, sem valores)
-export const acessoRestrito = () => ['secretaria', 'controle_interno'].includes(perfilAtual());
+export const acessoRestrito = () => ['secretaria', 'controle_interno', 'rh'].includes(perfilAtual());
+export const ehRH = () => perfilAtual() === 'rh';
 export const pode = {
   // cadastros (servidores, secretarias) — Controle Interno NÃO altera tabelas do sistema
   editar: () => ['admin', 'operador'].includes(perfilAtual()),
   // criar/editar solicitações (antes da aprovação)
   solicitar: () => ['admin', 'operador', 'secretaria'].includes(perfilAtual()),
   // valores de diária: Secretaria e Controle Interno não veem (o valor só é calculado na Contabilidade)
-  verValores: () => !['secretaria', 'controle_interno'].includes(perfilAtual()),
+  verValores: () => !['secretaria', 'controle_interno', 'rh'].includes(perfilAtual()),
   // Controle Interno: apenas aprova ou reprova (confere servidor, período, conta e fonte)
   analisar: () => ['admin', 'controle_interno'].includes(perfilAtual()),
   // ficha, empenho, liquidação, pagamento e reembolsos
   contabil: () => ['admin', 'operador'].includes(perfilAtual()),
   // relatório mensal com valores: quem vê valores + Controle Interno (só das solicitações já empenhadas)
-  relatorio: () => ['admin', 'operador', 'consulta', 'controle_interno'].includes(perfilAtual()),
+  // Secretaria (só a própria pasta) e RH também acompanham, sempre só o que já foi empenhado
+  relatorio: () => ['admin', 'operador', 'consulta', 'controle_interno', 'secretaria', 'rh'].includes(perfilAtual()),
   // orçamento (PDFs e fichas): Contabilidade gerencia; Secretaria consulta o da própria pasta
   orcamento: () => ['admin', 'operador', 'consulta', 'secretaria'].includes(perfilAtual()),
+  // simulador do cálculo (não grava nada): quem vê valores e o Controle Interno
+  simular: () => ['admin', 'operador', 'consulta', 'controle_interno'].includes(perfilAtual()),
   admin: () => perfilAtual() === 'admin'
 };
 

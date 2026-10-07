@@ -565,6 +565,9 @@ const quem = () => ({ uid: estado.sessao.uid, nome: estado.sessao.nome });
 /** Grava a solicitação separando os valores (coleção protegida "valores"). */
 async function gravarSolicitacao(id, dados) {
   const { base, val } = separarValores(dados);
+  // a secretaria vai junto com os valores (Secretaria lê no relatório só os da própria pasta, depois do empenho)
+  const secId = dados.secretaria_id || porId('solicitacoes', id)?.secretaria_id;
+  if (Object.keys(val).length && secId) val.secretaria_id = secId;
   if (Object.keys(val).length) await db.salvar('valores', id, val);
   if (Object.keys(base).length) await db.atualizar('solicitacoes', id, base);
 }

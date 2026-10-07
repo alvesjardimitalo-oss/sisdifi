@@ -1,6 +1,6 @@
 // SISDIFI — Relatório mensal: valores por secretaria e por fonte de recursos
 // Controle Interno vê apenas as solicitações já empenhadas (as regras do Firestore só liberam esses valores).
-import { estado, pode, ETAPAS, etapaDe, ETAPAS_EMPENHADAS, totalReembolsos, ativas } from '../estado.js';
+import { estado, pode, ETAPAS, etapaDe, ETAPAS_EMPENHADAS, totalReembolsos, ativas, ehSecretaria, ehRH, secretariaNome } from '../estado.js';
 import { moeda } from '../calculo.js';
 import { esc, $, dataBR, lerForm, baixarArquivo, csv, hojeISO, normalizar } from '../ui.js';
 import { aguardando, cabecalho, anosDisponiveis, MESES, opcoesSecretarias } from './comum.js';
@@ -9,14 +9,29 @@ import { rotuloFicha } from './orcamento.js';
 const tituloDe = s => { const r = rotuloFicha(s); return r.includes(' — ') ? r.split(' — ').slice(1).join(' — ') : ''; };
 
 const hoje = new Date();
-const filtro = { ano: String(hoje.getFullYear()), mes: String(hoje.getMonth() + 1), base: 'empenho', secretaria: '', fonte: '', situacao: 'empenhadas' };
+const filtro = { ano: String(hoje.getFullYear()), mes: String(hoje.getMonth() + 1), base: '', secretaria: '', fonte: '', situacao: 'empenhadas' };
 
 /** Seleciona as solicitações do relatório conforme os filtros (usado também na impressão). */
+export const SITUACOES_REL = {
+  empenhadas: 'Empenhadas, liquidadas e pagas',
+  apagar: 'A pagar (empenhadas e liquidadas)',
+  pagas: 'Pagas'
+};
+export const BASES_REL = { empenho: 'Data do empenho', pagamento: 'Data do pagamento', viagem: 'Data da viagem (saída)' };
+export const situacaoPagamento = s => etapaDe(s) === 'paga' ? 'Paga' : etapaDe(s) === 'liquidada' ? 'Liquidada — aguardando pagamento' : etapaDe(s) === 'empenhada' ? 'Empenhada — aguardando liquidação' : ETAPAS[etapaDe(s)]?.curto || '—';
+
 export function solicitacoesDoRelatorio(f) {
-  const soEmpenhadas = !pode.verValores() || f.situacao === 'empenhadas';
-  const dataRef = s => f.base === 'empenho' ? String(s.data_empenho || '') : String(s.data_hora_saida || '');
-  return ativas(estado.solicitacoes).filter(s =>
-    (soEmpenhadas ? ETAPAS_EMPENHADAS.includes(etapaDe(s)) && s.valor_total !== undefined : (s.calculado || !s.etapa)) &&
+  // Quem não vê todos os valores (Controle Interno, RH, Secretaria) só enxerga o que já foi empenhado.
+  // (não altera o filtro da tela: ele continua valendo se outro perfil entrar no mesmo navegador)
+  f = { ...f, situacao: !pode.verValores() && f.situacao === 'todas' ? 'empenhadas' : f.situacao };
+  if (ehSecretaria()) f.secretaria = estado.sessao.secretaria_id || '-';
+  else if (f.secretaria === '-') f.secretaria = '';
+  const sit = f.situacao || 'empenhadas';
+  const okSit = s => sit === 'todas' ? (s.calculado || !s.etapa)
+    : ETAPAS_EMPENHADAS.includes(etapaDe(s)) && s.valor_total !== undefined &&
+      (sit === 'pagas' ? etapaDe(s) === 'paga' : sit === 'apagar' ? etapaDe(s) !== 'paga' : true);
+  const dataRef = s => String((f.base === 'empenho' ? s.data_empenho : f.base === 'pagamento' ? s.data_pagamento : s.data_hora_saida) || '');
+  return ativas(estado.solicitacoes).filter(s => okSit(s) &&
     (!f.ano || dataRef(s).startsWith(f.ano)) &&
     (!f.mes || dataRef(s).slice(5, 7) === String(f.mes).padStart(2, '0')) &&
     (!f.secretaria || s.secretaria_id === f.secretaria) &&
@@ -46,51 +61,59 @@ function tabelaGrupo(titulo, linhas) {
 
 export function telaRelatorio(el) {
   if (aguardando(el, ['solicitacoes', 'secretarias'])) return { viva: true, titulo: 'Relatório mensal' };
-  const ci = !pode.verValores();
-  if (ci) filtro.situacao = 'empenhadas';
+  const restrito = !pode.verValores();
+  if (!filtro.base) filtro.base = ehRH() ? 'pagamento' : 'empenho';
   const sols = solicitacoesDoRelatorio(filtro);
+  const pagas = sols.filter(s => etapaDe(s) === 'paga');
+  const tot = l => l.reduce((t, s) => t + Number(s.valor_total || 0) + totalReembolsos(s), 0);
   const fontes = [...new Set(ativas(estado.solicitacoes).map(s => s.fonte_recursos).filter(Boolean))].sort();
   const qs = new URLSearchParams(filtro).toString();
 
   el.innerHTML = `
     ${cabecalho('Relatório mensal', `<a class="btn" href="#/imprimir/mensal?${esc(qs)}">🖨 Imprimir</a><button class="btn btn-sec" id="exp-rel">⭳ Exportar planilha</button>`,
-      ci ? 'Somente solicitações aprovadas pelo Controle Interno e já empenhadas pela Contabilidade.' : 'Valores das diárias e reembolsos por secretaria e por fonte de recursos.')}
+      ehSecretaria() ? `Diárias da ${esc(estado.sessao.secretaria_nome || secretariaNome(estado.sessao.secretaria_id))} já empenhadas pela Contabilidade: valores, pagamento e servidores.`
+        : ehRH() ? 'Acompanhamento mensal do pagamento das diárias: o que foi pago e o que está a pagar, por servidor.'
+        : restrito ? 'Somente solicitações aprovadas pelo Controle Interno e já empenhadas pela Contabilidade.' : 'Valores das diárias e reembolsos por secretaria e por fonte de recursos.')}
     <form class="filtros" id="f-rel">
       <label class="campo"><span>Mês</span><select name="mes"><option value="">Todos</option>${MESES.map((m, i) => `<option value="${i + 1}" ${String(i + 1) === filtro.mes ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
       <label class="campo"><span>Ano</span><select name="ano"><option value="">Todos</option>${anosDisponiveis().map(a => `<option ${String(a) === filtro.ano ? 'selected' : ''}>${a}</option>`).join('')}</select></label>
       <label class="campo"><span>Mês de referência</span><select name="base">
-        <option value="empenho" ${filtro.base === 'empenho' ? 'selected' : ''}>Data do empenho</option>
-        <option value="viagem" ${filtro.base === 'viagem' ? 'selected' : ''}>Data da viagem (saída)</option></select></label>
-      <label class="campo"><span>Secretaria</span><select name="secretaria">${opcoesSecretarias(filtro.secretaria, { incluirInativas: true, vazio: 'Todas' })}</select></label>
+        ${Object.entries(BASES_REL).map(([k, v]) => `<option value="${k}" ${filtro.base === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+      ${ehSecretaria() ? '' : `<label class="campo"><span>Secretaria</span><select name="secretaria">${opcoesSecretarias(filtro.secretaria, { incluirInativas: true, vazio: 'Todas' })}</select></label>`}
       <label class="campo"><span>Fonte de recursos</span><select name="fonte"><option value="">Todas</option>${fontes.map(f => `<option ${f === filtro.fonte ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select></label>
-      ${ci ? '' : `<label class="campo"><span>Situação</span><select name="situacao">
-        <option value="empenhadas" ${filtro.situacao === 'empenhadas' ? 'selected' : ''}>Empenhadas, liquidadas e pagas</option>
-        <option value="todas" ${filtro.situacao === 'todas' ? 'selected' : ''}>Todas já calculadas (inclui histórico)</option></select></label>`}
+      <label class="campo"><span>Situação</span><select name="situacao">
+        ${Object.entries(SITUACOES_REL).map(([k, v]) => `<option value="${k}" ${filtro.situacao === k ? 'selected' : ''}>${v}</option>`).join('')}
+        ${restrito ? '' : `<option value="todas" ${filtro.situacao === 'todas' ? 'selected' : ''}>Todas já calculadas (inclui histórico)</option>`}</select></label>
     </form>
     <div class="kpis">
       <div class="kpi"><span>Solicitações</span><strong>${sols.length}</strong></div>
       <div class="kpi"><span>Diárias</span><strong>${moeda(sols.reduce((t, s) => t + Number(s.valor_total || 0), 0))}</strong></div>
       <div class="kpi"><span>Reembolsos</span><strong>${moeda(sols.reduce((t, s) => t + totalReembolsos(s), 0))}</strong></div>
-      <div class="kpi"><span>Total</span><strong>${moeda(sols.reduce((t, s) => t + Number(s.valor_total || 0) + totalReembolsos(s), 0))}</strong></div>
+      <div class="kpi"><span>Total</span><strong>${moeda(tot(sols))}</strong></div>
+      <div class="kpi"><span>Pago</span><strong>${moeda(tot(pagas))}</strong><small>${pagas.length} solicitação(ões)</small></div>
+      <div class="kpi ${sols.length > pagas.length ? 'kpi-alerta' : ''}"><span>A pagar</span><strong>${moeda(tot(sols) - tot(pagas))}</strong><small>${sols.length - pagas.length} solicitação(ões)</small></div>
     </div>
-    ${tabelaGrupo('Por secretaria', agrupar(sols, s => s.secretaria_nome))}
+    ${tabelaGrupo('Por situação do pagamento', agrupar(sols, situacaoPagamento))}
+    ${tabelaGrupo('Por servidor', agrupar(sols, s => s.servidor?.nome))}
+    ${ehSecretaria() ? '' : tabelaGrupo('Por secretaria', agrupar(sols, s => s.secretaria_nome))}
     ${tabelaGrupo('Por fonte de recursos', agrupar(sols, s => s.fonte_recursos))}
     ${tabelaGrupo('Por conta de pagamento', agrupar(sols, s => s.conta_pagamento))}
     ${tabelaGrupo('Por ficha (ação / atividade)', agrupar(sols, s => rotuloFicha(s)))}
     <section class="cartao"><h3>Solicitações</h3><div class="tabela-wrap"><table class="tabela">
-      <thead><tr><th>Nº</th><th>Servidor</th><th>Secretaria</th><th>Destino</th><th>Saída</th><th>Fonte</th><th>Ficha</th><th>Empenho</th><th class="num">Valor</th><th>Etapa</th></tr></thead>
+      <thead><tr><th>Nº</th><th>Servidor</th><th>Secretaria</th><th>Destino</th><th>Saída</th><th>Fonte</th><th>Ficha</th><th>Empenho</th><th>Pagamento</th><th class="num">Valor</th><th>Etapa</th></tr></thead>
       <tbody>${sols.map(s => `<tr${pode.verValores() ? ` class="clicavel" data-id="${esc(s.id)}"` : ''}><td><strong>${esc(s.numero)}</strong></td><td>${esc(s.servidor?.nome)}</td><td>${esc(s.secretaria_nome)}</td>
         <td>${esc(s.destino_cidade)}/${esc(s.destino_uf)}</td><td>${esc(dataBR(s.data_hora_saida).slice(0, 10))}</td><td>${esc(s.fonte_recursos || '—')}</td>
         <td>${esc(rotuloFicha(s) || '—')}</td><td>${esc(s.numero_empenho || '—')}${s.data_empenho ? `<small class="muted bloco">${esc(dataBR(s.data_empenho))}</small>` : ''}</td>
-        <td class="num">${moeda(Number(s.valor_total || 0) + totalReembolsos(s))}</td><td>${esc(ETAPAS[etapaDe(s)].curto)}</td></tr>`).join('') || '<tr><td colspan="10" class="vazio-linha">Nenhuma solicitação no período.</td></tr>'}</tbody>
+        <td>${s.data_pagamento ? esc(dataBR(s.data_pagamento)) : '<span class="muted">a pagar</span>'}</td>
+        <td class="num">${moeda(Number(s.valor_total || 0) + totalReembolsos(s))}</td><td>${esc(ETAPAS[etapaDe(s)].curto)}</td></tr>`).join('') || '<tr><td colspan="11" class="vazio-linha">Nenhuma solicitação no período.</td></tr>'}</tbody>
     </table></div></section>`;
 
   $('#f-rel', el).onchange = e => { Object.assign(filtro, lerForm(e.currentTarget)); telaRelatorio(el); };
   el.querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = () => { location.hash = '#/solicitacoes/' + tr.dataset.id; });
   $('#exp-rel', el).onclick = () => baixarArquivo(`relatorio-diarias-${hojeISO()}.csv`, csv([
-    ['Número', 'Servidor', 'Secretaria', 'Destino', 'Saída', 'Conta de pagamento', 'Fonte de recursos', 'Ficha', 'Título da ficha', 'Empenho', 'Data empenho', 'Diárias', 'Reembolsos', 'Total', 'Etapa'],
+    ['Número', 'Servidor', 'Secretaria', 'Destino', 'Saída', 'Conta de pagamento', 'Fonte de recursos', 'Ficha', 'Título da ficha', 'Empenho', 'Data empenho', 'Data pagamento', 'Diárias', 'Reembolsos', 'Total', 'Etapa'],
     ...sols.map(s => [s.numero, s.servidor?.nome, s.secretaria_nome, `${s.destino_cidade}/${s.destino_uf}`, dataBR(s.data_hora_saida), s.conta_pagamento, s.fonte_recursos,
-      s.ficha, tituloDe(s), s.numero_empenho, dataBR(s.data_empenho), Number(s.valor_total || 0).toFixed(2).replace('.', ','), totalReembolsos(s).toFixed(2).replace('.', ','),
+      s.ficha, tituloDe(s), s.numero_empenho, dataBR(s.data_empenho), dataBR(s.data_pagamento), Number(s.valor_total || 0).toFixed(2).replace('.', ','), totalReembolsos(s).toFixed(2).replace('.', ','),
       (Number(s.valor_total || 0) + totalReembolsos(s)).toFixed(2).replace('.', ','), ETAPAS[etapaDe(s)].curto])]));
   return { viva: true, titulo: 'Relatório mensal' };
 }

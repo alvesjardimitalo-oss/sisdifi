@@ -47,7 +47,7 @@ const MENU = [
   { rota: 'servidores', icone: 'pessoas', texto: 'Servidores', servidores: true },
   { rota: 'secretarias', icone: 'predio', texto: 'Secretarias', interno: true },
   { rota: 'conferencia', icone: 'confere', texto: 'Conferência', interno: true, valores: true },
-  { rota: 'simulador', icone: 'calc', texto: 'Simulador', interno: true, valores: true },
+  { rota: 'simulador', icone: 'calc', texto: 'Simulador', simulador: true },
   { rota: 'relatorio', icone: 'relatorio', texto: 'Relatório mensal', relatorio: true },
   { rota: 'orcamento', icone: 'orcamento', texto: 'Orçamento', orcamento: true },
   { grupo: 'Administração', admin: true },
@@ -212,9 +212,21 @@ function telaSemAcesso(usuario, perfil, detalhe = '') {
   $('#sair').onclick = () => db.sair();
 }
 
+// Os valores liberados precisam saber a secretaria (a Secretaria só lê os da própria pasta).
+// A Contabilidade completa automaticamente os registros antigos que ainda não têm esse campo.
+let completouSecretaria = false;
+function completarSecretariaNosValores(base, valores) {
+  if (completouSecretaria || !pode.contabil()) return;
+  completouSecretaria = true;
+  const ops = base.filter(s => valores[s.id]?.liberado_ci && s.secretaria_id && valores[s.id].secretaria_id !== s.secretaria_id)
+    .map(s => ({ colecao: 'valores', id: s.id, dados: { secretaria_id: s.secretaria_id } }));
+  if (ops.length) db.gravarEmLote(ops).catch(() => { completouSecretaria = false; });
+}
+
 // ---------------- Dados em tempo real ----------------
 function iniciarDados() {
   estado.prontos.clear();
+  completouSecretaria = false;
   const pronto = nome => { estado.prontos.add(nome); atualizarTelaViva(nome); };
   const erro = nome => e => toast(`Erro ao carregar ${nome}: ${mensagemErro(e)}`, 'erro');
   ouvintes.push(db.ouvir('servidores', l => { estado.servidores = l.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')); pronto('servidores'); }, erro('servidores')));
@@ -233,11 +245,17 @@ function iniciarDados() {
       return { ...s, ...extra };
     }).sort((a, b) => (b.ano - a.ano) || (b.sequencia - a.sequencia));
     pronto('solicitacoes');
+    completarSecretariaNosValores(base, valores);
   };
   ouvintes.push(db.ouvir('solicitacoes', l => { base = l; juntar(); }, erro('solicitações'), ehSecretaria() ? ['secretaria_id', estado.sessao.secretaria_id || '-'] : null));
   if (pode.verValores()) ouvintes.push(db.ouvir('valores', l => { valores = Object.fromEntries(l.map(v => [v.id, v])); juntar(); }, erro('valores')));
-  // Controle Interno: recebe só os valores já liberados (solicitações empenhadas), para o relatório.
-  else if (pode.relatorio()) { valores = null; ouvintes.push(db.ouvir('valores', l => { valores = Object.fromEntries(l.map(v => [v.id, v])); juntar(); }, erro('valores'), ['liberado_ci', true])); }
+  // Controle Interno, RH e Secretaria: recebem só os valores já liberados (solicitações empenhadas), para o relatório.
+  // A Secretaria recebe apenas os da própria pasta.
+  else if (pode.relatorio()) {
+    valores = null;
+    const filtroV = ehSecretaria() ? [['liberado_ci', true], ['secretaria_id', estado.sessao.secretaria_id || '-']] : ['liberado_ci', true];
+    ouvintes.push(db.ouvir('valores', l => { valores = Object.fromEntries(l.map(v => [v.id, v])); juntar(); }, erro('valores'), filtroV));
+  }
   // Orçamento: Secretaria só recebe os documentos e fichas da própria pasta.
   if (pode.orcamento() || pode.solicitar()) {
     const filtroSec = ehSecretaria() ? ['secretaria_id', estado.sessao.secretaria_id || '-'] : null;
@@ -270,7 +288,7 @@ function montarLayout() {
     <div class="layout">
       <aside class="lateral" id="lateral">
         ${marca()}
-        <nav>${MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.solicitar()) && (!m.interno || !acessoRestrito()) && (!m.servidores || !acessoRestrito() || ehSecretaria()) && (!m.valores || pode.verValores()) && (!m.relatorio || pode.relatorio()) && (!m.orcamento || pode.orcamento())).map(m => m.grupo
+        <nav>${MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.solicitar()) && (!m.interno || !acessoRestrito()) && (!m.servidores || !acessoRestrito() || ehSecretaria()) && (!m.valores || pode.verValores()) && (!m.simulador || pode.simular()) && (!m.relatorio || pode.relatorio()) && (!m.orcamento || pode.orcamento())).map(m => m.grupo
           ? `<div class="menu-grupo">${esc(m.grupo)}</div>`
           : `<a href="#/${m.rota}" data-rota="${m.rota}"><span class="ico" aria-hidden="true">${icone(m.icone)}</span>${esc(m.texto)}</a>`).join('')}
         </nav>
@@ -300,7 +318,8 @@ const ROTAS = [
   [/^servidores\/([\w-]+)$/, telaPerfilServidor, 'interno'],
   [/^servidores$/, telaServidores, 'servidores'],
   [/^secretarias$/, telaSecretarias, 'interno'],
-  [/^simulador$/, telaSimulador, 'valores'],
+  [/^simulador$/, telaSimulador, 'simular'],
+  [/^imprimir\/(simulacao)$/, telaImprimir, 'simular'],
   [/^conferencia$/, telaConferencia, 'valores'],
   [/^parametros$/, telaParametros, 'admin'],
   [/^usuarios$/, telaUsuarios, 'admin'],
@@ -335,6 +354,7 @@ function desenharTela(atualizacao) {
       if (req === 'servidores' && acessoRestrito() && !ehSecretaria()) break;
       if (req === 'valores' && (ehSecretaria() || !pode.verValores())) break;
       if (req === 'relatorio' && !pode.relatorio()) break;
+      if (req === 'simular' && !pode.simular()) break;
       if (req === 'orcamento' && !pode.orcamento()) break;
       alvo = fn; args = m.slice(1); break;
     }

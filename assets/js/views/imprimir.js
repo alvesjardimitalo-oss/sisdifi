@@ -4,7 +4,7 @@ import { formatarCpf, moeda, horasBR, GRUPOS, valorPorExtenso } from '../calculo
 import { esc, $, dataBR, numeroBR, hojeISO } from '../ui.js';
 import { aguardando, MESES } from './comum.js';
 import { ultimaSimulacao } from './simulador.js';
-import { solicitacoesDoRelatorio, agrupar } from './relatorio.js';
+import { solicitacoesDoRelatorio, agrupar, SITUACOES_REL, BASES_REL, situacaoPagamento } from './relatorio.js';
 import { rotuloFicha } from './orcamento.js';
 import { lerChave } from '../notas.js';
 
@@ -185,8 +185,8 @@ function docRelatorioPeriodo(q) {
   const f = { ano: q.get('ano') || '', mes: q.get('mes') || '', base: q.get('base') || 'viagem', secretaria: q.get('secretaria') || '', fonte: q.get('fonte') || '', situacao: q.get('situacao') || 'empenhadas' };
   const sols = solicitacoesDoRelatorio(f);
   const periodo = f.mes && f.ano ? `${MESES[Number(f.mes) - 1]}/${f.ano}` : f.mes ? MESES[Number(f.mes) - 1] : f.ano ? `Ano ${f.ano}` : 'Todo o período';
-  const ref = f.base === 'empenho' ? 'data do empenho' : 'data de saída da viagem';
-  const sit = (!pode.verValores() || f.situacao === 'empenhadas') ? 'solicitações empenhadas, liquidadas e pagas' : 'todas as solicitações calculadas';
+  const ref = (BASES_REL[f.base] || BASES_REL.viagem).toLowerCase();
+  const sit = (SITUACOES_REL[f.situacao] || 'todas as solicitações calculadas').toLowerCase();
   const filtros = [f.secretaria ? 'Secretaria: ' + (estado.secretarias.find(x => x.id === f.secretaria)?.nome || '') : '', f.fonte ? 'Fonte: ' + f.fonte : ''].filter(Boolean).join(' · ');
   const tab = (titulo, linhas) => {
     const tot = linhas.reduce((a, [, v]) => ({ n: a.n + v.n, d: a.d + v.d, r: a.r + v.r }), { n: 0, d: 0, r: 0 });
@@ -196,11 +196,12 @@ function docRelatorioPeriodo(q) {
   };
   return `<div class="folha folha-relatorio">
     ${cabecalhoDoc('Relatório de Diárias', `Período: ${periodo} (pela ${ref}) — ${sit}${filtros ? ' — ' + filtros : ''}`)}
-    ${tab('1 - Resumo por Secretaria', agrupar(sols, s => s.secretaria_nome))}
-    ${tab('2 - Resumo por Fonte de Recursos', agrupar(sols, s => s.fonte_recursos))}
-    ${tab('3 - Resumo por Conta de Pagamento', agrupar(sols, s => s.conta_pagamento))}
-    ${tab('4 - Resumo por Ficha (ação / atividade)', agrupar(sols, s => rotuloFicha(s)))}
-    ${secao('5 - Solicitações', `<table class="doc-tab doc-tab-peq"><thead><tr><th style="width:9%">Nº</th><th style="width:18%">Servidor</th><th style="width:11%">Destino</th><th style="width:8%">Saída</th><th style="width:13%">Fonte</th><th style="width:12%">Ficha</th><th style="width:11%">Empenho</th><th style="width:9%">Valor</th><th style="width:8%">Etapa</th></tr></thead>
+    ${tab('1 - Situação do Pagamento', agrupar(sols, situacaoPagamento))}
+    ${tab('2 - Resumo por Servidor', agrupar(sols, s => s.servidor?.nome))}
+    ${tab('3 - Resumo por Secretaria', agrupar(sols, s => s.secretaria_nome))}
+    ${tab('4 - Resumo por Fonte de Recursos', agrupar(sols, s => s.fonte_recursos))}
+    ${tab('5 - Resumo por Ficha (ação / atividade)', agrupar(sols, s => rotuloFicha(s)))}
+    ${secao('6 - Solicitações', `<table class="doc-tab doc-tab-peq"><thead><tr><th style="width:9%">Nº</th><th style="width:18%">Servidor</th><th style="width:11%">Destino</th><th style="width:8%">Saída</th><th style="width:13%">Fonte</th><th style="width:12%">Ficha</th><th style="width:11%">Empenho</th><th style="width:9%">Valor</th><th style="width:8%">Etapa</th></tr></thead>
       <tbody>${sols.map(x => `<tr><td>${esc(x.numero)}</td><td>${esc(x.servidor?.nome)}<br><small>${esc(x.secretaria_nome)}</small></td><td>${esc(x.destino_cidade)}/${esc(x.destino_uf)}</td>
         <td>${esc(dataBR(x.data_hora_saida).slice(0, 10))}</td><td>${esc(x.fonte_recursos || '')}</td><td>${esc(rotuloFicha(x))}</td>
         <td>${esc(x.numero_empenho || '')}${x.data_empenho ? '<br><small>' + esc(dataBR(x.data_empenho)) + '</small>' : ''}</td><td>${moeda(Number(x.valor_total || 0) + totalReembolsos(x))}</td><td>${esc(ETAPAS[etapaDe(x)].curto)}</td></tr>`).join('') || '<tr><td colspan="9">Nenhuma solicitação.</td></tr>'}</tbody></table>`)}

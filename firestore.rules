@@ -18,6 +18,7 @@ service cloud.firestore {
     function minhaSecretaria() { return get(caminhoUsuario()).data.secretaria_id; }
     function controleInterno() { return ativo() && perfil() == 'controle_interno'; }
     function contabilidade() { return ativo() && perfil() == 'operador'; }
+    function rh() { return ativo() && perfil() == 'rh'; }
     function camposValor() { return ['valor_total', 'valor_pernoite', 'valor_simples', 'valor_alimentacao', 'quantidade_pernoite', 'quantidade_simples', 'quantidade_alimentacao', 'horas_total', 'faixa_codigo', 'faixa_texto', 'descricao_calculo', 'justificativa_legal', 'reembolsos', 'total_reembolsos']; }
     function podeVerValores() { return ativo() && perfil() in ['admin', 'operador', 'consulta']; }
     function alterou(campos) { return request.resource.data.diff(resource.data).affectedKeys().hasAny(campos); }
@@ -120,8 +121,10 @@ service cloud.firestore {
 
     // Valores das diárias: só Contabilidade, administrador e consulta leem. Secretaria e Controle Interno não.
     match /valores/{id} {
-      // Controle Interno só lê valores liberados após o empenho (relatório mensal).
-      allow read: if podeVerValores() || (controleInterno() && resource.data.liberado_ci == true);
+      // Controle Interno e RH: só os valores liberados (após o empenho). Secretaria: só os liberados da própria pasta.
+      allow read: if podeVerValores()
+        || ((controleInterno() || rh()) && resource.data.liberado_ci == true)
+        || (secretaria() && resource.data.liberado_ci == true && resource.data.secretaria_id == minhaSecretaria());
       allow write: if operador();
     }
 

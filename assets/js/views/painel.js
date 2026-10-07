@@ -1,5 +1,6 @@
 // SISDIFI — Painel (indicadores)
-import { estado, pode, totalReembolsos, ativas, secretariaNome, ETAPAS, etapaDe, ehSecretaria } from '../estado.js';
+import { estado, pode, totalReembolsos, ativas, secretariaNome, ETAPAS, etapaDe, ehSecretaria, ehRH } from '../estado.js';
+import { telaRelatorio } from './relatorio.js';
 import { seloEtapa } from './comum.js';
 import { moeda } from '../calculo.js';
 import { esc, $, $$, dataBR, lerForm } from '../ui.js';
@@ -10,6 +11,7 @@ const filtro = { ano: String(new Date().getFullYear()), mes: '' };
 
 export function telaPainel(el) {
   if (aguardando(el, ['solicitacoes', 'servidores', 'secretarias'])) return { viva: true, titulo: 'Painel' };
+  if (ehRH()) { const r = telaRelatorio(el); return { ...r, titulo: 'Painel' }; }
   if (!pode.verValores()) return painelSemValores(el);
   const doAno = ativas(estado.solicitacoes).filter(s => !filtro.ano || String(s.data_hora_saida).startsWith(filtro.ano));
   const periodo = doAno.filter(s => !filtro.mes || String(s.data_hora_saida).slice(5, 7) === filtro.mes.padStart(2, '0'));

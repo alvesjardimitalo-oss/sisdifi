@@ -117,7 +117,9 @@ export async function criarUsuario({ nome, email, senha, perfil, secretaria_id =
 // ---------------- Leitura em tempo real ----------------
 /** filtro opcional: [campo, valor] → só documentos com campo == valor (ex.: solicitações da própria secretaria). */
 export function ouvir(colecao, cb, onErro, filtro = null) {
-  const alvo = filtro ? query(collection(fs, colecao), where(filtro[0], '==', filtro[1])) : collection(fs, colecao);
+  // filtro: [campo, valor] ou lista de [campo, valor] (todas as condições)
+  const filtros = !filtro ? [] : Array.isArray(filtro[0]) ? filtro : [filtro];
+  const alvo = filtros.length ? query(collection(fs, colecao), ...filtros.map(([c, v]) => where(c, '==', v))) : collection(fs, colecao);
   return onSnapshot(alvo,
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
     e => onErro && onErro(e));

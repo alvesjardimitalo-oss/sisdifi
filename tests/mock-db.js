@@ -37,7 +37,8 @@ export async function criarUsuario({ nome, email, senha, perfil }) {
 }
 export function ouvir(c, cb, _erro, filtro = null) {
   if (c === 'usuarios') { colecoes.usuarios = new Map([...usuarios].filter(([, u]) => u.perfil).map(([uid, { senha, ...u }]) => [uid, u])); }
-  const o = { c, cb: filtro ? (l => cb(l.filter(x => x[filtro[0]] === filtro[1]))) : cb }; ouvintes.push(o); notificar(c); return () => ouvintes.splice(ouvintes.indexOf(o), 1);
+  const fs = !filtro ? [] : Array.isArray(filtro[0]) ? filtro : [filtro];
+  const o = { c, cb: fs.length ? (l => cb(l.filter(x => fs.every(([k, v]) => x[k] === v)))) : cb }; ouvintes.push(o); notificar(c); return () => ouvintes.splice(ouvintes.indexOf(o), 1);
 }
 export function ouvirDoc(c, id, cb) { const o = { c, id, cb }; ouvintes.push(o); notificar(c); return () => ouvintes.splice(ouvintes.indexOf(o), 1); }
 export async function lerDoc(c, id) { return colecoes[c]?.has(id) ? { id, ...colecoes[c].get(id) } : null; }
