@@ -66,9 +66,11 @@ export function saldoDaFicha(secId, numero, ano, fonte = '', ignorarId = null) {
 }
 
 /** Fichas do orçamento mais recente (as sem ano, cadastradas à mão, sempre entram). */
+/** Fichas do exercício em uso (se ainda não houver orçamento dele, as do último orçamento anterior). */
 export function fichasVigentes(secId) {
   const todas = fichasDaSecretaria(secId);
-  const ano = Math.max(0, ...todas.map(f => Number(f.ano) || 0));
+  const anos = todas.map(f => Number(f.ano) || 0).filter(a => a && a <= estado.exercicio);
+  const ano = anos.length ? Math.max(...anos) : Math.max(0, ...todas.map(f => Number(f.ano) || 0));
   return todas.filter(f => !f.ano || Number(f.ano) === ano);
 }
 
@@ -91,13 +93,13 @@ export function telaOrcamento(el) {
   const gestor = pode.contabil();
   const sec = ehSecretaria() ? estado.sessao.secretaria_id : (filtro.secretaria || estado.secretarias.find(s => s.ativo !== false)?.id || '');
   filtro.secretaria = sec;
-  const docs = estado.orcamentos.filter(o => o.secretaria_id === sec).sort((a, b) => (b.ano || 0) - (a.ano || 0) || String(b.titulo).localeCompare(String(a.titulo)));
+  const docs = estado.orcamentos.filter(o => o.secretaria_id === sec && (!o.ano || filtro.todosAnos || Number(o.ano) === estado.exercicio)).sort((a, b) => (b.ano || 0) - (a.ano || 0) || String(b.titulo).localeCompare(String(a.titulo)));
   const termo = normalizar(filtro.busca);
-  const fichas = fichasDaSecretaria(sec).filter(f => (!filtro.soDiarias || ehDiaria(f)) && (!termo || normalizar(`${f.ficha} ${f.acao} ${f.elemento} ${f.fonte} ${f.descricao}`).includes(termo)));
+  const fichas = fichasDaSecretaria(sec).filter(f => (filtro.todosAnos || !f.ano || Number(f.ano) === estado.exercicio) && (!filtro.soDiarias || ehDiaria(f)) && (!termo || normalizar(`${f.ficha} ${f.acao} ${f.elemento} ${f.fonte} ${f.descricao}`).includes(termo)));
 
   el.innerHTML = `
     ${cabecalho('Orçamento' + (ehSecretaria() ? ' da ' + (estado.sessao.secretaria_nome || secretariaNome(sec)) : ''), '',
-      ehSecretaria() ? 'Documentos do orçamento da sua pasta e fichas/fontes disponíveis para as solicitações de diária.' : 'Libere o orçamento de cada secretaria e cadastre as fichas e fontes que ela pode usar.')}
+      (ehSecretaria() ? 'Documentos do orçamento da sua pasta e fichas/fontes disponíveis para as solicitações de diária.' : 'Libere o orçamento de cada secretaria e cadastre as fichas e fontes que ela pode usar.') + ` Exercício ${estado.exercicio}.`)}
     ${ehSecretaria() ? '' : `<form class="filtros" id="f-orc"><label class="campo cresce"><span>Secretaria</span><select name="secretaria">${opcoesSecretarias(sec, { vazio: 'Selecione' })}</select></label></form>`}
 
     <section class="cartao">
@@ -119,7 +121,8 @@ export function telaOrcamento(el) {
         ${gestor ? '<span><button class="btn btn-peq" id="importar-orc">📄 Ler PDFs do orçamento</button> <button class="btn btn-sec btn-peq" id="colar-fichas">📋 Colar do Excel</button> <button class="btn btn-sec btn-peq" id="nova-ficha">＋ Nova ficha</button></span>' : ''}</div>
       <p class="dica">${ehSecretaria() ? 'Use esta tabela para escolher a ficha e a fonte de recurso ao solicitar uma diária (botão "Consultar fichas" no formulário).' : 'Estas fichas aparecem para a secretaria no formulário de solicitação, em "Consultar fichas".'}</p>
       <div class="filtros"><label class="campo cresce"><span>Buscar</span><input type="search" id="busca-ficha" value="${esc(filtro.busca)}" placeholder="Ficha, título (ex.: CRAS, atenção básica), fonte…"></label>
-        <label class="check"><input type="checkbox" id="so-diarias" ${filtro.soDiarias ? 'checked' : ''}> Somente diárias (3.3.90.14)</label></div>
+        <label class="check"><input type="checkbox" id="so-diarias" ${filtro.soDiarias ? 'checked' : ''}> Somente diárias (3.3.90.14)</label>
+        <label class="check"><input type="checkbox" id="todos-anos" ${filtro.todosAnos ? 'checked' : ''}> Mostrar outros exercícios</label></div>
       <div class="tabela-wrap"><table class="tabela">
         <thead><tr><th>Ficha</th><th>Título (ação / atividade)</th><th>Elemento de despesa</th><th>Fonte de recurso</th><th>Unidade / uso</th><th class="num">Autorizado</th>${pode.verValores() ? '<th class="num" title="Diárias e reembolsos empenhados no SISDIFI nesta ficha e fonte, no ano do orçamento">Empenhado</th><th class="num">Saldo</th>' : ''}${gestor ? '<th></th>' : ''}</tr></thead>
         <tbody>${fichas.map(f => linhaFicha(f, gestor)).join('') || `<tr><td colspan="${6 + (gestor ? 1 : 0) + (pode.verValores() ? 2 : 0)}" class="vazio-linha">Nenhuma ficha cadastrada.</td></tr>`}</tbody>
@@ -130,6 +133,7 @@ export function telaOrcamento(el) {
   let t;
   $('#busca-ficha', el).oninput = e => { clearTimeout(t); t = setTimeout(() => { filtro.busca = e.target.value; const pos = e.target.selectionStart; telaOrcamento(el); const n = $('#busca-ficha', el); n.focus(); n.setSelectionRange(pos, pos); }, 250); };
   $('#so-diarias', el).onchange = e => { filtro.soDiarias = e.target.checked; telaOrcamento(el); };
+  $('#todos-anos', el).onchange = e => { filtro.todosAnos = e.target.checked; telaOrcamento(el); };
   $$('[data-abrir]', el).forEach(b => b.onclick = () => abrirPDF(b.dataset.abrir, false));
   $$('[data-baixar]', el).forEach(b => b.onclick = () => abrirPDF(b.dataset.baixar, true));
   if (gestor) {
@@ -308,7 +312,7 @@ export function fichasDoOrcamento(an, secId, { soDiarias = false, ano = an.ano }
   }));
 }
 
-function importarPDFsOrcamento() {
+export function importarPDFsOrcamento() {
   const m = modal({
     titulo: 'Ler PDFs do orçamento', largura: 980,
     corpo: `<p>Escolha um ou mais PDFs do <strong>Demonstrativo da Despesa Fixada</strong> (pode selecionar todos de uma vez).

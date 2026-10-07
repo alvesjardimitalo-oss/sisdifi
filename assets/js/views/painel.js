@@ -1,6 +1,7 @@
 // SISDIFI — Painel (indicadores)
 import { estado, pode, totalReembolsos, ativas, secretariaNome, ETAPAS, etapaDe, ehSecretaria, ehRH } from '../estado.js';
 import { telaRelatorio } from './relatorio.js';
+import { avisoExercicio } from './exercicio.js';
 import { seloEtapa } from './comum.js';
 import { moeda } from '../calculo.js';
 import { esc, $, $$, dataBR, lerForm } from '../ui.js';
@@ -8,6 +9,7 @@ import { aguardando, cabecalho, anosDisponiveis, MESES } from './comum.js';
 import { analisarPendencias } from './conferencia.js';
 
 const filtro = { ano: String(new Date().getFullYear()), mes: '' };
+window.addEventListener('sisdifi:exercicio', e => { filtro.ano = String(e.detail); filtro.mes = ''; });
 
 export function telaPainel(el) {
   if (aguardando(el, ['solicitacoes', 'servidores', 'secretarias'])) return { viva: true, titulo: 'Painel' };
@@ -51,6 +53,7 @@ export function telaPainel(el) {
     ${cabecalho('Painel', pode.solicitar() ? '<a class="btn" href="#/solicitacoes/nova">＋ Nova solicitação</a>' : '', `Olá, ${esc(estado.sessao.nome.split(' ')[0])}. Indicadores pela data de saída da viagem (solicitações canceladas não entram).`)}
     ${(() => { const p = analisarPendencias(); const n = p.grupos.length + p.distancias.length + p.cpfs.length;
       return n ? `<a class="alerta alerta-link" href="#/conferencia">⚠ A conferência automática encontrou ${n} ponto(s) para revisar (${p.grupos.length} viagem(ns) sobreposta(s), ${p.distancias.length} destino(s) com km divergente, ${p.cpfs.length} CPF(s) inválido(s)). Clique para ver.</a>` : ''; })()}
+    ${avisoExercicio()}
     ${filaDeTrabalho()}
     <form class="filtros" id="filtro-painel">
       <label class="campo"><span>Ano</span><select name="ano"><option value="">Todos</option>${anosDisponiveis().map(a => `<option ${String(a) === filtro.ano ? 'selected' : ''}>${a}</option>`).join('')}</select></label>
@@ -98,6 +101,7 @@ export function telaPainel(el) {
           <small>${esc(s.destino_cidade)}/${esc(s.destino_uf)} · ${esc(dataBR(s.data_hora_saida).slice(0, 10))}${s.status === 'cancelada' ? ' · cancelada' : ''}</small></span><span class="rank-val">${moeda(s.valor_total)}</span></li>`).join('') || '<li class="vazio-item">Nenhuma solicitação ainda.</li>'}</ul>
       </section>
     </div>`;
+  $('[data-abrir-ano]', el)?.addEventListener('click', e => { const a = Number(e.currentTarget.dataset.abrirAno); if (a !== estado.exercicio) { estado.exercicio = a; try { localStorage.setItem('sisdifi.exercicio', String(a)); } catch { /* */ } } });
   $('#filtro-painel', el).onchange = e => { Object.assign(filtro, lerForm(e.currentTarget)); telaPainel(el); };
   return { viva: true, titulo: 'Painel' };
 }

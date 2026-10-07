@@ -370,3 +370,18 @@ progress { width: 260px; vertical-align: middle; }
 .empenho-itens { background: var(--cinza-claro); border: 1px solid var(--borda); border-radius: var(--raio-p); padding: 12px 14px 4px; margin: 4px 0 10px; }
 .empenho-itens .check { margin: 6px 0; align-items: flex-start; }
 .empenho-itens .check input { margin-top: 3px; }
+
+/* Exercício */
+.topo-exercicio { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.topo-exercicio select { width: auto; min-height: 32px; padding: 4px 8px; font-weight: 600; color: var(--azul-esc); }
+.linha-ativa td { background: var(--azul-claro); }
+.abertura { margin: 0; padding-left: 22px; }
+.abertura > li { padding: 12px 0; border-bottom: 1px solid var(--borda-leve); }
+.abertura > li:last-child { border-bottom: 0; }
+.abertura > li.ok::marker { color: var(--verde); }
+.abertura > li > strong { display: block; margin-bottom: 4px; }
+.abertura p { margin: 2px 0 8px; }
+.sim-nao { display: flex; gap: 18px; flex-wrap: wrap; }
+.sim-nao .check { margin: 4px 0; }
+.abertura .alerta { margin: 8px 0 0; }
+@media (max-width: 820px) { .topo-exercicio span { display: none; } }

@@ -32,6 +32,7 @@ export const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho'
 export function anosDisponiveis() {
   const anos = new Set(estado.solicitacoes.map(s => Number(String(s.data_hora_saida || '').slice(0, 4))).filter(Boolean));
   anos.add(new Date().getFullYear());
+  if (estado.exercicio) anos.add(Number(estado.exercicio));
   return [...anos].sort((a, b) => b - a);
 }
 

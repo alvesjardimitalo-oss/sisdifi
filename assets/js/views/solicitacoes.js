@@ -13,6 +13,7 @@ import { aguardando, cabecalho, selo, seloEtapa, opcoesSecretarias, anosDisponiv
 // LISTA
 // =============================================================
 const filtros = { busca: '', secretaria: '', status: 'emitida', etapa: '', ano: '', mes: '', pagina: 1 };
+window.addEventListener('sisdifi:exercicio', e => { filtros.ano = String(e.detail); filtros.pagina = 1; });
 let filtroDaUrl = '';
 
 export function telaListaSolicitacoes(el, { query }) {

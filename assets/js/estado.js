@@ -50,8 +50,23 @@ export const estado = {
   distancias: {},        // chave → { cidade, uf, km }
   config: structuredClone(CONFIG_PADRAO),
   usuarios: [],
+  exercicios: [],        // exercícios (anos) abertos: { id: '2026', ano, status, respostas }
+  exercicio: lerExercicioSalvo(),
   prontos: new Set()     // coleções já carregadas
 };
+
+// ---------- Exercício (ano do orçamento) ----------
+function lerExercicioSalvo() {
+  try { const v = Number(localStorage.getItem('sisdifi.exercicio')); if (v > 2000) return v; } catch { /* sem armazenamento */ }
+  return new Date().getFullYear();
+}
+/** Troca o exercício em uso: as telas (painel, solicitações, relatório, orçamento) passam a mostrar esse ano. */
+export function definirExercicio(ano) {
+  estado.exercicio = Number(ano) || new Date().getFullYear();
+  try { localStorage.setItem('sisdifi.exercicio', String(estado.exercicio)); } catch { /* sem armazenamento */ }
+  window.dispatchEvent(new CustomEvent('sisdifi:exercicio', { detail: estado.exercicio }));
+}
+export const exercicioDoc = ano => estado.exercicios.find(e => Number(e.ano) === Number(ano)) || null;
 
 export function mesclarConfig(doc) {
   const c = structuredClone(CONFIG_PADRAO);

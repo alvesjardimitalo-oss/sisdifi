@@ -144,6 +144,12 @@ service cloud.firestore {
       allow write: if operador();
     }
 
+    // Exercícios (ano do orçamento): todos leem; a Contabilidade abre e registra as respostas.
+    match /exercicios/{ano} {
+      allow read: if ativo();
+      allow write: if operador();
+    }
+
     match /contadores/{id} {
       allow read: if ativo();
       allow write: if solicitante();

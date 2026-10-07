@@ -3,13 +3,14 @@
 // Inicialização, login e navegação
 // =============================================================
 import * as db from './db.js';
-import { estado, mesclarConfig, PERFIS, pode, ehSecretaria, acessoRestrito, secretariaNome, CAMPOS_VALOR, etapaDe } from './estado.js';
+import { estado, mesclarConfig, PERFIS, pode, ehSecretaria, acessoRestrito, secretariaNome, CAMPOS_VALOR, etapaDe, definirExercicio } from './estado.js';
 import { esc, $, toast, mensagemErro, lerForm } from './ui.js';
 import { telaPainel } from './views/painel.js';
 import { telaListaSolicitacoes, telaNovaSolicitacao, telaDetalheSolicitacao } from './views/solicitacoes.js';
 import { telaServidores, telaPerfilServidor } from './views/servidores.js';
 import { telaSecretarias } from './views/secretarias.js';
 import { telaSimulador } from './views/simulador.js';
+import { telaExercicio, anosExercicio } from './views/exercicio.js';
 import { telaParametros, telaUsuarios, telaImportar, telaAuditoria, telaConta } from './views/admin.js';
 import { telaImprimir } from './views/imprimir.js';
 import { telaConferencia } from './views/conferencia.js';
@@ -36,7 +37,8 @@ const ICONES = {
   parametros: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
   chave: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M14.5 8.5l2.5 2.5"/>',
   importar: '<path d="M12 3v12M7 10l5 5 5-5M4 17v2.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V17"/>',
-  historico: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
+  historico: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  calendario: '<rect x="3" y="4.5" width="18" height="16.5" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/>'
 };
 const icone = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONES[n] || ''}</svg>`;
 
@@ -50,6 +52,7 @@ const MENU = [
   { rota: 'simulador', icone: 'calc', texto: 'Simulador', simulador: true },
   { rota: 'relatorio', icone: 'relatorio', texto: 'Relatório mensal', relatorio: true },
   { rota: 'orcamento', icone: 'orcamento', texto: 'Orçamento', orcamento: true },
+  { rota: 'exercicio', icone: 'calendario', texto: 'Exercícios', contabil: true },
   { grupo: 'Administração', admin: true },
   { rota: 'parametros', icone: 'parametros', texto: 'Parâmetros da lei', admin: true },
   { rota: 'usuarios', icone: 'chave', texto: 'Usuários', admin: true },
@@ -227,6 +230,7 @@ function completarSecretariaNosValores(base, valores) {
 function iniciarDados() {
   estado.prontos.clear();
   completouSecretaria = false;
+  definirExercicio(estado.exercicio); // sincroniza os filtros das telas com o exercício salvo
   const pronto = nome => { estado.prontos.add(nome); atualizarTelaViva(nome); };
   const erro = nome => e => toast(`Erro ao carregar ${nome}: ${mensagemErro(e)}`, 'erro');
   ouvintes.push(db.ouvir('servidores', l => { estado.servidores = l.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')); pronto('servidores'); }, erro('servidores')));
@@ -266,6 +270,7 @@ function iniciarDados() {
     ouvintes.push(db.ouvir('orcamentos', l => { estado.orcamentos = l; pronto('orcamentos'); }, () => pronto('orcamentos'), filtroSec));
   }
   ouvintes.push(db.ouvir('distancias', l => { estado.distancias = Object.fromEntries(l.map(d => [d.id, d])); pronto('distancias'); }, () => {}));
+  ouvintes.push(db.ouvir('exercicios', l => { estado.exercicios = l; pronto('exercicios'); preencherExercicios(); }, () => pronto('exercicios')));
   ouvintes.push(db.ouvirDoc('config', 'parametros', d => { estado.config = mesclarConfig(d); pronto('config'); }, erro('parâmetros')));
   if (pode.admin()) ouvintes.push(db.ouvir('usuarios', l => { estado.usuarios = l; pronto('usuarios'); }, erro('usuários')));
 }
@@ -277,6 +282,15 @@ function pararOuvintes() {
 
 let telaAtual = null;
 let pendenteRender = null;
+function preencherExercicios() {
+  const sel = $('#sel-exercicio');
+  if (!sel) return;
+  const anos = anosExercicio();
+  if (!anos.includes(estado.exercicio)) anos.push(estado.exercicio);
+  sel.innerHTML = anos.sort((a, b) => b - a).map(a => `<option ${a === estado.exercicio ? 'selected' : ''}>${a}</option>`).join('');
+}
+window.addEventListener('sisdifi:exercicio', () => { preencherExercicios(); if (telaAtual && estado.sessao && $('#conteudo')) desenharTela(true); });
+
 function atualizarTelaViva() {
   // Re-desenha telas de consulta quando os dados mudam. Formulários não são redesenhados para não perder o que está sendo digitado.
   if (!telaAtual || !telaAtual.viva) return;
@@ -291,7 +305,7 @@ function montarLayout() {
     <div class="layout">
       <aside class="lateral" id="lateral">
         ${marca()}
-        <nav>${MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.solicitar()) && (!m.interno || !acessoRestrito()) && (!m.servidores || !acessoRestrito() || ehSecretaria()) && (!m.valores || pode.verValores()) && (!m.simulador || pode.simular()) && (!m.relatorio || pode.relatorio()) && (!m.orcamento || pode.orcamento())).map(m => m.grupo
+        <nav>${MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.solicitar()) && (!m.interno || !acessoRestrito()) && (!m.servidores || !acessoRestrito() || ehSecretaria()) && (!m.valores || pode.verValores()) && (!m.simulador || pode.simular()) && (!m.relatorio || pode.relatorio()) && (!m.orcamento || pode.orcamento()) && (!m.contabil || pode.contabil())).map(m => m.grupo
           ? `<div class="menu-grupo">${esc(m.grupo)}</div>`
           : `<a href="#/${m.rota}" data-rota="${m.rota}"><span class="ico" aria-hidden="true">${icone(m.icone)}</span>${esc(m.texto)}</a>`).join('')}
         </nav>
@@ -301,6 +315,8 @@ function montarLayout() {
         <header class="topo">
           <button class="btn-icone menu-mobile" id="abrir-menu" aria-label="Menu">☰</button>
           <div class="topo-titulo" id="topo-titulo"></div>
+          <label class="topo-exercicio" title="Exercício (ano) em uso: painel, solicitações, relatório e orçamento mostram este ano"><span>Exercício</span>
+            <select id="sel-exercicio"></select></label>
           <div class="usuario">
             <a href="#/conta" class="usuario-nome" title="Minha conta">${esc(s.nome)}<small>${esc(PERFIS[s.perfil] || s.perfil)}${s.perfil === 'secretaria' ? ' · ' + esc(s.secretaria_nome || 'sem secretaria') : ''}</small></a>
             <button class="btn btn-sec btn-peq" id="btn-sair">Sair</button>
@@ -310,6 +326,8 @@ function montarLayout() {
       </div>
     </div>`;
   $('#btn-sair').onclick = () => db.sair();
+  $('#sel-exercicio').onchange = e => definirExercicio(e.target.value);
+  preencherExercicios();
   $('#abrir-menu').onclick = () => $('#lateral').classList.toggle('aberta');
 }
 
@@ -322,6 +340,7 @@ const ROTAS = [
   [/^servidores$/, telaServidores, 'servidores'],
   [/^secretarias$/, telaSecretarias, 'interno'],
   [/^simulador$/, telaSimulador, 'simular'],
+  [/^exercicio$/, telaExercicio, 'contabil'],
   [/^imprimir\/(simulacao)$/, telaImprimir, 'simular'],
   [/^conferencia$/, telaConferencia, 'valores'],
   [/^parametros$/, telaParametros, 'admin'],
@@ -359,6 +378,7 @@ function desenharTela(atualizacao) {
       if (req === 'valores' && (ehSecretaria() || !pode.verValores())) break;
       if (req === 'relatorio' && !pode.relatorio()) break;
       if (req === 'simular' && !pode.simular()) break;
+      if (req === 'contabil' && !pode.contabil()) break;
       if (req === 'orcamento' && !pode.orcamento()) break;
       alvo = fn; args = m.slice(1); break;
     }

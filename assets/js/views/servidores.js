@@ -431,7 +431,7 @@ export function categoriaEsperada(sv) {
   return 'DEMAIS_SERVIDORES';
 }
 
-function revisarCategorias() {
+export function revisarCategorias() {
   const lista = estado.servidores.filter(s => s.ativo !== false && categoriaEsperada(s) !== s.grupo)
     .map(s => ({ s, nova: categoriaEsperada(s), conferir: !s.vinculo }))
     .sort((a, b) => (a.conferir - b.conferir) || a.s.nome.localeCompare(b.s.nome, 'pt-BR'));

@@ -10,6 +10,7 @@ const tituloDe = s => { const r = rotuloFicha(s); return r.includes(' — ') ? r
 
 const hoje = new Date();
 const filtro = { ano: String(hoje.getFullYear()), mes: String(hoje.getMonth() + 1), base: '', secretaria: '', fonte: '', situacao: 'empenhadas' };
+window.addEventListener('sisdifi:exercicio', e => { filtro.ano = String(e.detail); if (Number(e.detail) !== hoje.getFullYear()) filtro.mes = ''; });
 
 /** Seleciona as solicitações do relatório conforme os filtros (usado também na impressão). */
 export const SITUACOES_REL = {
