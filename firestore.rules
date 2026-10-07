@@ -51,6 +51,10 @@ service cloud.firestore {
         && request.resource.data.perfil == 'consulta'
         && request.resource.data.email == request.auth.token.email.lower()
       );
+      // O próprio usuário só marca que já viu o tutorial do primeiro acesso.
+      allow update: if logado() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tutorial_visto'])
+        && request.resource.data.tutorial_visto is string;
       // Só admin altera usuários, e não pode bloquear/rebaixar a si mesmo.
       allow update: if admin() && (uid != request.auth.uid || (request.resource.data.perfil == 'admin' && request.resource.data.ativo == true));
       allow delete: if false;

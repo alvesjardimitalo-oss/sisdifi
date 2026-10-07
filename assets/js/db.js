@@ -91,6 +91,11 @@ export async function criarPrimeiroAdmin({ nome, email, senha }) {
   return uid;
 }
 
+/** O próprio usuário marca que já viu o tutorial do primeiro acesso (só esse campo; as regras conferem). */
+export async function marcarTutorialVisto() {
+  const u = auth.currentUser;
+  if (u) await updateDoc(doc(fs, 'usuarios', u.uid), { tutorial_visto: new Date().toISOString() });
+}
 export async function obterPerfil(uid) {
   const s = await getDoc(doc(fs, 'usuarios', uid));
   return s.exists() ? { uid, ...s.data() } : null;

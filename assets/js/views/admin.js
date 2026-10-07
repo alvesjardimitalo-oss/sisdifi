@@ -338,6 +338,7 @@ export function telaConta(el) {
     <section class="cartao estreito">
       <dl class="dl"><dt>Nome</dt><dd>${esc(s.nome)}</dd><dt>E-mail</dt><dd>${esc(s.email)}</dd><dt>Perfil</dt><dd>${esc(PERFIS[s.perfil])}</dd></dl>
       ${soGoogle ? '<p class="muted mt">Você entra com a conta Google — a senha é gerenciada pelo Google.</p>' : ''}
+      <p class="mt"><button type="button" class="btn btn-sec" id="rever-tutorial">? Ver o tutorial de novo</button></p>
       <h3 class="mt" ${soGoogle ? 'hidden' : ''}>Alterar senha</h3>
       <form id="fsenha" novalidate ${soGoogle ? 'hidden' : ''}>
         <label class="campo"><span>Senha atual</span><input type="password" name="atual" autocomplete="current-password" required></label>
@@ -347,6 +348,7 @@ export function telaConta(el) {
         <div class="acoes-form"><button class="btn" type="submit">Alterar senha</button></div>
       </form>
     </section>`;
+  $('#rever-tutorial', el).onclick = () => document.getElementById('abrir-tutorial')?.click();
   const f = $('#fsenha', el);
   f.onsubmit = async e => {
     e.preventDefault();
