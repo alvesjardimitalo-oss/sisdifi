@@ -5,6 +5,7 @@ import { GRUPOS, FAIXAS, moeda } from '../calculo.js';
 import { esc, $, $$, toast, modal, confirmar, lerForm, mensagemErro, dataBR, baixarArquivo } from '../ui.js';
 import { aguardando, cabecalho, opcoesSecretarias } from './comum.js';
 import { mapearBancoAntigo } from '../importador.js';
+import { importarRelacao } from './servidores.js';
 
 // =============================================================
 // PARÂMETROS
@@ -187,6 +188,9 @@ export function telaImportar(el) {
         <div class="alerta">${expostos} solicitação(ões) ainda guardam os valores junto com os dados da viagem (importação anterior). Clique para mover os valores para a área protegida — assim Secretaria e Controle Interno não conseguem lê-los.</div>
         <button class="btn" id="proteger">🔒 Proteger valores agora</button> <span id="prog-proteger"></span></section>` : '';
     })()}
+    <section class="cartao"><h3>Importar relação de servidores (PDF da folha)</h3>
+      <p>Cadastra em massa os servidores do relatório <strong>Cadastro de Pessoal por Lotação</strong>. O CPF é conferido: quem já está cadastrado não é duplicado. Os novos entram com a chave Pix pendente e o cargo a informar.</p>
+      <button class="btn" id="importar-rel-adm">📄 Importar relação de servidores (PDF)</button></section>
     <h3>Importar banco do SISDIFI antigo</h3>
     <section class="cartao">
       <ol class="passos">
@@ -203,6 +207,7 @@ export function telaImportar(el) {
     baixarArquivo(`sisdifi-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(dados, (k, v) => (v && typeof v.toDate === 'function') ? v.toDate().toISOString() : v, 2), 'application/json');
     await db.registrarLog('backup.baixar', { solicitacoes: estado.solicitacoes.length });
   };
+  $('#importar-rel-adm', el)?.addEventListener('click', () => importarRelacao());
   $('#proteger', el)?.addEventListener('click', async () => {
     const lista = (estado.solicitacoesBrutas || []).map(x => {
       const valores = {};

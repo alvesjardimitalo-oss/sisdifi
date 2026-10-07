@@ -250,7 +250,7 @@ export function telaPerfilServidor(el, { args }) {
 // ---------- Importação em massa: "Relação de servidores" (Cadastro de Pessoal por Lotação) ----------
 const CPF_ID = cpf => 'sv-' + cpf;
 
-function importarRelacao() {
+export function importarRelacao() {
   const m = modal({
     titulo: 'Importar relação de servidores', largura: 1080,
     corpo: `<p>Escolha o PDF do <strong>Cadastro de Pessoal por Lotação</strong>. O sistema confere cada CPF com o cadastro e
