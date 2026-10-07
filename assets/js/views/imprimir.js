@@ -58,7 +58,7 @@ function docSolicitacao(sol) {
     ${secao('Descritivo do Cálculo e Justificativa Legal', `<table class="doc-tab"><tr><td><ul class="doc-lista">${(sol.descricao_calculo || []).map(x => `<li>${esc(x)}</li>`).join('')}
       ${(sol.justificativa_legal || []).map(x => `<li>${esc(x)}</li>`).join('')}<li>Base legal: ${esc(estado.config.lei)}.</li></ul></td></tr></table>`)}
     ${secao('4 - Análise do Controle Interno', `<table class="doc-tab">
-      <tr><td class="r" style="width:22%">Parecer</td><td style="width:28%">${ci ? 'APROVADA' : e === 'reprovada' ? 'REPROVADA' : ''}</td><td class="r" style="width:22%">Responsável / Data</td><td>${esc(nomeCI)}${ci ? ' — ' + esc(dataBR(ci.em)) : ''}</td></tr>
+      <tr><td class="r" style="width:22%">Parecer</td><td style="width:28%">${ci ? 'APROVADA' : e === 'reprovada' ? 'REPROVADA' : sol.interna ? 'DISPENSADA (lançamento direto)' : ''}</td><td class="r" style="width:22%">Responsável / Data</td><td>${esc(nomeCI)}${ci ? ' — ' + esc(dataBR(ci.em)) : ''}</td></tr>
       <tr><td class="r">Conta de Pagamento</td><td>${esc(sol.conta_pagamento || '')}</td><td class="r">Fonte de Recursos</td><td>${esc(sol.fonte_recursos || '')}</td></tr>
       ${ci?.parecer ? `<tr><td class="r">Observação</td><td colspan="3" class="pre">${esc(ci.parecer)}</td></tr>` : ''}</table>`)}
     ${secao('5 - Contabilidade', `<table class="doc-tab">

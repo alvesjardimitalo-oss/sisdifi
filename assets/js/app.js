@@ -236,8 +236,10 @@ function iniciarDados() {
   let base = null, valores = pode.verValores() ? null : {};
   const juntar = () => {
     if (!base || !valores) return;
-    estado.solicitacoesBrutas = base;
-    estado.solicitacoes = base.map(s => {
+    // Lançamentos diretos da Contabilidade não aparecem para Secretaria, Controle Interno e RH.
+    const visiveis = acessoRestrito() ? base.filter(s => !s.interna) : base;
+    estado.solicitacoesBrutas = visiveis;
+    estado.solicitacoes = visiveis.map(s => {
       const v = valores[s.id];
       if (!v) return s;
       const extra = {};

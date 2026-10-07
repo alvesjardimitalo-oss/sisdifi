@@ -68,7 +68,7 @@ export function telaListaSolicitacoes(el, { query }) {
       <thead><tr><th>Nº</th><th>Servidor</th><th>Destino</th><th>Saída</th><th>Retorno</th>${vv ? '<th class="num">Diárias</th><th class="num">Reemb.</th><th>Empenho</th>' : ''}<th>Etapa</th><th></th></tr></thead>
       <tbody>${pagina.map(s => `
         <tr class="clicavel" data-id="${esc(s.id)}">
-          <td><strong>${esc(s.numero)}</strong></td>
+          <td><strong>${esc(s.numero)}</strong>${s.interna ? '<small class="muted bloco" title="Lançamento direto da Contabilidade — não aparece para Secretaria, Controle Interno e RH">🔒 direta</small>' : ''}</td>
           <td>${esc(s.servidor?.nome)}<small class="muted bloco">${esc(s.secretaria_nome || secretariaNome(s.secretaria_id))}</small></td>
           <td>${esc(s.destino_cidade)}/${esc(s.destino_uf)}<small class="muted bloco">${numeroBR(s.distancia_km)} km</small></td>
           <td>${esc(dataBR(s.data_hora_saida))}</td>
@@ -179,6 +179,13 @@ function montarDadosSolicitacao(dados, sv, existente = null) {
     data_solicitacao: dados.data_solicitacao
   };
   if (!existente) {
+    // Lançamento direto da Contabilidade: não passa pelo Controle Interno e não aparece para Secretaria, Controle Interno e RH.
+    if (pode.contabil() && dados.tramitacao === 'direta') {
+      const agora = new Date().toISOString();
+      return { ...base, calculado: false, status: 'emitida', etapa: 'aprovada', interna: true, numero_empenho: '', data_empenho: '', ficha: '',
+        analise: { resultado: 'dispensada', por: quem(), em: agora },
+        historico: [{ etapa: 'aprovada', em: agora, por: estado.sessao.nome, obs: 'Lançamento direto da Contabilidade (sem Controle Interno)' }] };
+    }
     // O valor NÃO é calculado aqui: só a Contabilidade calcula, depois da aprovação do Controle Interno.
     return { ...base, calculado: false, status: 'emitida', etapa: 'analise', numero_empenho: '', data_empenho: '', ficha: '' };
   }
@@ -266,10 +273,15 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
     <aside class="col-resultado">
       <div class="cartao resultado-calc" id="resultado"><p class="muted">Preencha servidor, datas e distância para ver o cálculo.</p></div>
       <div id="avisos"></div>
+      ${modo === 'nova' && pode.contabil() ? `<div class="cartao">
+        <label class="campo"><span>Tramitação</span><select name="tramitacao" id="tramitacao">
+          <option value="direta">Lançamento direto da Contabilidade</option>
+          <option value="normal">Normal — enviar ao Controle Interno</option></select></label>
+        <p class="dica" id="dica-tramitacao"></p></div>` : ''}
       <p class="erro-form" id="erro-fv" role="alert"></p>
       <div class="acoes-form">
         <button type="button" class="btn btn-sec" id="cancelar-fv">Cancelar</button>
-        <button type="submit" class="btn" id="salvar-fv">${modo === 'nova' ? (ehSecretaria() ? 'Enviar para análise' : 'Salvar e enviar para análise') : 'Salvar alterações'}</button>
+        <button type="submit" class="btn" id="salvar-fv">${modo === 'nova' ? (ehSecretaria() ? 'Enviar para análise' : pode.contabil() ? 'Salvar solicitação' : 'Salvar e enviar para análise') : 'Salvar alterações'}</button>
       </div>
     </aside>
   </form>`;
@@ -488,6 +500,13 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
   form.addEventListener('input', e => { if (e.target !== busca) { recalcular(); $('#erro-fv', el).textContent = ''; } });
   form.addEventListener('change', recalcular);
 
+  const selTram = $('#tramitacao', el);
+  if (selTram) {
+    const dica = () => { $('#dica-tramitacao', el).textContent = selTram.value === 'direta'
+      ? 'A Contabilidade faz tudo: cálculo, ficha, assinatura, empenho e pagamento. Não passa pelo Controle Interno e não aparece para Secretaria, Controle Interno e RH.'
+      : 'Vai para o Controle Interno aprovar antes do cálculo (aparece para a secretaria e para o Controle Interno).'; };
+    selTram.onchange = dica; dica();
+  }
   $('#cancelar-fv', el).onclick = () => history.back();
   $('#consultar-fichas', el).onclick = () => {
     const sec = form.secretaria_id.value;
@@ -577,7 +596,9 @@ async function tramitar(sol, etapa, campos = {}, obs = '') {
   const historico = [...(sol.historico || []), { etapa, em: new Date().toISOString(), por: estado.sessao.nome, obs }];
   // Após o empenho, os valores ficam visíveis para o relatório do Controle Interno.
   const liberar = ETAPAS_EMPENHADAS.includes(etapa);
-  if (pode.contabil() && liberar !== !!sol.liberado_ci) campos = { ...campos, liberado_ci: liberar };
+  // Lançamento direto (interno) nunca é liberado para Controle Interno, RH ou Secretaria.
+  const liberarFinal = liberar && !sol.interna;
+  if (pode.contabil() && liberarFinal !== !!sol.liberado_ci) campos = { ...campos, liberado_ci: liberarFinal };
   await gravarSolicitacao(sol.id, { ...campos, etapa, historico });
   await db.registrarLog('solicitacao.etapa', { numero: sol.numero, etapa, obs });
 }
@@ -620,7 +641,7 @@ function blocoTramitacao(sol) {
   const e = etapaDe(sol);
   const cancelada = sol.status === 'cancelada';
   const passos = ['analise', 'aprovada', 'calculada', 'autorizada', 'empenhada', 'liquidada', 'paga'];
-  const rotulos = { analise: 'Controle Interno', aprovada: 'Cálculo e ficha', calculada: 'Assinatura do Prefeito', autorizada: 'Empenho', empenhada: 'Liquidação', liquidada: 'Pagamento', paga: 'Concluída' };
+  const rotulos = { analise: sol.interna ? 'Lançamento direto' : 'Controle Interno', aprovada: 'Cálculo e ficha', calculada: 'Assinatura do Prefeito', autorizada: 'Empenho', empenhada: 'Liquidação', liquidada: 'Pagamento', paga: 'Concluída' };
   const atual = ETAPAS[e].ordem;
   const linhaTempo = e === 'legado' ? '' : `<ol class="etapas etapas-7">${passos.map(p => {
     const feito = (e !== 'reprovada' && ETAPAS[p].ordem < atual) || e === 'paga';
@@ -707,6 +728,7 @@ function blocoTramitacao(sol) {
 
   const dados = [
     sol.analise?.resultado === 'aprovada' ? ['Aprovado pelo Controle Interno', `${sol.analise.por?.nome || ''} em ${dataBR(sol.analise.em)}`] : null,
+    sol.interna ? ['Lançamento direto', `Contabilidade (${sol.analise?.por?.nome || ''}) — sem Controle Interno; não aparece para Secretaria, Controle Interno e RH`] : null,
     sol.conta_pagamento ? ['Conta de pagamento', sol.conta_pagamento] : null,
     sol.fonte_recursos ? ['Fonte de recursos', sol.fonte_recursos] : null,
     sol.ficha_sugerida && !sol.ficha ? ['Ficha sugerida pela secretaria', rotuloFicha(sol, 'ficha_sugerida')] : null,
