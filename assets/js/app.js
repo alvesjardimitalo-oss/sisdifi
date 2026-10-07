@@ -23,21 +23,38 @@ let ouvintes = [];
 let reivindicando = null; // { nome } durante o primeiro acesso
 let limpezaTela = null;
 
+const ICONES = {
+  painel: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+  nova: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
+  lista: '<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/>',
+  pessoas: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.7.7 2.8 2.4 3 5.2"/>',
+  predio: '<path d="M3 21h18M5 21V10M19 21V10M9 21v-6h6v6M12 3 3 8h18z"/>',
+  confere: '<path d="M9 11.5 11.5 14 16 9"/><rect x="3" y="3" width="18" height="18" rx="3"/>',
+  calc: '<rect x="5" y="2.5" width="14" height="19" rx="2"/><path d="M8 6.5h8M8.5 11h.01M12 11h.01M15.5 11h.01M8.5 14.5h.01M12 14.5h.01M15.5 14.5h.01M8.5 18h.01M12 18h.01M15.5 18h.01"/>',
+  relatorio: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  orcamento: '<path d="M14 2.5H6.5A1.5 1.5 0 0 0 5 4v16a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 20V7.5z"/><path d="M14 2.5v5h5M9 13h6M9 17h6"/>',
+  parametros: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  chave: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M14.5 8.5l2.5 2.5"/>',
+  importar: '<path d="M12 3v12M7 10l5 5 5-5M4 17v2.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V17"/>',
+  historico: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
+};
+const icone = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONES[n] || ''}</svg>`;
+
 const MENU = [
-  { rota: 'painel', icone: '◧', texto: 'Painel' },
-  { rota: 'solicitacoes/nova', icone: '＋', texto: 'Nova solicitação', editar: true },
-  { rota: 'solicitacoes', icone: '☰', texto: 'Solicitações' },
-  { rota: 'servidores', icone: '👤', texto: 'Servidores', servidores: true },
-  { rota: 'secretarias', icone: '🏛', texto: 'Secretarias', interno: true },
-  { rota: 'conferencia', icone: '✓', texto: 'Conferência', interno: true, valores: true },
-  { rota: 'simulador', icone: '∑', texto: 'Simulador', interno: true, valores: true },
-  { rota: 'relatorio', icone: '▤', texto: 'Relatório mensal', relatorio: true },
-  { rota: 'orcamento', icone: '📑', texto: 'Orçamento', orcamento: true },
+  { rota: 'painel', icone: 'painel', texto: 'Painel' },
+  { rota: 'solicitacoes/nova', icone: 'nova', texto: 'Nova solicitação', editar: true },
+  { rota: 'solicitacoes', icone: 'lista', texto: 'Solicitações' },
+  { rota: 'servidores', icone: 'pessoas', texto: 'Servidores', servidores: true },
+  { rota: 'secretarias', icone: 'predio', texto: 'Secretarias', interno: true },
+  { rota: 'conferencia', icone: 'confere', texto: 'Conferência', interno: true, valores: true },
+  { rota: 'simulador', icone: 'calc', texto: 'Simulador', interno: true, valores: true },
+  { rota: 'relatorio', icone: 'relatorio', texto: 'Relatório mensal', relatorio: true },
+  { rota: 'orcamento', icone: 'orcamento', texto: 'Orçamento', orcamento: true },
   { grupo: 'Administração', admin: true },
-  { rota: 'parametros', icone: '⚙', texto: 'Parâmetros da lei', admin: true },
-  { rota: 'usuarios', icone: '🔑', texto: 'Usuários', admin: true },
-  { rota: 'importar', icone: '⇪', texto: 'Importar / Backup', admin: true },
-  { rota: 'auditoria', icone: '🕘', texto: 'Auditoria', admin: true }
+  { rota: 'parametros', icone: 'parametros', texto: 'Parâmetros da lei', admin: true },
+  { rota: 'usuarios', icone: 'chave', texto: 'Usuários', admin: true },
+  { rota: 'importar', icone: 'importar', texto: 'Importar / Backup', admin: true },
+  { rota: 'auditoria', icone: 'historico', texto: 'Auditoria', admin: true }
 ];
 
 // ---------------- Inicialização ----------------
@@ -255,7 +272,7 @@ function montarLayout() {
         ${marca()}
         <nav>${MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.solicitar()) && (!m.interno || !acessoRestrito()) && (!m.servidores || !acessoRestrito() || ehSecretaria()) && (!m.valores || pode.verValores()) && (!m.relatorio || pode.relatorio()) && (!m.orcamento || pode.orcamento())).map(m => m.grupo
           ? `<div class="menu-grupo">${esc(m.grupo)}</div>`
-          : `<a href="#/${m.rota}" data-rota="${m.rota}"><span class="ico" aria-hidden="true">${m.icone}</span>${esc(m.texto)}</a>`).join('')}
+          : `<a href="#/${m.rota}" data-rota="${m.rota}"><span class="ico" aria-hidden="true">${icone(m.icone)}</span>${esc(m.texto)}</a>`).join('')}
         </nav>
         <div class="versao">v${VERSAO}</div>
       </aside>

@@ -42,7 +42,7 @@ export function telaPainel(el) {
     a[s.servidor_id].v += Number(s.valor_total || 0) + totalReembolsos(s); a[s.servidor_id].n++; return a;
   }, {})).sort((a, b) => b.v - a.v).slice(0, 5);
 
-  const ultimas = estado.solicitacoes.slice(0, 8);
+  const ultimas = estado.solicitacoes.slice(0, 6);
   const rotulo = filtro.mes ? `${MESES[Number(filtro.mes) - 1]} de ${filtro.ano || 'todos os anos'}` : (filtro.ano ? `Ano de ${filtro.ano}` : 'Todo o período');
 
   el.innerHTML = `
@@ -54,7 +54,7 @@ export function telaPainel(el) {
       <label class="campo"><span>Ano</span><select name="ano"><option value="">Todos</option>${anosDisponiveis().map(a => `<option ${String(a) === filtro.ano ? 'selected' : ''}>${a}</option>`).join('')}</select></label>
       <label class="campo"><span>Mês</span><select name="mes"><option value="">Todos</option>${MESES.map((m, i) => `<option value="${i + 1}" ${String(i + 1) === filtro.mes ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
       <div class="filtro-rotulo">${esc(rotulo)}</div>
-      <a class="btn btn-sec btn-peq" style="margin:0 0 14px auto" href="#/relatorio">▤ Relatório mensal</a>
+      <a class="btn btn-sec btn-peq filtros-fim" href="#/relatorio">Relatório mensal</a>
     </form>
     <div class="kpis">
       <div class="kpi"><span>Viagens</span><strong>${periodo.length}</strong></div>
@@ -74,20 +74,26 @@ export function telaPainel(el) {
       </section>
       <section class="cartao">
         <h3>Por secretaria</h3>
-        ${porSec.map(x => `<div class="linha-barra"><div class="linha-barra-txt"><span>${esc(x.nome)}</span><span>${moeda(x.v)} · ${x.n}</span></div>
+        <div class="lista-barras">
+        ${porSec.map(x => `<div class="linha-barra"><div class="linha-barra-txt"><span>${esc(x.nome)}</span><span>${moeda(x.v)} <small>· ${x.n}</small></span></div>
           <div class="linha-barra-trilho"><div style="width:${Math.max(2, Math.round((x.v / maxSec) * 100))}%"></div></div></div>`).join('') || '<p class="muted">Sem viagens no período.</p>'}
+        </div>
       </section>
-      ${blocoDotacao(filtro.ano)}
+    </div>
+    ${blocoDotacao(filtro.ano)}
+    <div class="grade-painel-3">
       <section class="cartao">
         <h3>Servidores com mais gastos</h3>
-        <ol class="ranking">${servidoresTop.map(x => `<li><a href="#/servidores/${esc(x.id)}">${esc(x.nome)}</a><span>${moeda(x.v)} · ${x.n} viagem(ns)</span></li>`).join('') || '<li class="muted">—</li>'}</ol>
-        <h3 class="mt">Destinos mais frequentes</h3>
-        <ol class="ranking">${destinos.map(([d, n]) => `<li><span>${esc(d)}</span><span>${n} viagem(ns)</span></li>`).join('') || '<li class="muted">—</li>'}</ol>
+        <ol class="lista-rank numerada">${servidoresTop.map(x => `<li><span class="rank-txt"><a href="#/servidores/${esc(x.id)}">${esc(x.nome)}</a><small>${x.n} ${x.n === 1 ? 'viagem' : 'viagens'}</small></span><span class="rank-val">${moeda(x.v)}</span></li>`).join('') || '<li class="vazio-item">Sem viagens no período.</li>'}</ol>
       </section>
       <section class="cartao">
-        <h3>Últimas solicitações</h3>
-        <ul class="ultimas">${ultimas.map(s => `<li><a href="#/solicitacoes/${esc(s.id)}"><strong>${esc(s.numero)}</strong> ${esc(s.servidor?.nome)}</a>
-          <span>${esc(s.destino_cidade)}/${esc(s.destino_uf)} · ${esc(dataBR(s.data_hora_saida).slice(0, 10))} · ${moeda(s.valor_total)}${s.status === 'cancelada' ? ' · <em>cancelada</em>' : ''}</span></li>`).join('') || '<li class="muted">Nenhuma solicitação ainda.</li>'}</ul>
+        <h3>Destinos mais frequentes</h3>
+        <ol class="lista-rank numerada">${destinos.map(([d, n]) => `<li><span class="rank-txt"><span>${esc(d)}</span></span><span class="rank-val">${n} <span class="muted" style="font-weight:400">${n === 1 ? 'viagem' : 'viagens'}</span></span></li>`).join('') || '<li class="vazio-item">Sem viagens no período.</li>'}</ol>
+      </section>
+      <section class="cartao">
+        <div class="cab-secao"><h3>Últimas solicitações</h3><a class="link-peq" href="#/solicitacoes">ver todas</a></div>
+        <ul class="lista-rank">${ultimas.map(s => `<li><span class="rank-txt"><a href="#/solicitacoes/${esc(s.id)}"><strong>${esc(s.numero)}</strong> · ${esc(s.servidor?.nome)}</a>
+          <small>${esc(s.destino_cidade)}/${esc(s.destino_uf)} · ${esc(dataBR(s.data_hora_saida).slice(0, 10))}${s.status === 'cancelada' ? ' · cancelada' : ''}</small></span><span class="rank-val">${moeda(s.valor_total)}</span></li>`).join('') || '<li class="vazio-item">Nenhuma solicitação ainda.</li>'}</ul>
       </section>
     </div>`;
   $('#filtro-painel', el).onchange = e => { Object.assign(filtro, lerForm(e.currentTarget)); telaPainel(el); };
@@ -100,14 +106,14 @@ function filaDeTrabalho() {
   const n = e => sols.filter(s => etapaDe(s) === e).length;
   const itens = [];
   if (pode.analisar()) itens.push(['analise', 'Para analisar (Controle Interno)']);
-  if (pode.contabil()) itens.push(['aprovada', 'Aprovadas — calcular e preencher ficha'], ['calculada', 'Aguardando assinatura do Prefeito'], ['autorizada', 'Autorizadas — empenhar'], ['empenhada', 'Empenhadas — liquidar'], ['liquidada', 'Liquidadas — aguardando pagamento']);
+  if (pode.contabil()) itens.push(['aprovada', 'Calcular e preencher ficha'], ['calculada', 'Aguardando assinatura do Prefeito'], ['autorizada', 'Empenhar'], ['empenhada', 'Liquidar'], ['liquidada', 'Aguardando pagamento']);
   if (pode.solicitar()) itens.push(['reprovada', 'Reprovadas — corrigir']);
   const vistos = new Set();
   const cards = itens.filter(([e]) => !vistos.has(e) && vistos.add(e)).map(([e, t]) => {
     const q = n(e);
-    return `<a href="#/solicitacoes?etapa=${e}"><div class="kpi ${q ? '' : 'zero'}"><span>${esc(t)}</span><strong>${q}</strong><small>${esc(ETAPAS[e].nome)}</small></div></a>`;
+    return `<a href="#/solicitacoes?etapa=${e}" title="${esc(ETAPAS[e].nome)}"><div class="kpi ${q ? '' : 'zero'} ${q && e === 'reprovada' ? 'kpi-alerta' : ''}"><span>${esc(t)}</span><strong>${q}</strong></div></a>`;
   });
-  return cards.length ? `<h3>Minha fila de trabalho</h3><div class="fila">${cards.join('')}</div>` : '';
+  return cards.length ? `<h2 class="titulo-secao">Minha fila de trabalho</h2><div class="fila">${cards.join('')}</div>` : '';
 }
 
 /** Gasto x dotação prevista por secretaria (ano selecionado). */
