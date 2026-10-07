@@ -1,7 +1,7 @@
 // SISDIFI — Solicitações de diária: lista, nova, detalhe/edição, empenho e reembolsos
 import * as db from '../db.js';
 import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ETAPAS, etapaDe, ehSecretaria, separarValores, ETAPAS_EMPENHADAS } from '../estado.js';
-import { formServidor, formPix, podeAlterarPix } from './servidores.js';
+import { formServidor, formPix, podeCompletar, pendencias } from './servidores.js';
 import { consultarFichas, fichasDaSecretaria, buscarFicha, tituloFicha, rotuloFicha } from './orcamento.js';
 import { calcularDiaria, moeda, horasBR, formatarCpf, periodosSobrepostos, GRUPOS, cpfValido } from '../calculo.js';
 import { esc, $, $$, toast, modal, confirmar, hojeISO, dataBR, numeroBR, normalizar, lerForm, baixarArquivo, csv, mensagemErro } from '../ui.js';
@@ -292,8 +292,8 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
       if (!s) return '';
       return `<div class="sv-item"><div><strong>${esc(s.nome)}</strong>
         <small>${esc(formatarCpf(s.cpf))} · ${esc(s.cargo_funcao)} · ${esc(GRUPOS[s.grupo] || '')}${s.chave_pix ? ' · Pix: ' + esc(s.chave_pix) : ''}</small>
-        ${!s.chave_pix ? `<small class="erro-txt">⚠ Servidor sem chave Pix.</small>` : ''}
-        ${podeAlterarPix(s) ? `<button type="button" class="link link-peq" data-pix-sv="${esc(id)}">${s.chave_pix ? 'alterar chave Pix' : '＋ adicionar chave Pix'}</button>` : ''}</div>
+        ${pendencias(s).length ? `<small class="erro-txt">⚠ Cadastro sem ${pendencias(s).join(' e ')}.</small>` : ''}
+        ${podeCompletar(s) ? `<button type="button" class="link link-peq" data-pix-sv="${esc(id)}">${pendencias(s).length ? '＋ completar ' + pendencias(s).join(' e ') : 'alterar Pix/cargo'}</button>` : ''}</div>
         ${multiplo || selecionados.length > 1 ? `<button type="button" class="btn-icone" data-remover="${esc(id)}" aria-label="Remover">✕</button>` : ''}</div>`;
     }).join('') || '<p class="muted">Nenhum servidor selecionado.</p>';
     $$('[data-remover]', el).forEach(b => b.onclick = () => { selecionados = selecionados.filter(x => x !== b.dataset.remover); desenharSelecionados(); recalcular(); });

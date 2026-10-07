@@ -27,7 +27,7 @@ const MENU = [
   { rota: 'painel', icone: '◧', texto: 'Painel' },
   { rota: 'solicitacoes/nova', icone: '＋', texto: 'Nova solicitação', editar: true },
   { rota: 'solicitacoes', icone: '☰', texto: 'Solicitações' },
-  { rota: 'servidores', icone: '👤', texto: 'Servidores', interno: true },
+  { rota: 'servidores', icone: '👤', texto: 'Servidores', servidores: true },
   { rota: 'secretarias', icone: '🏛', texto: 'Secretarias', interno: true },
   { rota: 'conferencia', icone: '✓', texto: 'Conferência', interno: true, valores: true },
   { rota: 'simulador', icone: '∑', texto: 'Simulador', interno: true, valores: true },
@@ -253,7 +253,7 @@ function montarLayout() {
     <div class="layout">
       <aside class="lateral" id="lateral">
         ${marca()}
-        <nav>${MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.solicitar()) && (!m.interno || !acessoRestrito()) && (!m.valores || pode.verValores()) && (!m.relatorio || pode.relatorio()) && (!m.orcamento || pode.orcamento())).map(m => m.grupo
+        <nav>${MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.solicitar()) && (!m.interno || !acessoRestrito()) && (!m.servidores || !acessoRestrito() || ehSecretaria()) && (!m.valores || pode.verValores()) && (!m.relatorio || pode.relatorio()) && (!m.orcamento || pode.orcamento())).map(m => m.grupo
           ? `<div class="menu-grupo">${esc(m.grupo)}</div>`
           : `<a href="#/${m.rota}" data-rota="${m.rota}"><span class="ico" aria-hidden="true">${m.icone}</span>${esc(m.texto)}</a>`).join('')}
         </nav>
@@ -281,7 +281,7 @@ const ROTAS = [
   [/^solicitacoes\/([\w-]+)$/, telaDetalheSolicitacao],
   [/^solicitacoes$/, telaListaSolicitacoes],
   [/^servidores\/([\w-]+)$/, telaPerfilServidor, 'interno'],
-  [/^servidores$/, telaServidores, 'interno'],
+  [/^servidores$/, telaServidores, 'servidores'],
   [/^secretarias$/, telaSecretarias, 'interno'],
   [/^simulador$/, telaSimulador, 'valores'],
   [/^conferencia$/, telaConferencia, 'valores'],
@@ -315,6 +315,7 @@ function desenharTela(atualizacao) {
     if (m) {
       if (req === 'admin' && !pode.admin()) break;
       if (req === 'interno' && acessoRestrito()) break;
+      if (req === 'servidores' && acessoRestrito() && !ehSecretaria()) break;
       if (req === 'valores' && (ehSecretaria() || !pode.verValores())) break;
       if (req === 'relatorio' && !pode.relatorio()) break;
       if (req === 'orcamento' && !pode.orcamento()) break;

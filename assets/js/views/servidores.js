@@ -1,6 +1,6 @@
 // SISDIFI — Servidores: lista, cadastro/edição e perfil
 import * as db from '../db.js';
-import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ehSecretaria } from '../estado.js';
+import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ehSecretaria, acessoRestrito } from '../estado.js';
 import { GRUPOS, formatarCpf, limparCpf, cpfValido, moeda, analisarPix } from '../calculo.js';
 import { esc, $, $$, toast, modal, dataBR, numeroBR, normalizar, lerForm, mensagemErro, baixarArquivo, csv, hojeISO } from '../ui.js';
 import { aguardando, cabecalho, selo, opcoesSecretarias, anosDisponiveis, MESES } from './comum.js';
@@ -33,10 +33,11 @@ export function telaServidores(el) {
   const semCargo = estado.servidores.filter(s => s.ativo !== false && !s.cargo_funcao).length;
 
   el.innerHTML = `
-    ${cabecalho('Servidores', `<button class="btn btn-sec" id="exp-sv">⭳ Exportar</button>${pode.editar() ? '<button class="btn btn-sec" id="importar-rel">📄 Importar relação (PDF)</button><button class="btn" id="novo-sv">＋ Novo servidor</button>' : ''}`)}
-    ${semPix ? `<div class="alerta">⚠ ${semPix} servidor(es) ativo(s) sem chave Pix. Use o filtro "Pendências" → "Sem chave Pix" e clique em "＋ Pix" para completar.</div>` : ''}
-    ${semCargo ? `<div class="alerta">⚠ ${semCargo} servidor(es) ativo(s) sem cargo/função informado. Use o filtro "Pendências" → "Sem cargo".</div>` : ''}
-    ${cpfsInvalidos ? `<div class="alerta">⚠ ${cpfsInvalidos} servidor(es) ativo(s) com CPF de dígito verificador inválido. Use o filtro "CPF inválido" para conferir.</div>` : ''}
+    ${cabecalho('Servidores', `${ehSecretaria() ? '' : '<button class="btn btn-sec" id="exp-sv">⭳ Exportar</button>'}${pode.editar() ? '<button class="btn btn-sec" id="importar-rel">📄 Importar relação (PDF)</button>' : ''}${pode.solicitar() ? '<button class="btn" id="novo-sv">＋ Novo servidor</button>' : ''}`,
+      ehSecretaria() ? 'Pesquise no banco de servidores da Prefeitura. Complete a chave Pix e o cargo de quem estiver pendente, ou cadastre um servidor novo.' : '')}
+    ${semPix ? `<div class="alerta">⚠ ${semPix} servidor(es) ativo(s) sem chave Pix. Use o filtro "Pendências" → "Sem chave Pix" e clique no botão "＋" da linha para completar.</div>` : ''}
+    ${semCargo ? `<div class="alerta">⚠ ${semCargo} servidor(es) ativo(s) sem cargo/função informado. Use o filtro "Pendências" → "Sem cargo" e clique no botão "＋" da linha.</div>` : ''}
+    ${cpfsInvalidos && !ehSecretaria() ? `<div class="alerta">⚠ ${cpfsInvalidos} servidor(es) ativo(s) com CPF de dígito verificador inválido. Eles aparecem marcados como "CPF inválido" na lista.</div>` : ''}
     <form class="filtros" id="filtros-sv">
       <label class="campo cresce"><span>Buscar</span><input type="search" name="busca" value="${esc(filtros.busca)}" placeholder="Nome, CPF ou cargo"></label>
       <label class="campo"><span>Secretaria</span><select name="secretaria">${opcoesSecretarias(filtros.secretaria, { incluirInativas: true, vazio: 'Todas' })}</select></label>
@@ -54,10 +55,10 @@ export function telaServidores(el) {
       <tbody>${pagina.map(s => `<tr class="clicavel" data-id="${esc(s.id)}">
         <td><strong>${esc(s.nome)}</strong></td>
         <td>${esc(formatarCpf(s.cpf))}${cpfValido(s.cpf) ? '' : ' <span class="selo selo-cancelada" title="Dígito verificador inválido">CPF inválido</span>'}</td>
-        <td>${s.chave_pix ? esc(s.chave_pix) : `<span class="selo selo-pendente">sem Pix</span>`}${podeAlterarPix(s) ? ` <button class="btn btn-sec btn-peq" data-parar data-pix="${esc(s.id)}" title="${s.chave_pix ? 'Alterar' : 'Adicionar'} chave Pix">${s.chave_pix ? '✎' : '＋ Pix'}</button>` : ''}</td>
+        <td>${s.chave_pix ? esc(s.chave_pix) : `<span class="selo selo-pendente">sem Pix</span>`}</td>
         <td>${s.cargo_funcao ? esc(s.cargo_funcao) : '<span class="selo selo-pendente">a informar</span>'}${s.vinculo ? `<small class="muted bloco">${esc(nomeProprio(s.vinculo))}</small>` : ''}</td><td>${esc(GRUPOS[s.grupo] || '')}</td><td>${esc(secretariaNome(s.secretaria_id) || '—')}</td>
         <td>${s.ativo === false ? '<span class="selo selo-cancelada">Inativo</span>' : '<span class="selo selo-emitida">Ativo</span>'}</td>
-        <td class="acoes-linha">${pode.solicitar() && s.ativo !== false ? `<a class="btn btn-peq" data-parar href="#/solicitacoes/nova?servidor=${esc(s.id)}">＋ Diária</a>` : ''}</td>
+        <td class="acoes-linha">${podeCompletar(s) ? `<button class="btn ${pendencias(s).length ? '' : 'btn-sec'} btn-peq" data-parar data-pix="${esc(s.id)}" title="Chave Pix e cargo">${pendencias(s).length ? '＋ ' + pendencias(s).join(' e ') : '✎ Pix/cargo'}</button>` : ''}${pode.solicitar() && s.ativo !== false ? `<a class="btn btn-peq" data-parar href="#/solicitacoes/nova?servidor=${esc(s.id)}">＋ Diária</a>` : ''}</td>
       </tr>`).join('') || '<tr><td colspan="8" class="vazio-linha">Nenhum servidor encontrado.</td></tr>'}</tbody>
     </table></div>
     ${paginas > 1 ? `<div class="paginacao">${Array.from({ length: paginas }, (_, i) => `<button class="btn btn-peq ${i + 1 === filtros.pagina ? '' : 'btn-sec'}" data-pag="${i + 1}">${i + 1}</button>`).join('')}</div>` : ''}`;
@@ -76,11 +77,17 @@ export function telaServidores(el) {
   };
   f.onsubmit = e => e.preventDefault();
   $$('[data-pag]', el).forEach(b => b.onclick = () => { filtros.pagina = Number(b.dataset.pag); telaServidores(el); });
-  $$('tr[data-id]', el).forEach(tr => tr.onclick = e => { if (!e.target.closest('[data-parar]')) location.hash = '#/servidores/' + tr.dataset.id; });
-  $('#novo-sv', el)?.addEventListener('click', () => formServidor(null));
+  $$('tr[data-id]', el).forEach(tr => tr.onclick = e => {
+    if (e.target.closest('[data-parar]')) return;
+    if (!acessoRestrito()) location.hash = '#/servidores/' + tr.dataset.id;
+    else { const sv = porId('servidores', tr.dataset.id); if (podeCompletar(sv)) formPix(sv); }
+  });
+  $('#novo-sv', el)?.addEventListener('click', () => ehSecretaria()
+    ? formServidor(null, { secretariaFixa: estado.sessao.secretaria_id, aoSalvar: () => {} })
+    : formServidor(null));
   $('#importar-rel', el)?.addEventListener('click', () => importarRelacao());
   $$('[data-pix]', el).forEach(b => b.onclick = ev => { ev.stopPropagation(); formPix(porId('servidores', b.dataset.pix)); });
-  $('#exp-sv', el).onclick = () => baixarArquivo(`servidores-${hojeISO()}.csv`, csv([
+  if ($('#exp-sv', el)) $('#exp-sv', el).onclick = () => baixarArquivo(`servidores-${hojeISO()}.csv`, csv([
     ['Nome', 'CPF', 'Matrícula', 'Chave Pix', 'Cargo/Função', 'Vínculo', 'Categoria', 'Secretaria', 'Situação'],
     ...lista.map(s => [s.nome, formatarCpf(s.cpf), (s.matriculas || [s.matricula]).filter(Boolean).join(' / '), s.chave_pix, s.cargo_funcao, s.vinculo || '', GRUPOS[s.grupo], secretariaNome(s.secretaria_id), s.ativo === false ? 'Inativo' : 'Ativo'])]));
   return { viva: true, titulo: 'Servidores' };
@@ -150,37 +157,60 @@ export function podeAlterarPix(sv) {
   if (pode.editar()) return true;
   return ehSecretaria() && (!sv.chave_pix || sv.secretaria_id === estado.sessao.secretaria_id);
 }
+/** Quem pode informar o cargo: Contabilidade/admin sempre; Secretaria se está em branco ou o servidor é da secretaria dela. */
+export function podeAlterarCargo(sv) {
+  if (!sv) return false;
+  if (pode.editar()) return true;
+  return ehSecretaria() && (!sv.cargo_funcao || sv.secretaria_id === estado.sessao.secretaria_id);
+}
+export const podeCompletar = sv => podeAlterarPix(sv) || podeAlterarCargo(sv);
+export const pendencias = sv => [!sv.chave_pix && 'Pix', !sv.cargo_funcao && 'cargo'].filter(Boolean);
 
-/** Janela para incluir/alterar só a chave Pix de um servidor já cadastrado. */
+/** Janela "Completar cadastro": chave Pix e cargo/função de um servidor já cadastrado. */
 export function formPix(sv, aoSalvar = null) {
+  const pixOk = podeAlterarPix(sv), cargoOk = podeAlterarCargo(sv);
   const m = modal({
-    titulo: (sv.chave_pix ? 'Alterar' : 'Adicionar') + ' chave Pix' + (sv.cargo_funcao ? '' : ' e cargo'), largura: 480,
+    titulo: 'Completar cadastro do servidor', largura: 500,
     corpo: `<form id="fpix" novalidate>
-      <p><strong>${esc(sv.nome)}</strong><br><small class="muted">${esc(formatarCpf(sv.cpf))}${sv.cargo_funcao ? ' · ' + esc(sv.cargo_funcao) : ''}</small></p>
-      ${sv.chave_pix ? `<p class="muted">Chave atual: ${esc(sv.chave_pix)}</p>` : ''}
-      <label class="campo"><span>Chave Pix <small class="muted" id="fpix-tipo"></small></span><input name="chave_pix" value="${esc(sv.chave_pix || '')}" maxlength="120" required placeholder="CPF, e-mail, telefone ou chave aleatória"></label>
-      ${sv.cargo_funcao ? '' : '<label class="campo"><span>Cargo/Função (ainda não informado)</span><input name="cargo_funcao" maxlength="120" placeholder="Ex.: Motorista, Técnico de enfermagem"></label>'}
-      <p class="dica">A chave deve estar no nome do próprio servidor.</p>
+      <p><strong>${esc(sv.nome)}</strong><br><small class="muted">${esc(formatarCpf(sv.cpf))} · ${esc(secretariaNome(sv.secretaria_id) || 'sem secretaria')}</small></p>
+      ${pixOk ? `<label class="campo"><span>Chave Pix${sv.chave_pix ? '' : ' (pendente)'} <small class="muted" id="fpix-tipo"></small></span><input name="chave_pix" value="${esc(sv.chave_pix || '')}" maxlength="120" placeholder="CPF, e-mail, telefone ou chave aleatória"></label>
+        <p class="dica">A chave deve estar no nome do próprio servidor.</p>`
+        : `<p class="muted">Chave Pix: ${esc(sv.chave_pix)} <small>(só a secretaria do servidor ou a Contabilidade altera)</small></p>`}
+      ${cargoOk ? `<label class="campo"><span>Cargo/Função${sv.cargo_funcao ? '' : ' (a informar)'}</span><input name="cargo_funcao" value="${esc(sv.cargo_funcao || '')}" maxlength="120" placeholder="Ex.: Motorista, Técnico de enfermagem"></label>`
+        : `<p class="muted">Cargo/Função: ${esc(sv.cargo_funcao)}</p>`}
       <p class="erro-form" id="erro-pix"></p>
       <div class="acoes-form"><button type="button" class="btn btn-sec" data-cancelar>Cancelar</button><button class="btn" type="submit">Salvar</button></div>
     </form>`
   });
   const f = $('#fpix', m.el);
   f.querySelector('[data-cancelar]').onclick = m.fechar;
-  const tipo = () => { const p = analisarPix(f.chave_pix.value); $('#fpix-tipo', m.el).textContent = p.ok ? '· ' + p.tipo : ''; };
-  f.chave_pix.addEventListener('input', tipo); tipo();
+  if (f.chave_pix) {
+    const tipo = () => { const p = analisarPix(f.chave_pix.value); $('#fpix-tipo', m.el).textContent = p.ok ? '· ' + p.tipo : ''; };
+    f.chave_pix.addEventListener('input', tipo); tipo();
+  }
   f.onsubmit = async e => {
     e.preventDefault();
-    const p = analisarPix(f.chave_pix.value);
-    if (!p.ok) return ($('#erro-pix', m.el).textContent = 'Chave Pix inválida. Use CPF, CNPJ, e-mail, telefone com DDD ou chave aleatória.');
+    const erro = $('#erro-pix', m.el);
+    const mud = {};
+    if (f.chave_pix && f.chave_pix.value.trim()) {
+      const p = analisarPix(f.chave_pix.value);
+      if (!p.ok) return (erro.textContent = 'Chave Pix inválida. Use CPF, CNPJ, e-mail, telefone com DDD ou chave aleatória.');
+      if (p.valor !== (sv.chave_pix || '')) mud.chave_pix = p.valor;
+    } else if (f.chave_pix && sv.chave_pix) return (erro.textContent = 'Informe a chave Pix (não dá para apagar a chave).');
+    if (f.cargo_funcao) {
+      const cargo = f.cargo_funcao.value.replace(/\s+/g, ' ').trim();
+      if (!cargo && sv.cargo_funcao) return (erro.textContent = 'Informe o cargo/função.');
+      if (cargo && cargo !== (sv.cargo_funcao || '')) mud.cargo_funcao = cargo;
+    }
+    if (!Object.keys(mud).length) return (erro.textContent = 'Preencha a chave Pix e/ou o cargo.');
     try {
-      const cargo = f.cargo_funcao?.value.replace(/\s+/g, ' ').trim();
-      await db.atualizar('servidores', sv.id, { chave_pix: p.valor, ...(cargo ? { cargo_funcao: cargo } : {}) });
-      await db.registrarLog('servidor.pix', { nome: sv.nome, antes: sv.chave_pix || '', depois: p.valor });
-      toast('Chave Pix salva.');
+      await db.atualizar('servidores', sv.id, mud);
+      if (mud.chave_pix) await db.registrarLog('servidor.pix', { nome: sv.nome, antes: sv.chave_pix || '', depois: mud.chave_pix });
+      if (mud.cargo_funcao) await db.registrarLog('servidor.cargo', { nome: sv.nome, antes: sv.cargo_funcao || '', depois: mud.cargo_funcao });
+      toast('Cadastro atualizado.');
       m.fechar();
-      aoSalvar && aoSalvar(p.valor);
-    } catch (err) { $('#erro-pix', m.el).textContent = mensagemErro(err); }
+      aoSalvar && aoSalvar(mud.chave_pix || sv.chave_pix);
+    } catch (err) { erro.textContent = mensagemErro(err); }
   };
 }
 

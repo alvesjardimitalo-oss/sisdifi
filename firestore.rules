@@ -68,13 +68,14 @@ service cloud.firestore {
 
     match /servidores/{id} {
       allow read: if ativo();
-      // Secretaria completa o cadastro: inclui a chave Pix (servidor sem Pix) ou altera a dos servidores da própria secretaria,
-      // e informa o cargo quando ainda está em branco (ex.: servidores importados da relação de pessoal).
+      // Secretaria completa o cadastro de qualquer servidor do banco: inclui a chave Pix e o cargo quando estão em branco
+      // e, nos servidores da própria secretaria, também pode alterá-los. Não mexe em nome, CPF, categoria ou lotação.
       allow update: if secretaria()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['chave_pix', 'cargo_funcao', 'atualizado_em', 'atualizado_por'])
-        && request.resource.data.chave_pix is string && request.resource.data.chave_pix.size() > 0
-        && (!alterou(['chave_pix']) || resource.data.get('chave_pix', '') == '' || resource.data.get('secretaria_id', '') == minhaSecretaria())
-        && (!alterou(['cargo_funcao']) || (resource.data.get('cargo_funcao', '') == '' && request.resource.data.cargo_funcao is string && request.resource.data.cargo_funcao.size() > 0));
+        && (!alterou(['chave_pix']) || (request.resource.data.chave_pix is string && request.resource.data.chave_pix.size() > 0
+            && (resource.data.get('chave_pix', '') == '' || resource.data.get('secretaria_id', '') == minhaSecretaria())))
+        && (!alterou(['cargo_funcao']) || (request.resource.data.cargo_funcao is string && request.resource.data.cargo_funcao.size() > 0
+            && (resource.data.get('cargo_funcao', '') == '' || resource.data.get('secretaria_id', '') == minhaSecretaria())));
       // Secretaria pode cadastrar servidor novo (lotado nela); nos existentes, só completa Pix e cargo (regra acima).
       allow create: if secretaria()
         && request.resource.data.secretaria_id == minhaSecretaria()
