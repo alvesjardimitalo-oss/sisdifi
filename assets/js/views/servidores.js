@@ -164,6 +164,8 @@ export function podeAlterarCargo(sv) {
   return ehSecretaria() && (!sv.cargo_funcao || sv.secretaria_id === estado.sessao.secretaria_id);
 }
 export const podeCompletar = sv => podeAlterarPix(sv) || podeAlterarCargo(sv);
+/** Motoristas podem receber diárias de qualquer secretaria. */
+export const ehMotorista = sv => /motorista/.test(normalizar(sv?.cargo_funcao));
 export const pendencias = sv => [!sv.chave_pix && 'Pix', !sv.cargo_funcao && 'cargo'].filter(Boolean);
 
 /** Janela "Completar cadastro": chave Pix e cargo/função de um servidor já cadastrado. */

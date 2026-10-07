@@ -1,7 +1,7 @@
 // SISDIFI — Solicitações de diária: lista, nova, detalhe/edição, empenho e reembolsos
 import * as db from '../db.js';
 import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ETAPAS, etapaDe, ehSecretaria, separarValores, ETAPAS_EMPENHADAS } from '../estado.js';
-import { formServidor, formPix, podeCompletar, pendencias } from './servidores.js';
+import { formServidor, formPix, podeCompletar, pendencias, ehMotorista } from './servidores.js';
 import { consultarFichas, fichasDaSecretaria, buscarFicha, tituloFicha, rotuloFicha } from './orcamento.js';
 import { calcularDiaria, moeda, horasBR, formatarCpf, periodosSobrepostos, GRUPOS, cpfValido } from '../calculo.js';
 import { esc, $, $$, toast, modal, confirmar, hojeISO, dataBR, numeroBR, normalizar, lerForm, baixarArquivo, csv, mensagemErro } from '../ui.js';
@@ -311,13 +311,16 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
   busca.oninput = () => {
     const t = normalizar(busca.value), dig = busca.value.replace(/\D/g, '');
     if (t.length < 2) { sug.innerHTML = ''; sug.classList.remove('aberta'); return; }
-    // Secretaria vê os servidores da própria secretaria; de outras, só digitando o CPF completo.
-    const daMinha = s => !ehSecretaria() || s.secretaria_id === estado.sessao.secretaria_id || (dig.length === 11 && s.cpf === dig);
+    // Secretaria vê os servidores da própria secretaria e os motoristas de todas as secretarias;
+    // outros servidores de outras secretarias, só digitando o CPF completo.
+    const minha = s => s.secretaria_id === estado.sessao.secretaria_id;
+    const daMinha = s => !ehSecretaria() || minha(s) || ehMotorista(s) || (dig.length === 11 && s.cpf === dig);
     const r = estado.servidores.filter(s => s.ativo !== false && !selecionados.includes(s.id) && daMinha(s) &&
-      (normalizar(s.nome).includes(t) || (dig.length >= 3 && String(s.cpf).includes(dig)))).slice(0, 12);
+      (normalizar(s.nome).includes(t) || normalizar(s.cargo_funcao).includes(t) || (dig.length >= 3 && String(s.cpf).includes(dig))))
+      .sort((a, b) => (minha(b) - minha(a)) || a.nome.localeCompare(b.nome, 'pt-BR')).slice(0, 15);
     sug.innerHTML = r.map(s => `<button type="button" role="option" data-id="${esc(s.id)}"><strong>${esc(s.nome)}</strong>
-      <small>${esc(formatarCpf(s.cpf))} · ${esc(s.cargo_funcao)} · ${esc(secretariaNome(s.secretaria_id))}</small></button>`).join('')
-      || `<div class="sem-resultado">Nenhum servidor encontrado.${podeCadastrarServidor() ? ' <button type="button" class="link" data-novo-sv>Cadastrar novo servidor</button>' : ''}${ehSecretaria() ? '<br><small>Servidor de outra secretaria: digite o CPF completo.</small>' : ''}</div>`;
+      <small>${esc(formatarCpf(s.cpf))} · ${esc(s.cargo_funcao || 'cargo a informar')} · ${esc(secretariaNome(s.secretaria_id) || 'sem secretaria')}${ehSecretaria() && !minha(s) && ehMotorista(s) ? ' · motorista de outra secretaria' : ''}</small></button>`).join('')
+      || `<div class="sem-resultado">Nenhum servidor encontrado.${podeCadastrarServidor() ? ' <button type="button" class="link" data-novo-sv>Cadastrar novo servidor</button>' : ''}${ehSecretaria() ? '<br><small>Motoristas de todas as secretarias aparecem na busca (digite "motorista" para listar). Outro servidor de outra secretaria: digite o CPF completo.</small>' : ''}</div>`;
     sug.querySelector('[data-novo-sv]')?.addEventListener('click', () => cadastrarRapido(busca.value));
     sug.classList.add('aberta');
     $$('button[data-id]', sug).forEach(b => b.onclick = () => adicionar(b.dataset.id));
@@ -588,8 +591,11 @@ function checklistServidor(sol) {
     ['CPF válido', !!sv && cpfValido(sv.cpf)],
     ['Chave Pix informada', !!(sv?.chave_pix || sol.servidor?.chave_pix)],
     ['Cargo/função informado', !!(sv?.cargo_funcao)],
+    sv && sv.secretaria_id && sol.secretaria_id && sv.secretaria_id !== sol.secretaria_id
+      ? [ehMotorista(sv) ? `Motorista lotado em ${secretariaNome(sv.secretaria_id)} — pode atender outras secretarias` : `Servidor lotado em outra secretaria (${secretariaNome(sv.secretaria_id)}) — confira`, ehMotorista(sv)]
+      : null,
     ['Conta para pagamento e fonte de recurso informadas', !!(sol.conta_pagamento && sol.fonte_recursos)]
-  ];
+  ].filter(Boolean);
   const conflito = ativas(estado.solicitacoes).find(o => o.servidor_id === sol.servidor_id && o.id !== sol.id &&
     periodosSobrepostos(o.data_hora_saida, o.data_hora_retorno, sol.data_hora_saida, sol.data_hora_retorno));
   itens.push([conflito ? `Sem outra viagem no mesmo período — CONFLITO com ${conflito.numero}` : 'Sem outra viagem no mesmo período', !conflito]);
