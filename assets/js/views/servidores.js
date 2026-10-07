@@ -4,6 +4,8 @@ import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ehSecreta
 import { GRUPOS, formatarCpf, limparCpf, cpfValido, moeda, analisarPix } from '../calculo.js';
 import { esc, $, $$, toast, modal, dataBR, numeroBR, normalizar, lerForm, mensagemErro, baixarArquivo, csv, hojeISO } from '../ui.js';
 import { aguardando, cabecalho, selo, opcoesSecretarias, anosDisponiveis, MESES } from './comum.js';
+import { extrairLinhas } from '../orcamento-pdf.js';
+import { analisarRelacaoServidores, compararComCadastro, secretariaDaLotacao, grupoSugerido, nomeProprio, SITUACOES } from '../servidores-pdf.js';
 
 const filtros = { busca: '', secretaria: '', status: '1', grupo: '', pix: '', ordem: 'az', pagina: 1 };
 
@@ -14,12 +16,12 @@ export function telaServidores(el) {
     (filtros.status === '' || String(s.ativo === false ? 0 : 1) === filtros.status) &&
     (!filtros.secretaria || s.secretaria_id === filtros.secretaria) &&
     (!filtros.grupo || s.grupo === filtros.grupo) &&
-    (filtros.pix !== 'sem' || !s.chave_pix) &&
+    (filtros.pix !== 'sem' || !s.chave_pix) && (filtros.pix !== 'semcargo' || !s.cargo_funcao) &&
     (!t || normalizar(s.nome).includes(t) || normalizar(s.cargo_funcao).includes(t) || (dig.length >= 3 && String(s.cpf).includes(dig))));
   const ord = {
     az: (a, b) => a.nome.localeCompare(b.nome, 'pt-BR'),
     za: (a, b) => b.nome.localeCompare(a.nome, 'pt-BR'),
-    cargo: (a, b) => a.cargo_funcao.localeCompare(b.cargo_funcao, 'pt-BR') || a.nome.localeCompare(b.nome, 'pt-BR'),
+    cargo: (a, b) => String(a.cargo_funcao || '').localeCompare(b.cargo_funcao, 'pt-BR') || a.nome.localeCompare(b.nome, 'pt-BR'),
     secretaria: (a, b) => secretariaNome(a.secretaria_id).localeCompare(secretariaNome(b.secretaria_id), 'pt-BR') || a.nome.localeCompare(b.nome, 'pt-BR')
   };
   lista = [...lista].sort(ord[filtros.ordem] || ord.az);
@@ -28,10 +30,12 @@ export function telaServidores(el) {
   const pagina = lista.slice((filtros.pagina - 1) * porPagina, filtros.pagina * porPagina);
   const cpfsInvalidos = estado.servidores.filter(s => s.ativo !== false && !cpfValido(s.cpf)).length;
   const semPix = estado.servidores.filter(s => s.ativo !== false && !s.chave_pix).length;
+  const semCargo = estado.servidores.filter(s => s.ativo !== false && !s.cargo_funcao).length;
 
   el.innerHTML = `
-    ${cabecalho('Servidores', `<button class="btn btn-sec" id="exp-sv">⭳ Exportar</button>${pode.editar() ? '<button class="btn" id="novo-sv">＋ Novo servidor</button>' : ''}`)}
-    ${semPix ? `<div class="alerta">⚠ ${semPix} servidor(es) ativo(s) sem chave Pix. Use o filtro "Pix" → "Sem chave Pix" e clique em "＋ Pix" para completar.</div>` : ''}
+    ${cabecalho('Servidores', `<button class="btn btn-sec" id="exp-sv">⭳ Exportar</button>${pode.editar() ? '<button class="btn btn-sec" id="importar-rel">📄 Importar relação (PDF)</button><button class="btn" id="novo-sv">＋ Novo servidor</button>' : ''}`)}
+    ${semPix ? `<div class="alerta">⚠ ${semPix} servidor(es) ativo(s) sem chave Pix. Use o filtro "Pendências" → "Sem chave Pix" e clique em "＋ Pix" para completar.</div>` : ''}
+    ${semCargo ? `<div class="alerta">⚠ ${semCargo} servidor(es) ativo(s) sem cargo/função informado. Use o filtro "Pendências" → "Sem cargo".</div>` : ''}
     ${cpfsInvalidos ? `<div class="alerta">⚠ ${cpfsInvalidos} servidor(es) ativo(s) com CPF de dígito verificador inválido. Use o filtro "CPF inválido" para conferir.</div>` : ''}
     <form class="filtros" id="filtros-sv">
       <label class="campo cresce"><span>Buscar</span><input type="search" name="busca" value="${esc(filtros.busca)}" placeholder="Nome, CPF ou cargo"></label>
@@ -40,7 +44,7 @@ export function telaServidores(el) {
       <label class="campo"><span>Situação</span><select name="status">
         <option value="1" ${filtros.status === '1' ? 'selected' : ''}>Ativos</option><option value="0" ${filtros.status === '0' ? 'selected' : ''}>Inativos</option>
         <option value="" ${filtros.status === '' ? 'selected' : ''}>Todos</option></select></label>
-      <label class="campo"><span>Pix</span><select name="pix"><option value="">Todos</option><option value="sem" ${filtros.pix === 'sem' ? 'selected' : ''}>Sem chave Pix</option></select></label>
+      <label class="campo"><span>Pendências</span><select name="pix"><option value="">Todos</option><option value="sem" ${filtros.pix === 'sem' ? 'selected' : ''}>Sem chave Pix</option><option value="semcargo" ${filtros.pix === 'semcargo' ? 'selected' : ''}>Sem cargo</option></select></label>
       <label class="campo"><span>Ordenar</span><select name="ordem">
         ${[['az', 'Nome A-Z'], ['za', 'Nome Z-A'], ['cargo', 'Cargo'], ['secretaria', 'Secretaria']].map(([v, n]) => `<option value="${v}" ${filtros.ordem === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
     </form>
@@ -51,7 +55,7 @@ export function telaServidores(el) {
         <td><strong>${esc(s.nome)}</strong></td>
         <td>${esc(formatarCpf(s.cpf))}${cpfValido(s.cpf) ? '' : ' <span class="selo selo-cancelada" title="Dígito verificador inválido">CPF inválido</span>'}</td>
         <td>${s.chave_pix ? esc(s.chave_pix) : `<span class="selo selo-pendente">sem Pix</span>`}${podeAlterarPix(s) ? ` <button class="btn btn-sec btn-peq" data-parar data-pix="${esc(s.id)}" title="${s.chave_pix ? 'Alterar' : 'Adicionar'} chave Pix">${s.chave_pix ? '✎' : '＋ Pix'}</button>` : ''}</td>
-        <td>${esc(s.cargo_funcao)}</td><td>${esc(GRUPOS[s.grupo] || '')}</td><td>${esc(secretariaNome(s.secretaria_id) || '—')}</td>
+        <td>${s.cargo_funcao ? esc(s.cargo_funcao) : '<span class="selo selo-pendente">a informar</span>'}${s.vinculo ? `<small class="muted bloco">${esc(nomeProprio(s.vinculo))}</small>` : ''}</td><td>${esc(GRUPOS[s.grupo] || '')}</td><td>${esc(secretariaNome(s.secretaria_id) || '—')}</td>
         <td>${s.ativo === false ? '<span class="selo selo-cancelada">Inativo</span>' : '<span class="selo selo-emitida">Ativo</span>'}</td>
         <td class="acoes-linha">${pode.solicitar() && s.ativo !== false ? `<a class="btn btn-peq" data-parar href="#/solicitacoes/nova?servidor=${esc(s.id)}">＋ Diária</a>` : ''}</td>
       </tr>`).join('') || '<tr><td colspan="8" class="vazio-linha">Nenhum servidor encontrado.</td></tr>'}</tbody>
@@ -74,10 +78,11 @@ export function telaServidores(el) {
   $$('[data-pag]', el).forEach(b => b.onclick = () => { filtros.pagina = Number(b.dataset.pag); telaServidores(el); });
   $$('tr[data-id]', el).forEach(tr => tr.onclick = e => { if (!e.target.closest('[data-parar]')) location.hash = '#/servidores/' + tr.dataset.id; });
   $('#novo-sv', el)?.addEventListener('click', () => formServidor(null));
+  $('#importar-rel', el)?.addEventListener('click', () => importarRelacao());
   $$('[data-pix]', el).forEach(b => b.onclick = ev => { ev.stopPropagation(); formPix(porId('servidores', b.dataset.pix)); });
   $('#exp-sv', el).onclick = () => baixarArquivo(`servidores-${hojeISO()}.csv`, csv([
-    ['Nome', 'CPF', 'Chave Pix', 'Cargo/Função', 'Categoria', 'Secretaria', 'Situação'],
-    ...lista.map(s => [s.nome, formatarCpf(s.cpf), s.chave_pix, s.cargo_funcao, GRUPOS[s.grupo], secretariaNome(s.secretaria_id), s.ativo === false ? 'Inativo' : 'Ativo'])]));
+    ['Nome', 'CPF', 'Matrícula', 'Chave Pix', 'Cargo/Função', 'Vínculo', 'Categoria', 'Secretaria', 'Situação'],
+    ...lista.map(s => [s.nome, formatarCpf(s.cpf), (s.matriculas || [s.matricula]).filter(Boolean).join(' / '), s.chave_pix, s.cargo_funcao, s.vinculo || '', GRUPOS[s.grupo], secretariaNome(s.secretaria_id), s.ativo === false ? 'Inativo' : 'Ativo'])]));
   return { viva: true, titulo: 'Servidores' };
 }
 
@@ -149,11 +154,12 @@ export function podeAlterarPix(sv) {
 /** Janela para incluir/alterar só a chave Pix de um servidor já cadastrado. */
 export function formPix(sv, aoSalvar = null) {
   const m = modal({
-    titulo: (sv.chave_pix ? 'Alterar' : 'Adicionar') + ' chave Pix', largura: 480,
+    titulo: (sv.chave_pix ? 'Alterar' : 'Adicionar') + ' chave Pix' + (sv.cargo_funcao ? '' : ' e cargo'), largura: 480,
     corpo: `<form id="fpix" novalidate>
-      <p><strong>${esc(sv.nome)}</strong><br><small class="muted">${esc(formatarCpf(sv.cpf))} · ${esc(sv.cargo_funcao)}</small></p>
+      <p><strong>${esc(sv.nome)}</strong><br><small class="muted">${esc(formatarCpf(sv.cpf))}${sv.cargo_funcao ? ' · ' + esc(sv.cargo_funcao) : ''}</small></p>
       ${sv.chave_pix ? `<p class="muted">Chave atual: ${esc(sv.chave_pix)}</p>` : ''}
       <label class="campo"><span>Chave Pix <small class="muted" id="fpix-tipo"></small></span><input name="chave_pix" value="${esc(sv.chave_pix || '')}" maxlength="120" required placeholder="CPF, e-mail, telefone ou chave aleatória"></label>
+      ${sv.cargo_funcao ? '' : '<label class="campo"><span>Cargo/Função (ainda não informado)</span><input name="cargo_funcao" maxlength="120" placeholder="Ex.: Motorista, Técnico de enfermagem"></label>'}
       <p class="dica">A chave deve estar no nome do próprio servidor.</p>
       <p class="erro-form" id="erro-pix"></p>
       <div class="acoes-form"><button type="button" class="btn btn-sec" data-cancelar>Cancelar</button><button class="btn" type="submit">Salvar</button></div>
@@ -168,7 +174,8 @@ export function formPix(sv, aoSalvar = null) {
     const p = analisarPix(f.chave_pix.value);
     if (!p.ok) return ($('#erro-pix', m.el).textContent = 'Chave Pix inválida. Use CPF, CNPJ, e-mail, telefone com DDD ou chave aleatória.');
     try {
-      await db.atualizar('servidores', sv.id, { chave_pix: p.valor });
+      const cargo = f.cargo_funcao?.value.replace(/\s+/g, ' ').trim();
+      await db.atualizar('servidores', sv.id, { chave_pix: p.valor, ...(cargo ? { cargo_funcao: cargo } : {}) });
       await db.registrarLog('servidor.pix', { nome: sv.nome, antes: sv.chave_pix || '', depois: p.valor });
       toast('Chave Pix salva.');
       m.fechar();
@@ -238,4 +245,141 @@ export function telaPerfilServidor(el, { args }) {
   $('#editar-sv', el)?.addEventListener('click', () => formServidor(s));
   $('#perfil-pix', el)?.addEventListener('click', () => formPix(s));
   return { viva: true, titulo: s.nome };
+}
+
+// ---------- Importação em massa: "Relação de servidores" (Cadastro de Pessoal por Lotação) ----------
+const CPF_ID = cpf => 'sv-' + cpf;
+
+function importarRelacao() {
+  const m = modal({
+    titulo: 'Importar relação de servidores', largura: 1080,
+    corpo: `<p>Escolha o PDF do <strong>Cadastro de Pessoal por Lotação</strong>. O sistema confere cada CPF com o cadastro e
+      <strong>não cria duplicidade</strong>: quem já está cadastrado é mantido (só completa matrícula e lotação que faltarem).
+      Os novos entram com a <strong>chave Pix pendente</strong> e o cargo a informar — a secretaria completa ao pedir a diária.</p>
+      <label class="campo"><span>Arquivo PDF</span><input type="file" id="rel-arq" accept="application/pdf,.pdf"></label>
+      <div id="rel-prev"></div>
+      <p class="erro-form" id="rel-erro"></p><div id="rel-prog"></div>
+      <div class="acoes-form"><button type="button" class="btn btn-sec" data-cancelar>Cancelar</button><button class="btn" id="rel-importar" disabled>Importar</button></div>`
+  });
+  m.el.querySelector('[data-cancelar]').onclick = m.fechar;
+  let pessoas = [], lotacoes = new Map(), filtroSit = 'novo';
+  const ativasSec = () => estado.secretarias.filter(x => x.ativo !== false).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+
+  const desenhar = () => {
+    if (!pessoas.length) { $('#rel-prev', m.el).innerHTML = ''; return; }
+    const cont = {}; pessoas.forEach(p => cont[p.situacao] = (cont[p.situacao] || 0) + 1);
+    const marcados = pessoas.filter(p => p.marcado).length;
+    const vis = pessoas.filter(p => !filtroSit || p.situacao === filtroSit);
+    $('#rel-prev', m.el).innerHTML = `
+      <div class="kpis">${Object.entries(SITUACOES).map(([k, v]) => `<button type="button" class="kpi ${filtroSit === k ? 'kpi-ativo' : ''}" data-sit="${k}"><span>${esc(v.nome)}</span><strong>${cont[k] || 0}</strong><small class="muted">${esc(v.dica)}</small></button>`).join('')}
+        <button type="button" class="kpi ${!filtroSit ? 'kpi-ativo' : ''}" data-sit=""><span>Todos</span><strong>${pessoas.length}</strong><small class="muted">${marcados} marcado(s)</small></button></div>
+      <details ${[...lotacoes.values()].some(l => !l.sec) ? 'open' : ''}><summary>Lotação → secretaria (${lotacoes.size} lotações${[...lotacoes.values()].some(l => !l.sec) ? ', confira as sem secretaria' : ''})</summary>
+        <div class="tabela-wrap"><table class="tabela tabela-peq"><thead><tr><th>Lotação na relação</th><th class="num">Pessoas</th><th>Secretaria no sistema</th></tr></thead>
+        <tbody>${[...lotacoes.entries()].map(([k, l], i) => `<tr><td>${esc(k)}</td><td class="num">${l.n}</td>
+          <td><select data-lot="${i}"><option value="">— sem secretaria —</option>${ativasSec().map(x => `<option value="${esc(x.id)}" ${x.id === l.sec ? 'selected' : ''}>${esc(x.nome)}</option>`).join('')}
+            ${l.proposto ? `<option value="__nova" ${l.sec === '__nova' ? 'selected' : ''}>＋ Criar secretaria "${esc(l.proposto)}"</option>` : ''}</select></td></tr>`).join('')}</tbody></table></div></details>
+      <div class="tabela-wrap tabela-rolagem"><table class="tabela tabela-peq">
+        <thead><tr><th><input type="checkbox" id="rel-todos" title="Marcar/desmarcar os visíveis"></th><th>Nome</th><th>CPF</th><th>Matrícula</th><th>Lotação / vínculo</th><th>Situação</th></tr></thead>
+        <tbody>${vis.map(p => `<tr>
+          <td><input type="checkbox" data-p="${pessoas.indexOf(p)}" ${p.marcado ? 'checked' : ''} ${p.situacao === 'existe' ? 'disabled' : ''}></td>
+          <td><strong>${esc(nomeProprio(p.nome))}</strong></td><td>${esc(formatarCpf(p.cpf))}</td><td>${esc(p.matriculas.join(' / '))}</td>
+          <td>${esc(nomeSecLot(lotacoes.get(p.secretaria_texto)) || p.secretaria_texto)}<small class="muted bloco">${esc(nomeProprio(p.vinculo || p.lotacao.slice(-1)[0] || ''))}</small></td>
+          <td>${situacaoTxt(p)}</td></tr>`).join('') || '<tr><td colspan="6" class="vazio-linha">Ninguém nesta situação.</td></tr>'}</tbody></table></div>`;
+    $$('[data-sit]', m.el).forEach(b => b.onclick = () => { filtroSit = b.dataset.sit; desenhar(); });
+    $$('[data-lot]', m.el).forEach(sel => sel.onchange = () => { [...lotacoes.values()][sel.dataset.lot].sec = sel.value; desenhar(); });
+    $$('[data-p]', m.el).forEach(c => c.onchange = () => { pessoas[c.dataset.p].marcado = c.checked; desenhar(); });
+    $('#rel-todos', m.el).onchange = e => { vis.forEach(p => { if (p.situacao !== 'existe') p.marcado = e.target.checked; }); desenhar(); };
+    const nAcao = pessoas.filter(p => p.marcado).length + pessoas.filter(p => p.situacao === 'existe' && completar(p)).length;
+    $('#rel-importar', m.el).disabled = !nAcao;
+    $('#rel-importar', m.el).textContent = `Importar (${pessoas.filter(p => p.marcado && p.situacao !== 'nome').length} novo(s)${pessoas.some(p => p.marcado && p.situacao === 'nome') ? `, ${pessoas.filter(p => p.marcado && p.situacao === 'nome').length} CPF corrigido(s)` : ''})`;
+  };
+  const nomeSecLot = l => !l ? '' : l.sec === '__nova' ? l.proposto + ' (nova)' : secretariaNome(l.sec);
+  const situacaoTxt = p => {
+    const cls = { novo: 'selo-emitida', existe: 'selo-info', nome: 'selo-pendente', cpf_invalido: 'selo-cancelada', inativo: 'selo-cancelada' }[p.situacao];
+    let extra = '';
+    if (p.situacao === 'existe') extra = `cadastrado como ${esc(p.existente.nome)}${completar(p) ? ' · completa matrícula/lotação' : ''}`;
+    if (p.situacao === 'nome') extra = `cadastro existente com CPF ${esc(formatarCpf(p.existente.cpf))}. Marque para <strong>corrigir o CPF</strong> desse cadastro (não cria outro).`;
+    if (p.situacao === 'cpf_invalido') extra = 'marque só se conferir o CPF';
+    if (p.matriculas.length > 1) extra += (extra ? ' · ' : '') + `${p.matriculas.length} matrículas, um cadastro`;
+    return `<span class="selo ${cls}">${esc(SITUACOES[p.situacao].nome)}</span>${extra ? `<small class="muted bloco">${extra}</small>` : ''}`;
+  };
+  // dados que só completam o que falta num cadastro existente (nunca troca Pix, cargo, nome ou categoria)
+  const completar = p => {
+    const e = p.existente, sec = lotacoes.get(p.secretaria_texto)?.sec, d = {};
+    if (!e.matricula) { d.matricula = p.matriculas[0]; d.matriculas = p.matriculas; }
+    if (!e.lotacao) d.lotacao = p.lotacao.join(' / ');
+    if (!e.vinculo && p.vinculo) d.vinculo = p.vinculo;
+    if (!e.secretaria_id && sec && sec !== '__nova') d.secretaria_id = sec;
+    return Object.keys(d).length ? d : null;
+  };
+
+  $('#rel-arq', m.el).onchange = async e => {
+    const arq = e.target.files[0];
+    pessoas = []; lotacoes = new Map(); $('#rel-erro', m.el).textContent = ''; desenhar();
+    if (!arq) return;
+    $('#rel-prog', m.el).textContent = 'Lendo o PDF…';
+    try {
+      const lista = analisarRelacaoServidores(await extrairLinhas(await arq.arrayBuffer()));
+      if (!lista.length) throw new Error('Não encontrei servidores neste PDF (é o "Cadastro de Pessoal por Lotação"?).');
+      pessoas = compararComCadastro(lista, estado.servidores).map(p => ({ ...p, marcado: SITUACOES[p.situacao].marcar }));
+      for (const p of pessoas) {
+        if (!lotacoes.has(p.secretaria_texto)) {
+          const proposto = /SECRETARIA/i.test(p.secretaria_texto) ? nomeProprio(p.secretaria_texto.replace(/^SECRETARIA\s+(MUNIC(IPAL|\.)?\s+)?(D[AEO]S?\s+)?/i, '').replace(/[,.\s]+$/, '')) : '';
+          lotacoes.set(p.secretaria_texto, { n: 0, proposto, sec: secretariaDaLotacao(p.secretaria_texto, estado.secretarias) || (proposto ? '__nova' : '') });
+        }
+        lotacoes.get(p.secretaria_texto).n++;
+      }
+      $('#rel-prog', m.el).textContent = `${lista.length} linha(s) lida(s), ${pessoas.length} pessoa(s) diferente(s).`;
+    } catch (err) {
+      $('#rel-prog', m.el).textContent = '';
+      $('#rel-erro', m.el).textContent = /import|fetch|module/i.test(String(err?.message)) ? 'Não foi possível carregar o leitor de PDF (verifique a internet).' : (err?.message || String(err));
+    }
+    desenhar();
+  };
+
+  $('#rel-importar', m.el).onclick = async () => {
+    const btn = $('#rel-importar', m.el); btn.disabled = true;
+    const agora = new Date().toISOString(), por = { uid: estado.sessao.uid, nome: estado.sessao.nome };
+    const jaTem = new Set(estado.servidores.map(x => String(x.cpf).replace(/\D/g, '').padStart(11, '0')));
+    const ops = [];
+    let novos = 0, completados = 0, corrigidos = 0;
+    try {
+      // cria as secretarias que ainda não existem (uma por nome)
+      const criadas = new Map();
+      for (const l of lotacoes.values()) {
+        if (l.sec !== '__nova') continue;
+        const chave = normalizar(l.proposto);
+        let id = criadas.get(chave) || estado.secretarias.find(x => normalizar(x.nome) === chave)?.id;
+        if (!id) { id = await db.salvar('secretarias', null, { nome: l.proposto, ativo: true }); criadas.set(chave, id); await db.registrarLog('secretaria.criar', { nome: l.proposto, origem: 'relação de servidores' }); }
+        l.sec = id;
+      }
+    } catch (err) { $('#rel-erro', m.el).textContent = mensagemErro(err); btn.disabled = false; return; }
+    for (const p of pessoas) {
+      const sec = lotacoes.get(p.secretaria_texto)?.sec || null;
+      const lot = { matricula: p.matriculas[0], matriculas: p.matriculas, lotacao: p.lotacao.join(' / '), vinculo: p.vinculo || '' };
+      if (p.situacao === 'existe') {
+        const d = completar(p);
+        if (d) { ops.push({ colecao: 'servidores', id: p.existente.id, dados: { ...d, atualizado_em: agora } }); completados++; }
+      } else if (p.marcado && p.situacao === 'nome') {
+        ops.push({ colecao: 'servidores', id: p.existente.id, dados: { cpf: p.cpf, cpf_anterior: p.existente.cpf, ...lot, ...(p.existente.secretaria_id ? {} : { secretaria_id: sec }), atualizado_em: agora } });
+        jaTem.add(p.cpf); corrigidos++;
+      } else if (p.marcado && !jaTem.has(p.cpf)) {
+        ops.push({ colecao: 'servidores', id: CPF_ID(p.cpf), dados: {
+          nome: nomeProprio(p.nome), cpf: p.cpf, chave_pix: '', cargo_funcao: '', grupo: grupoSugerido(p.vinculo),
+          secretaria_id: sec, ativo: true, ...lot, origem: 'relacao_pessoal', importado_em: agora, criado_por: por
+        } });
+        jaTem.add(p.cpf); novos++;
+      }
+    }
+    try {
+      const falhas = await db.gravarEmLote(ops, (i, n) => { $('#rel-prog', m.el).innerHTML = `<progress max="${n}" value="${i}"></progress> ${i}/${n}`; });
+      await db.registrarLog('servidor.importar_relacao', { novos, completados, cpf_corrigidos: corrigidos, falhas: falhas.length });
+      if (falhas.length) {
+        $('#rel-erro', m.el).innerHTML = `${falhas.length} registro(s) não foram gravados: ${falhas.slice(0, 5).map(f => esc(f.nome) + ' (' + esc(f.erro) + ')').join(', ')}`;
+        btn.disabled = false; return;
+      }
+      toast(`${novos} servidor(es) cadastrado(s) com Pix pendente${completados ? `, ${completados} cadastro(s) completado(s)` : ''}${corrigidos ? `, ${corrigidos} CPF(s) corrigido(s)` : ''}. Nenhuma duplicidade criada.`);
+      m.fechar();
+    } catch (err) { $('#rel-erro', m.el).textContent = mensagemErro(err); btn.disabled = false; }
+  };
 }

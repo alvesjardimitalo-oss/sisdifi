@@ -23,15 +23,18 @@ export async function extrairLinhas(dados, pdfjsLib = null) {
   for (let p = 1; p <= doc.numPages; p++) {
     const pag = await doc.getPage(p);
     const { items } = await pag.getTextContent();
+    // Coordenadas da tela (considera páginas giradas, como os relatórios de pessoal em paisagem)
+    const [va, vb, vc, vd, ve, vf] = pag.getViewport({ scale: 1 }).transform;
     const grupos = [];
     for (const it of items) {
       if (!it.str || !it.str.trim()) continue;
-      const x = it.transform[4], y = it.transform[5];
+      const px = it.transform[4], py = it.transform[5];
+      const x = va * px + vc * py + ve, y = vb * px + vd * py + vf;
       let g = grupos.find(gr => Math.abs(gr.y - y) <= 2.5);
       if (!g) grupos.push(g = { y, itens: [] });
       g.itens.push({ x, fim: x + (it.width || 0), str: it.str });
     }
-    grupos.sort((a, b) => b.y - a.y);
+    grupos.sort((a, b) => a.y - b.y);
     for (const g of grupos) {
       g.itens.sort((a, b) => a.x - b.x);
       let txt = '', fim = null;
