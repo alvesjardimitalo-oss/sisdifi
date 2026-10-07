@@ -363,3 +363,10 @@ progress { width: 260px; vertical-align: middle; }
   .etapas-7 { grid-template-columns: repeat(4, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation-duration: 0s !important; } }
+
+/* Notas fiscais e empenho */
+.nota-atalhos { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 4px; }
+.chave-nota { font-family: ui-monospace, Consolas, monospace; font-size: 11px; overflow-wrap: anywhere; }
+.empenho-itens { background: var(--cinza-claro); border: 1px solid var(--borda); border-radius: var(--raio-p); padding: 12px 14px 4px; margin: 4px 0 10px; }
+.empenho-itens .check { margin: 6px 0; align-items: flex-start; }
+.empenho-itens .check input { margin-top: 3px; }

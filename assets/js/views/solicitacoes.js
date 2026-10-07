@@ -2,6 +2,7 @@
 import * as db from '../db.js';
 import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ETAPAS, etapaDe, ehSecretaria, separarValores, ETAPAS_EMPENHADAS } from '../estado.js';
 import { formServidor, formPix, podeCompletar, pendencias, ehMotorista } from './servidores.js';
+import { botoesNota, ligarBotoesNota, lerChave } from '../notas.js';
 import { consultarFichas, fichasDaSecretaria, buscarFicha, tituloFicha, rotuloFicha } from './orcamento.js';
 import { calcularDiaria, moeda, horasBR, formatarCpf, periodosSobrepostos, GRUPOS, cpfValido } from '../calculo.js';
 import { esc, $, $$, toast, modal, confirmar, hojeISO, dataBR, numeroBR, normalizar, lerForm, baixarArquivo, csv, mensagemErro } from '../ui.js';
@@ -663,11 +664,22 @@ function blocoTramitacao(sol) {
           <button class="btn" type="submit">✓ Autorizada pelo Prefeito</button>
         </form>`;
     } else if (e === 'autorizada' && pode.contabil()) {
-      acao = `<form id="f-empenho" class="grade-3">
+      const irmas = outrasParaEmpenhar(sol);
+      acao = `<form id="f-empenho">
+        <div class="grade-3">
         <label class="campo"><span>Ficha</span><input name="ficha" value="${esc(sol.ficha || '')}" required data-titulo-ficha><small class="dica" data-titulo-de-ficha></small></label>
         <label class="campo"><span>Nº do empenho</span><input name="numero_empenho" value="${esc(sol.numero_empenho || '')}" required></label>
         <label class="campo"><span>Data do empenho</span><input type="date" name="data_empenho" value="${esc(sol.data_empenho || hojeISO())}" required></label>
-        <div class="acoes-form span-3"><button class="btn" type="submit">✓ Registrar empenho</button></div></form>`;
+        </div>
+        <div class="empenho-itens">
+          <p class="titulo-secao">Composição do empenho</p>
+          <label class="check"><input type="checkbox" checked disabled> <span><strong>${esc(sol.numero)}</strong> — diárias ${moeda(sol.valor_total)}${totalReembolsos(sol) ? ` + reembolsos ${moeda(totalReembolsos(sol))}` : ''}</span></label>
+          ${totalReembolsos(sol) ? `<label class="check"><input type="checkbox" name="com_reembolsos" checked> <span>Incluir os reembolsos desta viagem no mesmo empenho</span></label>` : ''}
+          ${irmas.length ? `<p class="dica">Outras solicitações de <strong>${esc(sol.servidor?.nome)}</strong> autorizadas e sem empenho — marque para unificar no mesmo empenho:</p>
+            ${irmas.map(o => `<label class="check"><input type="checkbox" name="unir" value="${esc(o.id)}"> <span><strong>${esc(o.numero)}</strong> · ${esc(o.destino_cidade)}/${esc(o.destino_uf)} · ${esc(dataBR(o.data_hora_saida).slice(0, 10))} — ${moeda(totalGeral(o))}${o.ficha && o.ficha !== sol.ficha ? ` <span class="selo selo-pendente">ficha ${esc(o.ficha)}</span>` : ''}</span></label>`).join('')}` : ''}
+          <div class="calc-total"><span>Total geral a empenhar</span><strong id="total-empenho">${moeda(totalGeral(sol))}</strong></div>
+        </div>
+        <div class="acoes-form"><button class="btn" type="submit">✓ Registrar empenho</button></div></form>`;
     } else if (e === 'empenhada' && pode.contabil()) {
       acao = `<form id="f-liquidacao" class="linha-form">
         <label class="campo"><span>Data da liquidação</span><input type="date" name="data_liquidacao" value="${hojeISO()}" required></label>
@@ -699,7 +711,8 @@ function blocoTramitacao(sol) {
     sol.calculado && sol.calculo_por ? ['Calculado pela Contabilidade', `${sol.calculo_por.nome} em ${dataBR(sol.calculo_em)}`] : null,
     sol.ficha ? ['Ficha', rotuloFicha(sol)] : null,
     sol.data_autorizacao ? ['Autorização do Prefeito', dataBR(sol.data_autorizacao)] : null,
-    sol.numero_empenho ? ['Empenho', `${sol.numero_empenho}${sol.data_empenho ? ' de ' + dataBR(sol.data_empenho) : ''}`] : null,
+    pode.verValores() && sol.calculado ? ['Total geral (diárias + reembolsos)', `${moeda(totalGeral(sol))}${totalReembolsos(sol) ? ` (diárias ${moeda(sol.valor_total)} + reembolsos ${moeda(totalReembolsos(sol))})` : ''}`] : null,
+    sol.numero_empenho ? ['Empenho', `${sol.numero_empenho}${sol.data_empenho ? ' de ' + dataBR(sol.data_empenho) : ''}${(sol.empenho_conjunto || []).length > 1 ? ` · conjunto com ${sol.empenho_conjunto.filter(n => n !== sol.numero).join(', ')}` : ''}`] : null,
     sol.data_liquidacao ? ['Liquidação', dataBR(sol.data_liquidacao)] : null,
     sol.data_pagamento ? ['Pagamento', dataBR(sol.data_pagamento)] : null
   ].filter(Boolean);
@@ -711,11 +724,21 @@ function blocoTramitacao(sol) {
     ${blocoLinks(sol)}
     ${dados.length ? `<dl class="dl dl-tramite">${dados.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}
     ${acao}
+    ${sol.numero_empenho && pode.verValores() ? `<a class="btn btn-sec btn-peq" href="#/imprimir/empenho/${esc(sol.id)}">🖨 Resumo do empenho${(sol.empenho_conjunto || []).length > 1 ? ' conjunto' : ''}</a> ` : ''}
     ${corrigirContabil ? '<button class="link link-peq" id="corrigir-contabil">Corrigir ficha/empenho</button>' : ''}
     ${pode.admin() && !cancelada && !['analise', 'legado'].includes(e) ? '<button class="link link-peq" id="voltar-etapa">Voltar uma etapa (administrador)</button>' : ''}
     ${(sol.historico || []).length ? `<details><summary>Histórico (${sol.historico.length})</summary><ul class="lista-peq">${sol.historico.map(h =>
       `<li>${esc(new Date(h.em).toLocaleString('pt-BR'))} — ${esc(ETAPAS[h.etapa]?.curto || h.etapa)} — ${esc(h.por)}${h.obs ? ': ' + esc(h.obs) : ''}</li>`).join('')}</ul></details>` : ''}
   </section>`;
+}
+
+/** Diárias + reembolsos de uma solicitação. */
+export const totalGeral = s => Math.round((Number(s.valor_total || 0) + totalReembolsos(s)) * 100) / 100;
+
+/** Outras solicitações do mesmo servidor autorizadas e ainda sem empenho (para empenho conjunto). */
+function outrasParaEmpenhar(sol) {
+  return ativas(estado.solicitacoes).filter(o => o.id !== sol.id && o.servidor_id === sol.servidor_id && etapaDe(o) === 'autorizada' && !o.numero_empenho)
+    .sort((a, b) => String(a.data_hora_saida).localeCompare(String(b.data_hora_saida)));
 }
 
 /** Título da ficha para gravar na solicitação: do orçamento ou, se for a mesma ficha, o que a secretaria escolheu. */
@@ -794,21 +817,52 @@ function ligarTramitacao(el, sol) {
     catch (err) { erro(err); }
   };
   const fe = $('#f-empenho', el);
-  if (fe) fe.onsubmit = async e => {
-    e.preventDefault();
-    const d = lerForm(fe);
-    if (!d.ficha || !d.numero_empenho || !d.data_empenho) return toast('Preencha ficha, nº e data do empenho.', 'erro');
-    try { await tramitar(sol, 'empenhada', { ...d, ficha_titulo: tituloDaFicha(sol, d.ficha) }, `empenho ${d.numero_empenho}`); toast('Empenho registrado.'); } catch (err) { erro(err); }
-  };
+  if (fe) {
+    const selecionadas = () => [sol, ...[...fe.querySelectorAll('[name=unir]:checked')].map(c => porId('solicitacoes', c.value)).filter(Boolean)];
+    const comReemb = () => !fe.com_reembolsos || fe.com_reembolsos.checked;
+    const atualizarTotal = () => {
+      const t = selecionadas().reduce((a, x) => a + Number(x.valor_total || 0) + (x === sol && !comReemb() ? 0 : totalReembolsos(x)), 0);
+      $('#total-empenho', el).textContent = moeda(t);
+    };
+    fe.addEventListener('change', atualizarTotal);
+    fe.onsubmit = async e => {
+      e.preventDefault();
+      const d = { ficha: fe.ficha.value.trim(), numero_empenho: fe.numero_empenho.value.trim(), data_empenho: fe.data_empenho.value };
+      if (!d.ficha || !d.numero_empenho || !d.data_empenho) return toast('Preencha ficha, nº e data do empenho.', 'erro');
+      const lista = selecionadas();
+      const fichasDif = lista.filter(x => x.ficha && x.ficha !== d.ficha);
+      if (fichasDif.length && !(await confirmar(`${fichasDif.map(x => x.numero).join(', ')} estava(m) com outra ficha. Todas ficarão com a ficha ${d.ficha} neste empenho. Continuar?`, { ok: 'Continuar' }))) return;
+      const numeros = lista.map(x => x.numero);
+      const total = lista.reduce((a, x) => a + Number(x.valor_total || 0) + (x === sol && !comReemb() ? 0 : totalReembolsos(x)), 0);
+      try {
+        for (const x of lista) {
+          await tramitar(x, 'empenhada', { ...d, ficha_titulo: tituloDaFicha(x, d.ficha), empenho_conjunto: numeros.length > 1 ? numeros : [] },
+            `empenho ${d.numero_empenho}${numeros.length > 1 ? ' (conjunto: ' + numeros.join(', ') + ')' : ''}`);
+          // reembolsos sem empenho próprio entram no mesmo empenho
+          if ((x !== sol || comReemb()) && (x.reembolsos || []).some(r => !r.numero_empenho)) {
+            const rs = x.reembolsos.map(r => r.numero_empenho ? r : { ...r, numero_empenho: d.numero_empenho, data_empenho: d.data_empenho });
+            await db.salvar('valores', x.id, { reembolsos: rs, total_reembolsos: soma(rs) });
+          }
+        }
+        await db.salvar('valores', sol.id, { total_empenho: Math.round(total * 100) / 100 });
+        toast(numeros.length > 1 ? `Empenho ${d.numero_empenho} registrado para ${numeros.length} solicitações (${moeda(total)}).` : `Empenho registrado (${moeda(total)}).`);
+      } catch (err) { erro(err); }
+    };
+  }
+  // No empenho conjunto, liquidação e pagamento valem para todas as solicitações do mesmo empenho.
+  const doMesmoEmpenho = etapa => [sol, ...ativas(estado.solicitacoes).filter(o => o.id !== sol.id && sol.numero_empenho && o.servidor_id === sol.servidor_id &&
+    o.numero_empenho === sol.numero_empenho && o.data_empenho === sol.data_empenho && etapaDe(o) === etapa)];
   const fl = $('#f-liquidacao', el);
   if (fl) fl.onsubmit = async e => {
     e.preventDefault();
-    try { await tramitar(sol, 'liquidada', lerForm(fl)); toast('Liquidação registrada. Enviada ao Financeiro.'); } catch (err) { erro(err); }
+    const lista = doMesmoEmpenho('empenhada');
+    try { for (const x of lista) await tramitar(x, 'liquidada', lerForm(fl)); toast(`Liquidação registrada${lista.length > 1 ? ` (${lista.length} solicitações do empenho ${sol.numero_empenho})` : ''}. Enviada ao Financeiro.`); } catch (err) { erro(err); }
   };
   const fg = $('#f-pagamento', el);
   if (fg) fg.onsubmit = async e => {
     e.preventDefault();
-    try { await tramitar(sol, 'paga', lerForm(fg)); toast('Pagamento registrado.'); } catch (err) { erro(err); }
+    const lista = doMesmoEmpenho('liquidada');
+    try { for (const x of lista) await tramitar(x, 'paga', lerForm(fg)); toast(`Pagamento registrado${lista.length > 1 ? ` (${lista.length} solicitações do empenho ${sol.numero_empenho})` : ''}.`); } catch (err) { erro(err); }
   };
   const fleg = $('#f-legado', el);
   if (fleg) fleg.onsubmit = async e => {
@@ -910,7 +964,9 @@ export function telaDetalheSolicitacao(el, { args, query }) {
           <dt>Pernoite</dt><dd>${sol.quantidade_pernoite} × ${moeda(sol.valor_pernoite)}</dd>
           <dt>Simples</dt><dd>${sol.quantidade_simples} × ${moeda(sol.valor_simples)}</dd>
           <dt>Alimentação</dt><dd>${sol.quantidade_alimentacao} × ${moeda(sol.valor_alimentacao)}</dd>
-          <dt>Total diárias</dt><dd><strong class="valor-destaque">${moeda(sol.valor_total)}</strong></dd>
+          <dt>Total diárias</dt><dd><strong>${moeda(sol.valor_total)}</strong></dd>
+          <dt>Reembolsos</dt><dd>${moeda(totalReembolsos(sol))}</dd>
+          <dt>Total geral a empenhar</dt><dd><strong class="valor-destaque">${moeda(totalGeral(sol))}</strong></dd>
         </dl>
         <details><summary>Descritivo e justificativa legal</summary>
           <ul class="lista-peq">${(sol.descricao_calculo || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul>
@@ -926,7 +982,7 @@ export function telaDetalheSolicitacao(el, { args, query }) {
       <div class="tabela-wrap"><table class="tabela">
         <thead><tr><th>Tipo</th><th>Nota (nº/série)</th><th>Data</th><th class="num">Valor</th><th>Empenho</th><th>Descrição</th><th></th></tr></thead>
         <tbody>${reemb.map(r => `<tr>
-          <td>${esc(r.tipo)}</td><td>${esc(r.numero_nota || '—')}${r.serie_nota ? ' / ' + esc(r.serie_nota) : ''}${r.chave_nota ? `<small class="muted bloco" title="Chave da nota">${esc(r.chave_nota)}</small>` : ''}</td>
+          <td>${esc(r.tipo)}</td><td>${esc(r.numero_nota || '—')}${r.serie_nota ? ' / ' + esc(r.serie_nota) : ''}${r.chave_nota ? `<small class="muted bloco chave-nota" title="Chave da nota">${esc(r.chave_nota)}</small>${botoesNota(r.chave_nota)}` : ''}</td>
           <td>${esc(dataBR(r.data_nota))}</td><td class="num">${moeda(r.valor)}</td>
           <td>${esc(r.numero_empenho || '—')}${r.data_empenho ? `<small class="muted bloco">${esc(dataBR(r.data_empenho))}</small>` : ''}</td>
           <td>${esc(r.descricao || '')}</td>
@@ -935,11 +991,13 @@ export function telaDetalheSolicitacao(el, { args, query }) {
             ${pode.contabil() ? `<button class="btn btn-sec btn-peq" data-editar-r="${esc(r.id)}" title="Editar">✎</button>
             <button class="btn btn-perigo btn-peq" data-excluir-r="${esc(r.id)}" title="Excluir">✕</button>` : ''}
           </td></tr>`).join('') || '<tr><td colspan="7" class="vazio-linha">Nenhum reembolso lançado nesta viagem.</td></tr>'}</tbody>
-        ${reemb.length ? `<tfoot><tr><td colspan="3">Total</td><td class="num"><strong>${moeda(totalReembolsos(sol))}</strong></td><td colspan="3"></td></tr></tfoot>` : ''}
+        ${reemb.length ? `<tfoot><tr><td colspan="3">Total dos reembolsos</td><td class="num"><strong>${moeda(totalReembolsos(sol))}</strong></td><td colspan="3"></td></tr>
+          ${sol.calculado || !sol.etapa ? `<tr><td colspan="3">Total geral (diárias ${moeda(sol.valor_total)} + reembolsos)</td><td class="num"><strong>${moeda(totalGeral(sol))}</strong></td><td colspan="3"></td></tr>` : ''}</tfoot>` : ''}
       </table></div>
     </section>${pode.verValores() ? '' : '-->'}`;
 
   ligarTramitacao(el, sol);
+  ligarBotoesNota(el);
   $('#add-reemb', el)?.addEventListener('click', () => formReembolso(sol, null));
   $$('[data-editar-r]', el).forEach(b => b.onclick = () => formReembolso(sol, reemb.find(r => r.id === b.dataset.editarR)));
   $$('[data-excluir-r]', el).forEach(b => b.onclick = async () => {
@@ -990,7 +1048,8 @@ function formReembolso(sol, r) {
       <label class="campo"><span>Tipo de despesa</span><select name="tipo" required><option value="">Selecione</option>
         ${[...new Set([...tipos, ...(r && !tipos.includes(r.tipo) ? [r.tipo] : [])])].map(t => `<option ${r?.tipo === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
       <label class="campo"><span>Valor (R$)</span><input type="number" step="0.01" min="0.01" name="valor" value="${esc(r?.valor ?? '')}" required></label>
-      <label class="campo span-2"><span>Chave de acesso da nota (44 dígitos)</span><input name="chave_nota" maxlength="54" inputmode="numeric" value="${esc(r?.chave_nota || '')}"></label>
+      <label class="campo span-2"><span>Chave de acesso da nota (44 dígitos) — NF-e, NFC-e (modelo 65), CT-e…</span><input name="chave_nota" maxlength="400" inputmode="numeric" value="${esc(r?.chave_nota || '')}" placeholder="Digite ou cole a chave (ou leia o QR Code do cupom)">
+        <span class="dica" id="info-chave"></span></label>
       <label class="campo"><span>Nº da nota</span><input name="numero_nota" value="${esc(r?.numero_nota || '')}"></label>
       <label class="campo"><span>Série</span><input name="serie_nota" value="${esc(r?.serie_nota || '')}"></label>
       <label class="campo"><span>Data da nota</span><input type="date" name="data_nota" value="${esc(r?.data_nota || '')}"></label>
@@ -1005,14 +1064,23 @@ function formReembolso(sol, r) {
   const f = $('#fr', m.el);
   f.querySelector('[data-cancelar]').onclick = m.fechar;
   // Preenche nº/série a partir da chave da NF-e (posições 23-25 série, 26-34 número).
-  f.chave_nota.addEventListener('change', () => {
-    const ch = f.chave_nota.value.replace(/\D/g, '');
-    f.chave_nota.value = ch;
-    if (ch.length === 44) {
-      if (!f.serie_nota.value) f.serie_nota.value = String(Number(ch.slice(22, 25)));
-      if (!f.numero_nota.value) f.numero_nota.value = String(Number(ch.slice(25, 34)));
-    }
-  });
+  const mostrarChave = () => {
+    // aceita também o link do QR Code da NFC-e (p=CHAVE|...)
+    const bruto = f.chave_nota.value, doQr = bruto.match(/[?&]p=(\d{44})/);
+    const ch = doQr ? doQr[1] : bruto.replace(/\D/g, '');
+    const info = lerChave(ch);
+    const alvo = $('#info-chave', m.el);
+    if (!ch) { alvo.innerHTML = ''; return; }
+    if (!info) { alvo.textContent = `${ch.length} de 44 dígitos.`; return; }
+    if (f.chave_nota.value !== ch) f.chave_nota.value = ch;
+    if (!f.serie_nota.value) f.serie_nota.value = info.serie;
+    if (!f.numero_nota.value) f.numero_nota.value = info.numero;
+    alvo.innerHTML = `${info.valida ? '✓' : '⚠'} ${esc(info.modeloNome)} nº ${esc(info.numero)} série ${esc(info.serie)} · emitida em ${esc(info.emissao)} · CNPJ ${esc(info.cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5'))}
+      ${info.valida ? '' : '<strong class="erro-txt"> — dígito verificador não confere, confira a chave</strong>'}<br>${botoesNota(ch)}`;
+    ligarBotoesNota(alvo);
+  };
+  f.chave_nota.addEventListener('input', mostrarChave);
+  mostrarChave();
   f.onsubmit = async e => {
     e.preventDefault();
     const d = lerForm(f);

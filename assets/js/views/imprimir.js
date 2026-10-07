@@ -6,6 +6,7 @@ import { aguardando, MESES } from './comum.js';
 import { ultimaSimulacao } from './simulador.js';
 import { solicitacoesDoRelatorio, agrupar } from './relatorio.js';
 import { rotuloFicha } from './orcamento.js';
+import { lerChave } from '../notas.js';
 
 function cidadeOrgao() { return estado.config.origem?.cidade || ''; }
 
@@ -51,8 +52,9 @@ function docSolicitacao(sol) {
       <tr><td class="r" style="width:22%">Tipo de Diária</td><td style="width:28%">${esc(tipos.join(' / ') || 'Sem diária')}</td><td class="r" style="width:22%">Faixa de Distância</td><td>${esc(sol.faixa_texto)}</td></tr>
       <tr><td class="r">Número de Diárias</td><td>${esc(qtd.join(' | ') || 'Sem diária')}</td><td class="r">Tempo Total</td><td>${horasBR(sol.horas_total)} horas</td></tr>
       <tr><td class="r">Valor Unitário Pernoite</td><td>${moeda(sol.valor_pernoite)}</td><td class="r">Valor Unitário Simples</td><td>${moeda(sol.valor_simples)}</td></tr>
-      <tr><td class="r">Valor Unitário Alimentação</td><td>${moeda(sol.valor_alimentacao)}</td><td class="r">Valor Total</td><td><strong>${moeda(sol.valor_total)}</strong></td></tr>
-      <tr><td class="r">Valor por extenso</td><td colspan="3"><em>${esc(valorPorExtenso(sol.valor_total))}</em></td></tr></table>`)}
+      <tr><td class="r">Valor Unitário Alimentação</td><td>${moeda(sol.valor_alimentacao)}</td><td class="r">Valor das Diárias</td><td><strong>${moeda(sol.valor_total)}</strong></td></tr>
+      ${totalReembolsos(sol) ? `<tr><td class="r">Reembolsos (notas)</td><td>${moeda(totalReembolsos(sol))}</td><td class="r">Total Geral a Empenhar</td><td><strong>${moeda(Number(sol.valor_total || 0) + totalReembolsos(sol))}</strong></td></tr>` : ''}
+      <tr><td class="r">Valor por extenso</td><td colspan="3"><em>${esc(valorPorExtenso(Number(sol.valor_total || 0) + totalReembolsos(sol)))}</em></td></tr></table>`)}
     ${secao('Descritivo do Cálculo e Justificativa Legal', `<table class="doc-tab"><tr><td><ul class="doc-lista">${(sol.descricao_calculo || []).map(x => `<li>${esc(x)}</li>`).join('')}
       ${(sol.justificativa_legal || []).map(x => `<li>${esc(x)}</li>`).join('')}<li>Base legal: ${esc(estado.config.lei)}.</li></ul></td></tr></table>`)}
     ${secao('4 - Análise do Controle Interno', `<table class="doc-tab">
@@ -60,12 +62,12 @@ function docSolicitacao(sol) {
       <tr><td class="r">Conta de Pagamento</td><td>${esc(sol.conta_pagamento || '')}</td><td class="r">Fonte de Recursos</td><td>${esc(sol.fonte_recursos || '')}</td></tr>
       ${ci?.parecer ? `<tr><td class="r">Observação</td><td colspan="3" class="pre">${esc(ci.parecer)}</td></tr>` : ''}</table>`)}
     ${secao('5 - Contabilidade', `<table class="doc-tab">
-      <tr><td class="r" style="width:22%">Ficha</td><td style="width:28%">${esc(rotuloFicha(sol))}</td><td class="r" style="width:22%">Nº / Data do Empenho</td><td>${esc(sol.numero_empenho || '')}${sol.data_empenho ? ' — ' + esc(dataBR(sol.data_empenho)) : ''}</td></tr>
+      <tr><td class="r" style="width:22%">Ficha</td><td style="width:28%">${esc(rotuloFicha(sol))}</td><td class="r" style="width:22%">Nº / Data do Empenho</td><td>${esc(sol.numero_empenho || '')}${sol.data_empenho ? ' — ' + esc(dataBR(sol.data_empenho)) : ''}${(sol.empenho_conjunto || []).length > 1 ? `<br><small>Empenho conjunto: ${esc(sol.empenho_conjunto.join(', '))}</small>` : ''}</td></tr>
       <tr><td class="r">Cálculo conferido por</td><td colspan="3">${esc(sol.calculo_por?.nome || '')}${sol.calculo_em ? ' — ' + esc(dataBR(sol.calculo_em)) : ''}</td></tr></table>`)}
     ${links.length ? secao('Curso / Capacitação / Evento', `<table class="doc-tab"><tr><td><div class="doc-links">${links.map(u => `<div class="doc-link"><div class="doc-qr doc-qr-peq" data-qr="${esc(u)}"></div><span>${esc(u)}</span></div>`).join('')}</div></td></tr></table>`) : ''}
     ${reemb.length ? secao('6 - Reembolsos da Viagem', `<table class="doc-tab"><thead><tr><th>Tipo</th><th>Nº Nota</th><th>Série</th><th>Data</th><th>Valor</th><th>Empenho</th></tr></thead>
-      <tbody>${reemb.map(r => `<tr><td>${esc(r.tipo)}</td><td>${esc(r.numero_nota)}</td><td>${esc(r.serie_nota)}</td><td>${esc(dataBR(r.data_nota))}</td><td>${moeda(r.valor)}</td><td>${esc(r.numero_empenho)}</td></tr>`).join('')}</tbody></table>
-      <div class="doc-total">Total Reembolso: ${moeda(totalReembolsos(sol))}</div>`) : ''}
+      <tbody>${reemb.map(r => `<tr><td>${esc(r.tipo)}${r.chave_nota ? `<br><small class="quebra">${esc(lerChave(r.chave_nota)?.modeloNome || '')} ${esc(r.chave_nota)}</small>` : ''}</td><td>${esc(r.numero_nota)}</td><td>${esc(r.serie_nota)}</td><td>${esc(dataBR(r.data_nota))}</td><td>${moeda(r.valor)}</td><td>${esc(r.numero_empenho)}</td></tr>`).join('')}</tbody></table>
+      <div class="doc-total">Total Reembolso: ${moeda(totalReembolsos(sol))} &nbsp;·&nbsp; Total Geral (diárias + reembolsos): ${moeda(Number(sol.valor_total || 0) + totalReembolsos(sol))}</div>`) : ''}
     ${localData(sol.data_solicitacao)}
     <table class="doc-ass doc-ass-4"><tr>
       <td><div class="doc-linha-ass">Servidor<br><small>${esc(sv.nome)}</small></div></td>
@@ -103,6 +105,30 @@ function desenharQRs(el) {
   if (!alvos.length) return;
   carregarQR().then(() => alvos.forEach(a => { a.innerHTML = ''; new window.QRCode(a, { text: a.dataset.qr, width: 64, height: 64, correctLevel: window.QRCode.CorrectLevel.M }); }))
     .catch(() => alvos.forEach(a => a.remove()));
+}
+
+/** Resumo do empenho (um ou mais pedidos do mesmo servidor no mesmo empenho): diárias + reembolsos. */
+function docEmpenho(sol) {
+  const lista = ativas(estado.solicitacoes).filter(x => x.servidor_id === sol.servidor_id && x.numero_empenho === sol.numero_empenho && x.data_empenho === sol.data_empenho)
+    .sort((a, b) => String(a.data_hora_saida).localeCompare(String(b.data_hora_saida)));
+  const sv = sol.servidor || {};
+  const reembDoEmp = x => (x.reembolsos || []).filter(r => r.numero_empenho === sol.numero_empenho);
+  const tD = lista.reduce((t, x) => t + Number(x.valor_total || 0), 0);
+  const tR = lista.reduce((t, x) => t + reembDoEmp(x).reduce((a, r) => a + Number(r.valor || 0), 0), 0);
+  return `<div class="folha">
+    ${cabecalhoDoc('Resumo do Empenho', `Empenho nº ${esc(sol.numero_empenho)} de ${esc(dataBR(sol.data_empenho))}`)}
+    ${secao('1 - Credor (Servidor)', `<table class="doc-tab">
+      <tr><td class="r" style="width:18%">Nome</td><td colspan="3">${esc(sv.nome)}</td></tr>
+      <tr><td class="r">CPF</td><td style="width:27%">${esc(formatarCpf(sv.cpf))}</td><td class="r" style="width:22%">Chave Pix</td><td>${esc(sv.chave_pix)}</td></tr>
+      <tr><td class="r">Ficha</td><td colspan="3">${esc(rotuloFicha(sol))}</td></tr>
+      <tr><td class="r">Fonte / Conta</td><td colspan="3">${esc(sol.fonte_recursos || '')}${sol.conta_pagamento ? ' · ' + esc(sol.conta_pagamento) : ''}</td></tr></table>`)}
+    ${secao('2 - Solicitações neste empenho', `<table class="doc-tab"><thead><tr><th>Nº</th><th>Destino</th><th>Saída</th><th>Retorno</th><th>Diárias</th><th>Reembolsos</th><th>Total</th></tr></thead>
+      <tbody>${lista.map(x => { const r = reembDoEmp(x).reduce((a, y) => a + Number(y.valor || 0), 0); return `<tr><td>${esc(x.numero)}</td><td>${esc(x.destino_cidade)}/${esc(x.destino_uf)}</td><td>${esc(dataBR(x.data_hora_saida))}</td><td>${esc(dataBR(x.data_hora_retorno))}</td><td>${moeda(x.valor_total)}</td><td>${moeda(r)}</td><td><strong>${moeda(Number(x.valor_total || 0) + r)}</strong></td></tr>`; }).join('')}
+      <tr><td class="r" colspan="4">TOTAL</td><td class="r">${moeda(tD)}</td><td class="r">${moeda(tR)}</td><td class="r">${moeda(tD + tR)}</td></tr></tbody></table>
+      <div class="doc-total">Total geral do empenho: ${moeda(tD + tR)} — <em>${esc(valorPorExtenso(tD + tR))}</em></div>`)}
+    ${localData(sol.data_empenho)}
+    ${assinaturas('Contabilidade', 'Ordenador da Despesa')}
+  </div>`;
 }
 
 function docReembolso(sol, r) {
@@ -215,6 +241,9 @@ export function telaImprimir(el, { args, query }) {
     const sol = porId('solicitacoes', partes[1]);
     const r = sol && (sol.reembolsos || []).find(x => x.id === partes[2]);
     html = r ? docReembolso(sol, r) : naoAchou; voltar = '#/solicitacoes/' + partes[1]; titulo = 'Reembolso';
+  } else if (partes[0] === 'empenho') {
+    const sol = porId('solicitacoes', partes[1]);
+    html = sol?.numero_empenho ? docEmpenho(sol) : naoAchou; voltar = '#/solicitacoes/' + partes[1]; titulo = 'Empenho ' + (sol?.numero_empenho || '');
   } else if (partes[0] === 'servidor') {
     const sv = porId('servidores', partes[1]);
     html = sv ? docRelatorioServidor(sv, query.get('mes') || '', query.get('ano') || '') : naoAchou; voltar = '#/servidores/' + partes[1]; titulo = sv ? 'Relatório — ' + sv.nome : titulo;
