@@ -14,6 +14,7 @@ import { telaParametros, telaUsuarios, telaImportar, telaAuditoria, telaConta } 
 import { telaImprimir } from './views/imprimir.js';
 import { telaConferencia } from './views/conferencia.js';
 import { telaRelatorio } from './views/relatorio.js';
+import { telaOrcamento } from './views/orcamento.js';
 
 const VERSAO = '2.1.0';
 const ICONE_GOOGLE = '<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>';
@@ -31,6 +32,7 @@ const MENU = [
   { rota: 'conferencia', icone: '✓', texto: 'Conferência', interno: true, valores: true },
   { rota: 'simulador', icone: '∑', texto: 'Simulador', interno: true, valores: true },
   { rota: 'relatorio', icone: '▤', texto: 'Relatório mensal', relatorio: true },
+  { rota: 'orcamento', icone: '📑', texto: 'Orçamento', orcamento: true },
   { grupo: 'Administração', admin: true },
   { rota: 'parametros', icone: '⚙', texto: 'Parâmetros da lei', admin: true },
   { rota: 'usuarios', icone: '🔑', texto: 'Usuários', admin: true },
@@ -47,6 +49,7 @@ if (!db.configurado) {
     pararOuvintes();
     if (!usuario) {
       estado.sessao = null; db.definirSessao(null);
+      document.getElementById('toasts')?.remove();
       if (location.hash) history.replaceState(null, '', location.pathname + location.search);
       return telaLogin();
     }
@@ -218,6 +221,12 @@ function iniciarDados() {
   if (pode.verValores()) ouvintes.push(db.ouvir('valores', l => { valores = Object.fromEntries(l.map(v => [v.id, v])); juntar(); }, erro('valores')));
   // Controle Interno: recebe só os valores já liberados (solicitações empenhadas), para o relatório.
   else if (pode.relatorio()) { valores = null; ouvintes.push(db.ouvir('valores', l => { valores = Object.fromEntries(l.map(v => [v.id, v])); juntar(); }, erro('valores'), ['liberado_ci', true])); }
+  // Orçamento: Secretaria só recebe os documentos e fichas da própria pasta.
+  if (pode.orcamento() || pode.solicitar()) {
+    const filtroSec = ehSecretaria() ? ['secretaria_id', estado.sessao.secretaria_id || '-'] : null;
+    ouvintes.push(db.ouvir('fichas', l => { estado.fichas = l; pronto('fichas'); }, () => pronto('fichas'), filtroSec));
+    ouvintes.push(db.ouvir('orcamentos', l => { estado.orcamentos = l; pronto('orcamentos'); }, () => pronto('orcamentos'), filtroSec));
+  }
   ouvintes.push(db.ouvir('distancias', l => { estado.distancias = Object.fromEntries(l.map(d => [d.id, d])); pronto('distancias'); }, () => {}));
   ouvintes.push(db.ouvirDoc('config', 'parametros', d => { estado.config = mesclarConfig(d); pronto('config'); }, erro('parâmetros')));
   if (pode.admin()) ouvintes.push(db.ouvir('usuarios', l => { estado.usuarios = l; pronto('usuarios'); }, erro('usuários')));
@@ -244,7 +253,7 @@ function montarLayout() {
     <div class="layout">
       <aside class="lateral" id="lateral">
         ${marca()}
-        <nav>${MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.solicitar()) && (!m.interno || !acessoRestrito()) && (!m.valores || pode.verValores()) && (!m.relatorio || pode.relatorio())).map(m => m.grupo
+        <nav>${MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.solicitar()) && (!m.interno || !acessoRestrito()) && (!m.valores || pode.verValores()) && (!m.relatorio || pode.relatorio()) && (!m.orcamento || pode.orcamento())).map(m => m.grupo
           ? `<div class="menu-grupo">${esc(m.grupo)}</div>`
           : `<a href="#/${m.rota}" data-rota="${m.rota}"><span class="ico" aria-hidden="true">${m.icone}</span>${esc(m.texto)}</a>`).join('')}
         </nav>
@@ -282,6 +291,7 @@ const ROTAS = [
   [/^auditoria$/, telaAuditoria, 'admin'],
   [/^conta$/, telaConta],
   [/^relatorio$/, telaRelatorio, 'relatorio'],
+  [/^orcamento$/, telaOrcamento, 'orcamento'],
   [/^imprimir\/(mensal)$/, telaImprimir, 'relatorio'],
   [/^imprimir\/(.+)$/, telaImprimir, 'valores']
 ];
@@ -307,6 +317,7 @@ function desenharTela(atualizacao) {
       if (req === 'interno' && acessoRestrito()) break;
       if (req === 'valores' && (ehSecretaria() || !pode.verValores())) break;
       if (req === 'relatorio' && !pode.relatorio()) break;
+      if (req === 'orcamento' && !pode.orcamento()) break;
       alvo = fn; args = m.slice(1); break;
     }
   }

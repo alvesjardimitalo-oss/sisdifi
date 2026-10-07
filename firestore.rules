@@ -122,6 +122,21 @@ service cloud.firestore {
       allow write: if operador();
     }
 
+    // Orçamento: Contabilidade envia PDFs e cadastra fichas; cada Secretaria lê apenas os da própria pasta.
+    function leOrcamento(secId) { return ativo() && (perfil() in ['admin', 'operador', 'consulta'] || (secretaria() && secId == minhaSecretaria())); }
+    match /orcamentos/{id} {
+      allow read: if leOrcamento(resource.data.secretaria_id);
+      allow write: if operador();
+      match /partes/{parte} {
+        allow read: if leOrcamento(resource.data.secretaria_id);
+        allow write: if operador();
+      }
+    }
+    match /fichas/{id} {
+      allow read: if leOrcamento(resource.data.secretaria_id);
+      allow write: if operador();
+    }
+
     match /contadores/{id} {
       allow read: if ativo();
       allow write: if solicitante();

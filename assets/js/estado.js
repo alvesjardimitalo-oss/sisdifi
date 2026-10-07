@@ -44,6 +44,8 @@ export const estado = {
   secretarias: [],
   solicitacoes: [],
   solicitacoesBrutas: [],
+  fichas: [],
+  orcamentos: [],
   distancias: {},        // chave → { cidade, uf, km }
   config: structuredClone(CONFIG_PADRAO),
   usuarios: [],
@@ -80,6 +82,8 @@ export const pode = {
   contabil: () => ['admin', 'operador'].includes(perfilAtual()),
   // relatório mensal com valores: quem vê valores + Controle Interno (só das solicitações já empenhadas)
   relatorio: () => ['admin', 'operador', 'consulta', 'controle_interno'].includes(perfilAtual()),
+  // orçamento (PDFs e fichas): Contabilidade gerencia; Secretaria consulta o da própria pasta
+  orcamento: () => ['admin', 'operador', 'consulta', 'secretaria'].includes(perfilAtual()),
   admin: () => perfilAtual() === 'admin'
 };
 

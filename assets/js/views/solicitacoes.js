@@ -2,6 +2,7 @@
 import * as db from '../db.js';
 import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ETAPAS, etapaDe, ehSecretaria, separarValores, ETAPAS_EMPENHADAS } from '../estado.js';
 import { formServidor, formPix, podeAlterarPix } from './servidores.js';
+import { consultarFichas, fichasDaSecretaria } from './orcamento.js';
 import { calcularDiaria, moeda, horasBR, formatarCpf, periodosSobrepostos, GRUPOS, cpfValido } from '../calculo.js';
 import { esc, $, $$, toast, modal, confirmar, hojeISO, dataBR, numeroBR, normalizar, lerForm, baixarArquivo, csv, mensagemErro } from '../ui.js';
 import { listarUFs, listarMunicipios, calcularDistanciaRodoviaria, chaveDistancia } from '../localidades.js';
@@ -172,6 +173,7 @@ function montarDadosSolicitacao(dados, sv, existente = null) {
     links: listaLinks(dados),
     conta_pagamento: dados.conta_pagamento || '',
     fonte_recursos: dados.fonte_recursos || '',
+    ficha_sugerida: dados.ficha_sugerida || '',
     data_solicitacao: dados.data_solicitacao
   };
   if (!existente) {
@@ -240,6 +242,9 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
           <label class="campo"><span>Conta para pagamento *</span><input name="conta_pagamento" list="dl-contas-f" value="${esc(sol.conta_pagamento || '')}" required placeholder="Banco, agência e conta da secretaria/fundo"></label>
           <label class="campo"><span>Fonte de recurso *</span><input name="fonte_recursos" list="dl-fontes-f" value="${esc(sol.fonte_recursos || '')}" required placeholder="Ex.: 1500 — Recursos não vinculados"></label>
         </div>
+        <input type="hidden" name="ficha_sugerida" value="${esc(sol.ficha_sugerida || '')}">
+        <div class="linha-form"><button type="button" class="btn btn-sec btn-peq" id="consultar-fichas">📑 Consultar fichas do orçamento</button>
+          <span class="dica" id="ficha-escolhida">${sol.ficha_sugerida ? 'Ficha escolhida: <strong>' + esc(sol.ficha_sugerida) + '</strong>' : ''}</span></div>
         <datalist id="dl-contas-f"></datalist><datalist id="dl-fontes-f"></datalist>
       </section>
 
@@ -478,6 +483,15 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
   form.addEventListener('change', recalcular);
 
   $('#cancelar-fv', el).onclick = () => history.back();
+  $('#consultar-fichas', el).onclick = () => {
+    const sec = form.secretaria_id.value;
+    if (!sec) return toast('Escolha a secretaria primeiro.', 'erro');
+    consultarFichas(sec, f => {
+      form.fonte_recursos.value = f.fonte; form.ficha_sugerida.value = f.ficha;
+      $('#ficha-escolhida', el).innerHTML = `Ficha escolhida: <strong>${esc(f.ficha)}</strong>${f.elemento ? ' · ' + esc(f.elemento) : ''}`;
+      recalcular();
+    });
+  };
   $('#mais-link', el).onclick = () => { const x = form.querySelector('[data-extra][hidden]'); if (x) { x.hidden = false; x.removeAttribute('data-extra'); x.focus(); } if (!form.querySelector('[data-extra][hidden]')) $('#mais-link', el).hidden = true; };
 
   form.onsubmit = async e => {
@@ -629,7 +643,7 @@ function blocoTramitacao(sol) {
           <details><summary>Descritivo do cálculo</summary><ul class="lista-peq">${c.descricao_calculo.map(x => `<li>${esc(x)}</li>`).join('')}${c.justificativa_legal.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>
         </div>
         <form id="f-calculo" class="linha-form">
-          <label class="campo"><span>Ficha</span><input name="ficha" value="${esc(sol.ficha || '')}" required></label>
+          <label class="campo"><span>Ficha${sol.ficha_sugerida ? ' (sugerida pela secretaria)' : ''}</span><input name="ficha" value="${esc(sol.ficha || sol.ficha_sugerida || '')}" required></label>
           <button class="btn" type="submit">✓ Confirmar cálculo e ficha</button>
         </form>`;
     } else if (e === 'calculada' && pode.contabil()) {
@@ -671,6 +685,7 @@ function blocoTramitacao(sol) {
     sol.analise?.resultado === 'aprovada' ? ['Aprovado pelo Controle Interno', `${sol.analise.por?.nome || ''} em ${dataBR(sol.analise.em)}`] : null,
     sol.conta_pagamento ? ['Conta de pagamento', sol.conta_pagamento] : null,
     sol.fonte_recursos ? ['Fonte de recursos', sol.fonte_recursos] : null,
+    sol.ficha_sugerida && !sol.ficha ? ['Ficha sugerida pela secretaria', sol.ficha_sugerida] : null,
     sol.analise?.parecer ? ['Parecer', sol.analise.parecer] : null,
     sol.calculado && sol.calculo_por ? ['Calculado pela Contabilidade', `${sol.calculo_por.nome} em ${dataBR(sol.calculo_em)}`] : null,
     sol.ficha ? ['Ficha', sol.ficha] : null,

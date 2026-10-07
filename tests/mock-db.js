@@ -85,3 +85,12 @@ export async function moverValoresProtegidos(lista) {
   }
   notificar('valores'); notificar('solicitacoes');
 }
+const pdfs = new Map();
+export async function enviarPDF(meta, arquivo, progresso) {
+  const id = 'pdf' + (contador++);
+  pdfs.set(id, await arquivo.arrayBuffer());
+  garantir('orcamentos').set(id, { ...meta, nome_arquivo: arquivo.name, tamanho: arquivo.size, partes: 1, enviado_por: { nome: sessao?.nome }, enviado_em: new Date() });
+  progresso && progresso(1, 1); notificar('orcamentos'); return id;
+}
+export async function baixarPDF(id) { return new Blob([pdfs.get(id) || new ArrayBuffer(0)], { type: 'application/pdf' }); }
+export async function excluirPDF(id) { colecoes.orcamentos?.delete(id); pdfs.delete(id); notificar('orcamentos'); }

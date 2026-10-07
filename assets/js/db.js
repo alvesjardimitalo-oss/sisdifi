@@ -215,3 +215,42 @@ export async function moverValoresProtegidos(lista, progresso) {
     progresso && progresso(Math.min(i + 200, lista.length), lista.length);
   }
 }
+
+// ---------------- PDFs do orçamento (guardados em partes no Firestore, sem custo de Storage) ----------------
+const TAM_PARTE = 700000; // caracteres base64 por documento (limite do Firestore é 1 MB por documento)
+
+function paraBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+/** Envia um PDF: cria o registro em "orcamentos" e grava o conteúdo em partes na subcoleção "partes". */
+export async function enviarPDF(meta, arquivo, progresso) {
+  const b64 = paraBase64(await arquivo.arrayBuffer());
+  const partes = Math.ceil(b64.length / TAM_PARTE);
+  const ref = doc(collection(fs, 'orcamentos'));
+  for (let i = 0; i < partes; i++) {
+    await setDoc(doc(fs, 'orcamentos', ref.id, 'partes', String(i)), { i, dados: b64.slice(i * TAM_PARTE, (i + 1) * TAM_PARTE), secretaria_id: meta.secretaria_id });
+    progresso && progresso(i + 1, partes);
+  }
+  // o registro só aparece para as secretarias depois que todas as partes foram gravadas
+  await setDoc(ref, { ...meta, nome_arquivo: arquivo.name, tamanho: arquivo.size, partes, enviado_por: autor(), enviado_em: serverTimestamp() });
+  return ref.id;
+}
+
+export async function baixarPDF(id, partes = 1) {
+  // lê parte por parte pelo id (assim as regras conferem a secretaria de cada documento)
+  const docs = await Promise.all(Array.from({ length: partes }, (_, i) => getDoc(doc(fs, 'orcamentos', id, 'partes', String(i)))));
+  const b64 = docs.map(d => d.data().dados).join('');
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: 'application/pdf' });
+}
+
+export async function excluirPDF(id, partes) {
+  for (let i = 0; i < partes; i++) await deleteDoc(doc(fs, 'orcamentos', id, 'partes', String(i)));
+  await deleteDoc(doc(fs, 'orcamentos', id));
+}
