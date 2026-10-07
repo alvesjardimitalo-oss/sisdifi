@@ -52,6 +52,7 @@ export const estado = {
   usuarios: [],
   exercicios: [],        // exercícios (anos) abertos: { id: '2026', ano, status, respostas }
   exercicio: lerExercicioSalvo(),
+  verHistorico: (() => { try { return localStorage.getItem('sisdifi.historico') === '1'; } catch { return false; } })(), // mostra as diárias do sistema antigo
   prontos: new Set()     // coleções já carregadas
 };
 
@@ -65,6 +66,12 @@ export function definirExercicio(ano) {
   estado.exercicio = Number(ano) || new Date().getFullYear();
   try { localStorage.setItem('sisdifi.exercicio', String(estado.exercicio)); } catch { /* sem armazenamento */ }
   window.dispatchEvent(new CustomEvent('sisdifi:exercicio', { detail: estado.exercicio }));
+}
+/** Liga/desliga, em todo o sistema, o histórico importado do sistema antigo (etapa "legado"). */
+export function definirHistorico(v) {
+  estado.verHistorico = !!v;
+  try { localStorage.setItem('sisdifi.historico', v ? '1' : '0'); } catch { /* sem armazenamento */ }
+  window.dispatchEvent(new CustomEvent('sisdifi:historico', { detail: estado.verHistorico }));
 }
 export const exercicioDoc = ano => estado.exercicios.find(e => Number(e.ano) === Number(ano)) || null;
 

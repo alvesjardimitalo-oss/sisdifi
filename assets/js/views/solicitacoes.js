@@ -1,7 +1,7 @@
 // SISDIFI — Solicitações de diária: lista, nova, detalhe/edição, empenho e reembolsos
 import * as db from '../db.js';
-import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ETAPAS, etapaDe, ehSecretaria, separarValores, ETAPAS_EMPENHADAS } from '../estado.js';
-import { formServidor, formPix, podeCompletar, pendencias, ehMotorista } from './servidores.js';
+import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ETAPAS, etapaDe, ehSecretaria, separarValores, ETAPAS_EMPENHADAS, definirHistorico } from '../estado.js';
+import { formServidor, formPix, podeCompletar, pendencias, ehMotorista, avisoPixCpf } from './servidores.js';
 import { botoesNota, ligarBotoesNota, lerChave } from '../notas.js';
 import { temPix, cpfOk, cpfExibir, pixExibir } from '../privacidade.js';
 import { consultarFichas, fichasDaSecretaria, buscarFicha, tituloFicha, rotuloFicha, saldoDaFicha } from './orcamento.js';
@@ -95,7 +95,7 @@ export function telaListaSolicitacoes(el, { query }) {
   const form = $('#filtros', el);
   if (form) {
     let t;
-    form.oninput = () => { clearTimeout(t); t = setTimeout(() => { Object.assign(filtros, lerForm(form), { pagina: 1 }); redesenharMantendoFoco(el, form); }, 250); };
+    form.oninput = () => { clearTimeout(t); t = setTimeout(() => { Object.assign(filtros, lerForm(form), { pagina: 1 }); if (filtros.status === 'legado' && !estado.verHistorico) definirHistorico(true); redesenharMantendoFoco(el, form); }, 250); };
     form.onsubmit = e => e.preventDefault();
   }
   $$('[data-pag]', el).forEach(b => b.onclick = () => { filtros.pagina = Number(b.dataset.pag); telaListaSolicitacoes(el, { query }); });
@@ -331,6 +331,8 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
     busca.value = ''; sug.innerHTML = ''; sug.classList.remove('aberta');
     desenharSelecionados(); recalcular();
     busca.focus();
+    // CPF é a chave Pix padrão: pergunta se quer trocar (a chave é a forma de pagamento da diária)
+    avisoPixCpf(s, () => setTimeout(() => { desenharSelecionados(); recalcular(); }, 150));
   }
   // CPF completo de servidor de outra secretaria: consulta o índice (só responde a quem já sabe o CPF inteiro).
   const porCpf = {};

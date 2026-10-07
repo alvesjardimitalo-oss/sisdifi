@@ -3,7 +3,7 @@
 // próprio servidor leem. O cadastro público ("servidores") guarda nome, cargo, categoria e indicadores sem o dado:
 // cpf_mascara ("***.456.789-**"), cpf_valido e tem_pix. O índice "cpfs/{cpf}" só responde a quem já sabe o CPF
 // completo (não lista), para encontrar o servidor e evitar cadastro duplicado.
-import { cpfValido, formatarCpf } from './calculo.js';
+import { cpfValido, formatarCpf, analisarPix } from './calculo.js';
 
 export const CAMPOS_PRIVADOS = ['cpf', 'chave_pix', 'cpf_anterior'];
 
@@ -28,10 +28,20 @@ export function separarServidor(dados) {
     publico.cpf_valido = cpfValido(privado.cpf);
   }
   if ('cargo_funcao' in publico) publico.motorista = cargoMotorista(publico.cargo_funcao);
-  if ('chave_pix' in privado) publico.tem_pix = !!String(privado.chave_pix || '').trim();
+  if ('chave_pix' in privado) {
+    publico.tem_pix = !!String(privado.chave_pix || '').trim();
+    const dig = String(privado.chave_pix || '').replace(/\D/g, '');
+    // CPF do próprio servidor como chave (padrão do sistema) ou outro tipo — sem expor a chave
+    publico.pix_tipo = !publico.tem_pix ? '' : ('cpf' in privado && dig === privado.cpf && !/@/.test(privado.chave_pix)) ? 'cpf' : codigoTipoPix(analisarPix(privado.chave_pix).tipo);
+  }
   if ('secretaria_id' in publico && Object.keys(privado).length) privado.secretaria_id = publico.secretaria_id || null;
   return { publico, privado };
 }
+
+const TIPOS_PIX = { 'CPF': 'cpf', 'CNPJ': 'cnpj', 'E-mail': 'email', 'Telefone': 'telefone', 'Chave aleatória': 'aleatoria' };
+export const codigoTipoPix = rotulo => TIPOS_PIX[rotulo] || '';
+/** A chave Pix do servidor é o CPF (padrão do sistema)? */
+export const pixEhCpf = sv => !!sv && (sv.chave_pix ? (!!sv.cpf && String(sv.chave_pix).replace(/\D/g, '') === String(sv.cpf).replace(/\D/g, '') && !/@/.test(sv.chave_pix)) : sv.pix_tipo === 'cpf');
 
 // ---------- Exibição (funciona com ou sem acesso ao dado privado) ----------
 export const temPix = sv => !!(sv && (sv.chave_pix || sv.tem_pix));

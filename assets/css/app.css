@@ -319,7 +319,10 @@ details summary { cursor: pointer; color: var(--azul); font-weight: 500; margin-
 .modal-topo { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--borda); }
 .modal-topo h3 { margin: 0; }
 .modal-corpo { padding: 18px; }
-.confirm-msg { margin-top: 0; }
+.confirm-msg { margin-top: 0; white-space: pre-line; }
+.pix-tipos { border: 1px solid var(--borda, #dfe4ea); border-radius: var(--raio-p); padding: 6px 12px 2px; margin: 0 0 10px; display: flex; flex-wrap: wrap; gap: 0 18px; }
+.pix-tipos legend { font-size: 12px; font-weight: 600; color: var(--muted); padding: 0 4px; }
+.pix-tipos .check { margin: 6px 0; }
 #toasts { position: fixed; right: 16px; bottom: 16px; z-index: 200; display: flex; flex-direction: column; gap: 8px; max-width: min(420px, calc(100vw - 32px)); }
 .toast { background: var(--texto); color: #fff; padding: 11px 14px; border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .25); transition: opacity .4s, transform .4s; }
 .toast-erro { background: var(--vermelho); }
@@ -374,6 +377,7 @@ progress { width: 260px; vertical-align: middle; }
 
 /* Exercício */
 .topo-exercicio { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.topo-historico { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); font-weight: 600; cursor: pointer; white-space: nowrap; }
 .topo-exercicio select { width: auto; min-height: 32px; padding: 4px 8px; font-weight: 600; color: var(--azul-esc); }
 .linha-ativa td { background: var(--azul-claro); }
 .abertura { margin: 0; padding-left: 22px; }

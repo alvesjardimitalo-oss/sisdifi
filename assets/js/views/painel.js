@@ -1,5 +1,5 @@
 // SISDIFI — Painel (indicadores)
-import { estado, pode, totalReembolsos, ativas, secretariaNome, ETAPAS, etapaDe, ehSecretaria, ehRH } from '../estado.js';
+import { estado, pode, totalReembolsos, ativas, secretariaNome, ETAPAS, etapaDe, ehSecretaria, ehRH, definirHistorico } from '../estado.js';
 import { telaRelatorio } from './relatorio.js';
 import { avisoExercicio } from './exercicio.js';
 import { seloEtapa } from './comum.js';
@@ -8,7 +8,7 @@ import { esc, $, $$, dataBR, lerForm } from '../ui.js';
 import { aguardando, cabecalho, anosDisponiveis, MESES } from './comum.js';
 import { analisarPendencias } from './conferencia.js';
 
-const filtro = { ano: String(new Date().getFullYear()), mes: '', historico: false };
+const filtro = { ano: String(new Date().getFullYear()), mes: '' };
 window.addEventListener('sisdifi:exercicio', e => { filtro.ano = String(e.detail); filtro.mes = ''; });
 
 export function telaPainel(el) {
@@ -16,7 +16,7 @@ export function telaPainel(el) {
   if (ehRH()) { const r = telaRelatorio(el); return { ...r, titulo: 'Painel' }; }
   if (!pode.verValores()) return painelSemValores(el);
   // Por padrão o painel mostra só o que foi feito no sistema novo; o histórico importado entra se marcado.
-  const base = ativas(estado.solicitacoes).filter(s => filtro.historico || etapaDe(s) !== 'legado');
+  const base = ativas(estado.solicitacoes);
   const doAno = base.filter(s => !filtro.ano || String(s.data_hora_saida).startsWith(filtro.ano));
   const periodo = doAno.filter(s => !filtro.mes || String(s.data_hora_saida).slice(5, 7) === filtro.mes.padStart(2, '0'));
   const tDiarias = periodo.reduce((t, s) => t + Number(s.valor_total || 0), 0);
@@ -49,7 +49,7 @@ export function telaPainel(el) {
     a[s.servidor_id].v += Number(s.valor_total || 0) + totalReembolsos(s); a[s.servidor_id].n++; return a;
   }, {})).sort((a, b) => b.v - a.v).slice(0, 5);
 
-  const ultimas = estado.solicitacoes.filter(s => filtro.historico || etapaDe(s) !== 'legado').slice(0, 6);
+  const ultimas = estado.solicitacoes.slice(0, 6);
   const rotulo = filtro.mes ? `${MESES[Number(filtro.mes) - 1]} de ${filtro.ano || 'todos os anos'}` : (filtro.ano ? `Ano de ${filtro.ano}` : 'Todo o período');
 
   el.innerHTML = `
@@ -61,7 +61,7 @@ export function telaPainel(el) {
     <form class="filtros" id="filtro-painel">
       <label class="campo"><span>Ano</span><select name="ano"><option value="">Todos</option>${anosDisponiveis().map(a => `<option ${String(a) === filtro.ano ? 'selected' : ''}>${a}</option>`).join('')}</select></label>
       <label class="campo"><span>Mês</span><select name="mes"><option value="">Todos</option>${MESES.map((m, i) => `<option value="${i + 1}" ${String(i + 1) === filtro.mes ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
-      <label class="check"><input type="checkbox" name="historico" value="1" ${filtro.historico ? 'checked' : ''}> Incluir histórico do sistema antigo</label>
+      ${ehSecretaria() ? '' : `<label class="check"><input type="checkbox" name="historico" value="1" ${estado.verHistorico ? 'checked' : ''}> Incluir histórico do sistema antigo</label>`}
       <div class="filtro-rotulo">${esc(rotulo)}</div>
       <a class="btn btn-sec btn-peq filtros-fim" href="#/relatorio">Relatório mensal</a>
     </form>
@@ -107,7 +107,7 @@ export function telaPainel(el) {
       </section>
     </div>`;
   $('[data-abrir-ano]', el)?.addEventListener('click', e => { const a = Number(e.currentTarget.dataset.abrirAno); if (a !== estado.exercicio) { estado.exercicio = a; try { localStorage.setItem('sisdifi.exercicio', String(a)); } catch { /* */ } } });
-  $('#filtro-painel', el).onchange = e => { const d = lerForm(e.currentTarget); Object.assign(filtro, { ano: d.ano, mes: d.mes, historico: !!d.historico }); telaPainel(el); };
+  $('#filtro-painel', el).onchange = e => { const d = lerForm(e.currentTarget); Object.assign(filtro, { ano: d.ano, mes: d.mes }); if (!!d.historico !== estado.verHistorico) definirHistorico(!!d.historico); telaPainel(el); };
   return { viva: true, titulo: 'Painel' };
 }
 

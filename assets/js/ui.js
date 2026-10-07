@@ -40,14 +40,14 @@ export function modal({ titulo, corpo, largura = 640, aoFechar }) {
   return { el: fundo.querySelector('.modal-corpo'), fechar };
 }
 
-export function confirmar(mensagem, { titulo = 'Confirmar', ok = 'Confirmar', perigo = false, pedirTexto = null } = {}) {
+export function confirmar(mensagem, { titulo = 'Confirmar', ok = 'Confirmar', nao = 'Cancelar', perigo = false, pedirTexto = null } = {}) {
   return new Promise(resolve => {
     let resolvido = false;
     const m = modal({
       titulo, largura: 460,
       corpo: `<p class="confirm-msg">${esc(mensagem)}</p>
         ${pedirTexto ? `<label class="campo"><span>${esc(pedirTexto)}</span><textarea data-texto rows="3" required></textarea></label>` : ''}
-        <div class="acoes-form"><button type="button" class="btn btn-sec" data-nao>Cancelar</button>
+        <div class="acoes-form"><button type="button" class="btn btn-sec" data-nao>${esc(nao)}</button>
         <button type="button" class="btn ${perigo ? 'btn-perigo' : ''}" data-sim>${esc(ok)}</button></div>`,
       aoFechar: () => { if (!resolvido) resolve(false); }
     });

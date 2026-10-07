@@ -2,10 +2,10 @@
 import * as db from '../db.js';
 import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ehSecretaria, acessoRestrito, etapaDe } from '../estado.js';
 import { GRUPOS, formatarCpf, limparCpf, cpfValido, moeda, analisarPix } from '../calculo.js';
-import { esc, $, $$, toast, modal, dataBR, numeroBR, normalizar, lerForm, mensagemErro, baixarArquivo, csv, hojeISO } from '../ui.js';
+import { esc, $, $$, toast, modal, confirmar, dataBR, numeroBR, normalizar, lerForm, mensagemErro, baixarArquivo, csv, hojeISO } from '../ui.js';
 import { aguardando, cabecalho, selo, opcoesSecretarias, anosDisponiveis, MESES } from './comum.js';
 import { extrairLinhas } from '../orcamento-pdf.js';
-import { temPix, cpfOk, cpfExibir, pixExibir, cargoMotorista } from '../privacidade.js';
+import { temPix, cpfOk, cpfExibir, pixExibir, cargoMotorista, pixEhCpf, codigoTipoPix } from '../privacidade.js';
 import { analisarFolha, cruzarFolha, cargoDaFolha } from '../folha-pdf.js';
 import { analisarRelacaoServidores, compararComCadastro, secretariaDaLotacao, grupoSugerido, nomeProprio, SITUACOES } from '../servidores-pdf.js';
 
@@ -37,7 +37,7 @@ export function telaServidores(el) {
   el.innerHTML = `
     ${cabecalho('Servidores', `${ehSecretaria() ? '' : '<button class="btn btn-sec" id="exp-sv">⭳ Exportar</button>'}${pode.editar() ? '<button class="btn btn-sec" id="revisar-cat">⚖ Revisar categorias</button><button class="btn btn-sec" id="importar-rel">📄 Importar relação (PDF)</button><button class="btn btn-sec" id="importar-folha">📄 Atualizar pela folha (PDF)</button>' : ''}${pode.solicitar() ? '<button class="btn" id="novo-sv">＋ Novo servidor</button>' : ''}`,
       ehSecretaria() ? 'Aqui aparecem os servidores da sua secretaria e os motoristas de todas as secretarias. Complete a chave Pix e o cargo de quem estiver pendente, ou cadastre um servidor novo.' : '')}
-    ${semPix ? `<div class="alerta">⚠ ${semPix} servidor(es) ativo(s) sem chave Pix. Use o filtro "Pendências" → "Sem chave Pix" e clique no botão "＋" da linha para completar.</div>` : ''}
+    ${semPix ? `<div class="alerta">⚠ ${semPix} servidor(es) ativo(s) sem chave Pix. Use o filtro "Pendências" → "Sem chave Pix" e clique no botão "＋" da linha para completar.${pode.editar() ? ' <button type="button" class="btn btn-sec btn-peq" id="pix-cpf-lote">Usar o CPF como chave Pix</button>' : ''}</div>` : ''}
     ${semCargo ? `<div class="alerta">⚠ ${semCargo} servidor(es) ativo(s) sem cargo/função informado. Use o filtro "Pendências" → "Sem cargo" e clique no botão "＋" da linha.${pode.editar() ? ' <button type="button" class="btn btn-sec btn-peq" id="inativar-sem-cargo">Inativar os sem cargo</button>' : ''}</div>` : ''}
     ${cpfsInvalidos && !ehSecretaria() ? `<div class="alerta">⚠ ${cpfsInvalidos} servidor(es) ativo(s) com CPF de dígito verificador inválido. Eles aparecem marcados como "CPF inválido" na lista.</div>` : ''}
     <form class="filtros" id="filtros-sv">
@@ -91,6 +91,7 @@ export function telaServidores(el) {
   $('#importar-folha', el)?.addEventListener('click', () => importarFolha());
   $('#revisar-cat', el)?.addEventListener('click', () => revisarCategorias());
   $('#inativar-sem-cargo', el)?.addEventListener('click', () => inativarSemCargo());
+  $('#pix-cpf-lote', el)?.addEventListener('click', () => pixCpfEmLote());
   $$('[data-pix]', el).forEach(b => b.onclick = ev => { ev.stopPropagation(); formPix(porId('servidores', b.dataset.pix)); });
   if ($('#exp-sv', el)) $('#exp-sv', el).onclick = () => baixarArquivo(`servidores-${hojeISO()}.csv`, csv([
     ['Nome', 'CPF', 'Matrícula', 'Chave Pix', 'Cargo/Função', 'Vínculo', 'Categoria', 'Secretaria', 'Situação'],
@@ -112,7 +113,7 @@ export function formServidor(s, { rapido = false, inicial = {}, secretariaFixa =
       ${rapido ? '<p class="span-2 muted">O servidor fica cadastrado no banco e é incluído nesta solicitação.</p>' : ''}
       <label class="campo span-2"><span>Nome completo *</span><input name="nome" value="${esc(v.nome || '')}" required maxlength="150"></label>
       <label class="campo"><span>CPF *</span><input name="cpf" value="${esc(formatarCpf(v.cpf || ''))}" inputmode="numeric" maxlength="14" required></label>
-      <label class="campo"><span>Chave Pix * <small class="muted" id="pix-tipo"></small></span><input name="chave_pix" value="${esc(v.chave_pix || '')}" maxlength="120" required placeholder="CPF, e-mail, telefone ou chave aleatória"></label>
+      <label class="campo"><span>Chave Pix <small class="muted" id="pix-tipo"></small></span><input name="chave_pix" value="${esc(v.chave_pix || '')}" maxlength="120" placeholder="Em branco = o CPF do servidor"></label>
       <label class="campo"><span>Cargo/Função *</span><input name="cargo_funcao" value="${esc(v.cargo_funcao || '')}" required maxlength="120"></label>
       ${pode.editar() ? `<label class="campo"><span>Enquadramento do cargo (Anexo I) *</span><select name="grupo" required>
         ${Object.entries(GRUPOS).map(([k, n]) => `<option value="${k}" ${(v.grupo || 'DEMAIS_SERVIDORES') === k ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>`
@@ -135,7 +136,8 @@ export function formServidor(s, { rapido = false, inicial = {}, secretariaFixa =
     const d = lerForm(f);
     const erro = $('#erro-sv', m.el);
     const cpf = limparCpf(d.cpf);
-    if (!d.nome || !cpf || !d.cargo_funcao || !d.grupo || !d.chave_pix) return (erro.textContent = 'Preencha os campos obrigatórios (*), inclusive a chave Pix.');
+    if (!d.chave_pix && cpfValido(cpf)) d.chave_pix = cpf; // padrão: o CPF é a chave Pix
+    if (!d.nome || !cpf || !d.cargo_funcao || !d.grupo || !d.chave_pix) return (erro.textContent = 'Preencha os campos obrigatórios (*).');
     const pix = analisarPix(d.chave_pix);
     if (!pix.ok) return (erro.textContent = 'Chave Pix inválida. Use CPF, CNPJ, e-mail, telefone com DDD ou chave aleatória.');
     d.chave_pix = pix.valor;
@@ -166,7 +168,7 @@ export function formServidor(s, { rapido = false, inicial = {}, secretariaFixa =
 export function podeAlterarPix(sv) {
   if (!sv) return false;
   if (pode.editar()) return true;
-  return ehSecretaria() && (!temPix(sv) || sv.secretaria_id === estado.sessao.secretaria_id);
+  return ehSecretaria() && (!temPix(sv) || pixEhCpf(sv) || sv.secretaria_id === estado.sessao.secretaria_id);
 }
 /** Quem pode informar o cargo: Contabilidade/admin sempre; Secretaria se está em branco ou o servidor é da secretaria dela. */
 export function podeAlterarCargo(sv) {
@@ -179,52 +181,123 @@ export const podeCompletar = sv => podeAlterarPix(sv) || podeAlterarCargo(sv);
 export const ehMotorista = sv => !!sv && (sv.motorista === true || cargoMotorista(sv.cargo_funcao));
 export const pendencias = sv => [!temPix(sv) && 'Pix', !sv.cargo_funcao && 'cargo'].filter(Boolean);
 
-/** Janela "Completar cadastro": chave Pix e cargo/função de um servidor já cadastrado. */
-export function formPix(sv, aoSalvar = null) {
-  const pixOk = podeAlterarPix(sv), cargoOk = podeAlterarCargo(sv);
+// ---------- Chave Pix por tipo (CPF é o padrão) ----------
+export const TIPOS_PIX_FORM = {
+  cpf: { nome: 'CPF', dica: 'o CPF do próprio servidor' },
+  email: { nome: 'E-mail', dica: 'ex.: nome@exemplo.com', ph: 'nome@exemplo.com', tipo: 'email', max: 77 },
+  telefone: { nome: 'Telefone', dica: 'celular com DDD', ph: '(33) 99999-9999', tipo: 'tel', max: 15 },
+  aleatoria: { nome: 'Chave aleatória', dica: '32 letras e números com hífens', ph: '1a2b3c4d-1a2b-1a2b-1a2b-1a2b3c4d5e6f', tipo: 'text', max: 36 }
+};
+const mascaraTelefone = v => {
+  const d = v.replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, '').slice(0, 11);
+  if (d.length <= 2) return d ? `(${d}` : '';
+  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  return d.length <= 10 ? `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}` : `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+};
+/** Valida a chave conforme o tipo escolhido. Devolve { ok, valor, exibir, erro }. */
+export function validarPixPorTipo(tipo, texto, sv) {
+  const v = String(texto || '').trim();
+  if (tipo === 'cpf') {
+    const c = limparCpf(sv?.cpf || '');
+    return cpfValido(c) ? { ok: true, valor: c, exibir: formatarCpf(c) } : { ok: false, erro: 'O CPF do servidor não é válido. Corrija o CPF no cadastro ou escolha outro tipo de chave.' };
+  }
+  if (tipo === 'email') return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v) ? { ok: true, valor: v.toLowerCase(), exibir: v.toLowerCase() } : { ok: false, erro: 'E-mail inválido. Confira se tem @ e o domínio (ex.: nome@gmail.com).' };
+  if (tipo === 'telefone') {
+    const d = v.replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, '');
+    return (d.length === 11 && d[2] === '9') || d.length === 10 ? { ok: true, valor: '+55' + d, exibir: mascaraTelefone(d) } : { ok: false, erro: 'Telefone inválido. Informe o DDD e o número (ex.: (33) 99999-9999).' };
+  }
+  if (tipo === 'aleatoria') return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) ? { ok: true, valor: v.toLowerCase(), exibir: v.toLowerCase() } : { ok: false, erro: 'Chave aleatória inválida. Ela tem 36 caracteres no formato 8-4-4-4-12 (copie do aplicativo do banco).' };
+  return { ok: false, erro: 'Escolha o tipo de chave.' };
+}
+const tipoAtualPix = sv => {
+  if (!temPix(sv)) return 'cpf';
+  if (pixEhCpf(sv)) return 'cpf';
+  const t = sv.chave_pix ? codigoTipoPix(analisarPix(sv.chave_pix).tipo) : sv.pix_tipo;
+  return TIPOS_PIX_FORM[t] ? t : 'cpf';
+};
+const valorInicialPix = (sv, tipo) => !sv.chave_pix || tipo === 'cpf' ? '' : tipo === 'telefone' ? mascaraTelefone(sv.chave_pix) : sv.chave_pix;
+
+/** Janela "Completar cadastro": chave Pix (por tipo) e cargo/função de um servidor já cadastrado. */
+export function formPix(sv, aoSalvar = null, { soPix = false } = {}) {
+  const pixOk = podeAlterarPix(sv), cargoOk = !soPix && podeAlterarCargo(sv);
+  let tipo = tipoAtualPix(sv);
   const m = modal({
-    titulo: 'Completar cadastro do servidor', largura: 500,
+    titulo: soPix ? 'Alterar a chave Pix do servidor' : 'Completar cadastro do servidor', largura: 520,
     corpo: `<form id="fpix" novalidate>
       <p><strong>${esc(sv.nome)}</strong><br><small class="muted">${esc(cpfExibir(sv))} · ${esc(secretariaNome(sv.secretaria_id) || 'sem secretaria')}</small></p>
-      ${pixOk ? `<label class="campo"><span>Chave Pix${temPix(sv) ? '' : ' (pendente)'} <small class="muted" id="fpix-tipo"></small></span><input name="chave_pix" value="${esc(sv.chave_pix || '')}" maxlength="120" placeholder="CPF, e-mail, telefone ou chave aleatória"></label>
-        <p class="dica">A chave deve estar no nome do próprio servidor.</p>`
-        : `<p class="muted">Chave Pix: ${esc(sv.chave_pix)} <small>(só a secretaria do servidor ou a Contabilidade altera)</small></p>`}
+      ${pixOk ? `<fieldset class="pix-tipos"><legend>Tipo da chave Pix${temPix(sv) ? '' : ' (pendente)'}</legend>
+          ${Object.entries(TIPOS_PIX_FORM).map(([k, t]) => `<label class="check"><input type="radio" name="tipo_pix" value="${k}" ${k === tipo ? 'checked' : ''}> ${esc(t.nome)}</label>`).join('')}
+        </fieldset>
+        <label class="campo"><span id="fpix-rotulo"></span><input name="chave_pix" maxlength="77" autocomplete="off"><small class="dica" id="fpix-dica"></small></label>
+        <p class="dica">A chave deve estar no nome do próprio servidor. Ela é a forma de pagamento da diária.</p>`
+        : `<p class="muted">Chave Pix: ${esc(pixExibir(sv))} <small>(só a secretaria do servidor ou a Contabilidade altera)</small></p>`}
       ${cargoOk ? `<label class="campo"><span>Cargo/Função${sv.cargo_funcao ? '' : ' (a informar)'}</span><input name="cargo_funcao" value="${esc(sv.cargo_funcao || '')}" maxlength="120" placeholder="Ex.: Motorista, Técnico de enfermagem"></label>`
-        : `<p class="muted">Cargo/Função: ${esc(sv.cargo_funcao)}</p>`}
+        : soPix ? '' : `<p class="muted">Cargo/Função: ${esc(sv.cargo_funcao)}</p>`}
       <p class="erro-form" id="erro-pix"></p>
       <div class="acoes-form"><button type="button" class="btn btn-sec" data-cancelar>Cancelar</button><button class="btn" type="submit">Salvar</button></div>
     </form>`
   });
   const f = $('#fpix', m.el);
   f.querySelector('[data-cancelar]').onclick = m.fechar;
-  if (f.chave_pix) {
-    const tipo = () => { const p = analisarPix(f.chave_pix.value); $('#fpix-tipo', m.el).textContent = p.ok ? '· ' + p.tipo : ''; };
-    f.chave_pix.addEventListener('input', tipo); tipo();
+  const campo = f.chave_pix;
+  let mexeuPix = !temPix(sv); // só grava a chave se ela estava pendente ou se o usuário mexeu no tipo/campo
+  const ajustarCampo = (inicial = false) => {
+    const t = TIPOS_PIX_FORM[tipo];
+    $('#fpix-rotulo', m.el).textContent = tipo === 'cpf' ? 'Chave Pix (CPF do servidor)' : `Chave Pix — ${t.nome}`;
+    $('#fpix-dica', m.el).textContent = t.dica;
+    campo.type = t.tipo || 'text';
+    campo.readOnly = tipo === 'cpf';
+    campo.placeholder = t.ph || '';
+    campo.maxLength = t.max || 77;
+    campo.inputMode = tipo === 'telefone' ? 'tel' : tipo === 'email' ? 'email' : 'text';
+    campo.value = tipo === 'cpf' ? (sv.cpf ? formatarCpf(sv.cpf) : cpfExibir(sv)) : inicial ? valorInicialPix(sv, tipo) : '';
+    $('#erro-pix', m.el).textContent = '';
+  };
+  if (campo) {
+    ajustarCampo(true);
+    $$('[name=tipo_pix]', f).forEach(r => r.onchange = () => { tipo = r.value; mexeuPix = true; ajustarCampo(); if (tipo !== 'cpf') campo.focus(); });
+    campo.addEventListener('input', () => { mexeuPix = true; if (tipo === 'telefone') campo.value = mascaraTelefone(campo.value); });
   }
   f.onsubmit = async e => {
     e.preventDefault();
     const erro = $('#erro-pix', m.el);
     const mud = {};
-    if (f.chave_pix && f.chave_pix.value.trim()) {
-      const p = analisarPix(f.chave_pix.value);
-      if (!p.ok) return (erro.textContent = 'Chave Pix inválida. Use CPF, CNPJ, e-mail, telefone com DDD ou chave aleatória.');
-      if (p.valor !== (sv.chave_pix || '')) mud.chave_pix = p.valor;
-    } else if (f.chave_pix && sv.chave_pix) return (erro.textContent = 'Informe a chave Pix (não dá para apagar a chave).');
+    let pixNovo = null;
+    if (campo && (mexeuPix || soPix)) {
+      if (tipo === 'cpf' && !sv.cpf && pixEhCpf(sv)) pixNovo = null; // já é o CPF (secretaria sem acesso ao número)
+      else {
+        const p = validarPixPorTipo(tipo, campo.value, sv);
+        if (!p.ok) return (erro.textContent = p.erro);
+        if (p.valor !== (sv.chave_pix || '') || !temPix(sv)) { mud.chave_pix = p.valor; pixNovo = p; }
+      }
+    }
     if (f.cargo_funcao) {
       const cargo = f.cargo_funcao.value.replace(/\s+/g, ' ').trim();
       if (!cargo && sv.cargo_funcao) return (erro.textContent = 'Informe o cargo/função.');
       if (cargo && cargo !== (sv.cargo_funcao || '')) mud.cargo_funcao = cargo;
     }
-    if (!Object.keys(mud).length) return (erro.textContent = 'Preencha a chave Pix e/ou o cargo.');
+    if (!Object.keys(mud).length) { m.fechar(); aoSalvar && aoSalvar(sv.chave_pix); return; }
+    if (pixNovo && !(await confirmar(`Confira a chave Pix de ${sv.nome} antes de salvar.\n\nTipo: ${TIPOS_PIX_FORM[tipo].nome}\nChave: ${pixNovo.exibir}\n\nEla será a forma de pagamento da diária. Uma chave errada pode causar erro ou atraso no pagamento.`,
+      { titulo: 'Conferir a chave Pix', ok: 'Está correta, salvar', nao: 'Voltar e corrigir' }))) return;
     try {
       await db.atualizar('servidores', sv.id, mud);
-      if (mud.chave_pix) await db.registrarLog('servidor.pix', { nome: sv.nome, antes: sv.chave_pix || '', depois: mud.chave_pix });
+      if (mud.chave_pix) await db.registrarLog('servidor.pix', { nome: sv.nome, tipo, antes: sv.chave_pix || '', depois: mud.chave_pix });
       if (mud.cargo_funcao) await db.registrarLog('servidor.cargo', { nome: sv.nome, antes: sv.cargo_funcao || '', depois: mud.cargo_funcao });
       toast('Cadastro atualizado.');
       m.fechar();
       aoSalvar && aoSalvar(mud.chave_pix || sv.chave_pix);
     } catch (err) { erro.textContent = mensagemErro(err); }
   };
+}
+
+/** Na solicitação: avisa que o CPF é a chave Pix padrão e oferece trocar. */
+export async function avisoPixCpf(sv, aoAlterar = null) {
+  if (!sv || !pixEhCpf(sv)) return;
+  const alterar = await confirmar(`${sv.nome}: como padrão, o sistema usa o CPF como chave Pix. Deseja alterar para outra chave?`,
+    { titulo: 'Chave Pix do servidor', ok: 'Alterar chave', nao: 'Manter o CPF' });
+  if (!alterar) return;
+  if (!podeAlterarPix(sv)) { toast('Só a secretaria do servidor ou a Contabilidade pode alterar a chave Pix dele.', 'aviso'); return; }
+  formPix(sv, aoAlterar, { soPix: true });
 }
 
 // =============================================================
@@ -409,7 +482,7 @@ export function importarRelacao() {
         jaTem.add(p.cpf); corrigidos++;
       } else if (p.marcado && !jaTem.has(p.cpf)) {
         ops.push({ colecao: 'servidores', id: CPF_ID(p.cpf), dados: {
-          nome: nomeProprio(p.nome), cpf: p.cpf, chave_pix: '', cargo_funcao: '', grupo: grupoSugerido(p.vinculo),
+          nome: nomeProprio(p.nome), cpf: p.cpf, chave_pix: cpfValido(p.cpf) ? p.cpf : '', cargo_funcao: '', grupo: grupoSugerido(p.vinculo),
           secretaria_id: sec, ativo: true, ...lot, origem: 'relacao_pessoal', importado_em: agora, criado_por: por
         } });
         jaTem.add(p.cpf); novos++;
@@ -548,6 +621,20 @@ export function importarFolha() {
       setTimeout(() => { if (estado.servidores.some(s => s.ativo !== false && categoriaEsperada(s) !== s.grupo)) revisarCategorias(); }, 800);
     } catch (err) { $('#fl-erro', m.el).textContent = mensagemErro(err); btn.disabled = false; }
   };
+}
+
+// ---------- Chave Pix padrão: o CPF de quem está sem chave ----------
+export async function pixCpfEmLote() {
+  const sem = estado.servidores.filter(s => s.ativo !== false && !temPix(s));
+  const comCpf = sem.filter(s => cpfValido(limparCpf(s.cpf || '')));
+  if (!comCpf.length) return toast('Nenhum servidor sem Pix com CPF válido.', 'aviso');
+  const resto = sem.length - comCpf.length;
+  if (!(await confirmar(`${comCpf.length} servidor(es) sem chave Pix passam a usar o próprio CPF como chave.${resto ? `\n${resto} com CPF inválido continuam pendentes (corrija o CPF).` : ''}\n\nAo preencher uma diária, o sistema avisa que a chave é o CPF e pergunta se quer trocar.`, { titulo: 'Usar o CPF como chave Pix', ok: 'Usar o CPF' }))) return;
+  try {
+    const falhas = await db.gravarEmLote(comCpf.map(s => ({ colecao: 'servidores', id: s.id, dados: { chave_pix: limparCpf(s.cpf), cpf: limparCpf(s.cpf) } })));
+    await db.registrarLog('servidor.pix_cpf_lote', { quantidade: comCpf.length - falhas.length });
+    toast(falhas.length ? `${falhas.length} não foram gravados.` : `${comCpf.length} chave(s) Pix preenchida(s) com o CPF.`, falhas.length ? 'erro' : undefined);
+  } catch (err) { toast(mensagemErro(err), 'erro'); }
 }
 
 // ---------- Inativar em lote os servidores ativos sem cargo ----------

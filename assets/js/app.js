@@ -4,7 +4,7 @@
 // =============================================================
 import * as db from './db.js';
 import { cargoMotorista } from './privacidade.js';
-import { estado, mesclarConfig, PERFIS, pode, ehSecretaria, acessoRestrito, secretariaNome, CAMPOS_VALOR, etapaDe, definirExercicio, ehRH } from './estado.js';
+import { estado, mesclarConfig, PERFIS, pode, ehSecretaria, acessoRestrito, secretariaNome, CAMPOS_VALOR, etapaDe, definirExercicio, definirHistorico, ehRH } from './estado.js';
 import { esc, $, toast, mensagemErro, lerForm } from './ui.js';
 import { telaPainel } from './views/painel.js';
 import { telaListaSolicitacoes, telaNovaSolicitacao, telaDetalheSolicitacao } from './views/solicitacoes.js';
@@ -18,7 +18,7 @@ import { telaConferencia } from './views/conferencia.js';
 import { telaRelatorio } from './views/relatorio.js';
 import { telaOrcamento } from './views/orcamento.js';
 
-const VERSAO = '2.4.0';
+const VERSAO = '2.5.0';
 const ICONE_GOOGLE = '<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>';
 const raiz = document.getElementById('app');
 let ouvintes = [];
@@ -294,7 +294,9 @@ function iniciarDados() {
     // A Secretaria também não vê o histórico importado do sistema antigo (etapa "legado").
     const visiveis = acessoRestrito() ? base.filter(s => !s.interna && !(ehSecretaria() && etapaDe(s) === 'legado')) : base;
     estado.solicitacoesBrutas = visiveis;
-    estado.solicitacoes = visiveis.map(s => {
+    // O histórico do sistema antigo fica escondido em todas as telas, a não ser que o usuário ligue "Histórico antigo".
+    const emUso = estado.verHistorico && !ehSecretaria() ? visiveis : visiveis.filter(s => etapaDe(s) !== 'legado');
+    estado.solicitacoes = emUso.map(s => {
       const v = valores[s.id];
       if (!v) return s;
       const extra = {};
@@ -308,6 +310,7 @@ function iniciarDados() {
   const filtroSol = ehSecretaria() ? [['secretaria_id', estado.sessao.secretaria_id || '-'], ['visivel_secretaria', true]]
     : acessoRestrito() ? ['interna', false] : null;
   ouvintes.push(db.ouvir('solicitacoes', l => { base = l; juntar(); marcarVisibilidade(l); }, erro('solicitações'), filtroSol));
+  rejuntarSolicitacoes = juntar;
   if (pode.verValores()) ouvintes.push(db.ouvir('valores', l => { valores = Object.fromEntries(l.map(v => [v.id, v])); juntar(); }, erro('valores')));
   // Controle Interno, RH e Secretaria: recebem só os valores já liberados (solicitações empenhadas), para o relatório.
   // A Secretaria recebe apenas os da própria pasta.
@@ -342,6 +345,11 @@ function preencherExercicios() {
   if (!anos.includes(estado.exercicio)) anos.push(estado.exercicio);
   sel.innerHTML = anos.sort((a, b) => b - a).map(a => `<option ${a === estado.exercicio ? 'selected' : ''}>${a}</option>`).join('');
 }
+let rejuntarSolicitacoes = null;
+window.addEventListener('sisdifi:historico', () => {
+  const c = $('#chk-historico'); if (c) c.checked = estado.verHistorico;
+  if (rejuntarSolicitacoes) rejuntarSolicitacoes();
+});
 window.addEventListener('sisdifi:exercicio', () => { preencherExercicios(); if (telaAtual && estado.sessao && $('#conteudo')) desenharTela(true); });
 
 function atualizarTelaViva() {
@@ -370,6 +378,7 @@ function montarLayout() {
           <div class="topo-titulo" id="topo-titulo"></div>
           <label class="topo-exercicio" title="Exercício (ano) em uso: painel, solicitações, relatório e orçamento mostram este ano"><span>Exercício</span>
             <select id="sel-exercicio"></select></label>
+          ${s.perfil === 'secretaria' ? '' : `<label class="topo-historico" title="Mostra as diárias importadas do sistema antigo em todas as telas"><input type="checkbox" id="chk-historico" ${estado.verHistorico ? 'checked' : ''}> <span>Histórico antigo</span></label>`}
           <div class="usuario">
             <a href="#/conta" class="usuario-nome" title="Minha conta">${esc(s.nome)}<small>${esc(PERFIS[s.perfil] || s.perfil)}${s.perfil === 'secretaria' ? ' · ' + esc(s.secretaria_nome || 'sem secretaria') : ''}</small></a>
             <button class="btn btn-sec btn-peq" id="btn-sair">Sair</button>
@@ -380,6 +389,7 @@ function montarLayout() {
     </div>`;
   $('#btn-sair').onclick = () => db.sair();
   $('#sel-exercicio').onchange = e => definirExercicio(e.target.value);
+  $('#chk-historico')?.addEventListener('change', e => definirHistorico(e.target.checked));
   preencherExercicios();
   $('#abrir-menu').onclick = () => $('#lateral').classList.toggle('aberta');
 }
