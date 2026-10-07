@@ -599,12 +599,10 @@ function blocoTramitacao(sol) {
   if (!cancelada) {
     if (e === 'analise' && pode.analisar()) {
       acao = `${checklistServidor(sol)}
-      <form id="f-analise" class="grade-2">
-        <label class="campo"><span>Conta de pagamento</span><input name="conta_pagamento" list="dl-contas" value="${esc(sol.conta_pagamento || '')}"></label>
-        <label class="campo"><span>Fonte de recursos</span><input name="fonte_recursos" list="dl-fontes" value="${esc(sol.fonte_recursos || '')}"></label>
-        <label class="campo span-2"><span>Parecer / observação do Controle Interno</span><textarea name="parecer" rows="2" maxlength="500">${esc(sol.analise?.parecer || '')}</textarea></label>
-        <div class="acoes-form span-2"><button type="button" class="btn btn-perigo" id="reprovar">✕ Reprovar</button><button class="btn" type="submit">✓ Aprovar e enviar à Contabilidade</button></div>
-        ${datalist('dl-contas', estado.config.contas_pagamento)}${datalist('dl-fontes', estado.config.fontes_recursos)}
+      <form id="f-analise">
+        <label class="campo"><span>Parecer / observação do Controle Interno (opcional)</span><textarea name="parecer" rows="2" maxlength="500">${esc(sol.analise?.parecer || '')}</textarea></label>
+        <p class="dica">Se a conta, a fonte, o período ou o cadastro estiverem errados, reprove informando o motivo — a secretaria corrige e reenvia.</p>
+        <div class="acoes-form"><button type="button" class="btn btn-perigo" id="reprovar">✕ Reprovar</button><button class="btn" type="submit">✓ Aprovar e enviar à Contabilidade</button></div>
       </form>`;
     } else if (e === 'aprovada' && pode.contabil()) {
       const sv = porId('servidores', sol.servidor_id);
@@ -627,7 +625,7 @@ function blocoTramitacao(sol) {
           <label class="campo"><span>Ficha</span><input name="ficha" value="${esc(sol.ficha || '')}" required></label>
           <button class="btn" type="submit">✓ Confirmar cálculo e ficha</button>
         </form>`;
-    } else if (e === 'calculada' && (pode.contabil() || pode.analisar())) {
+    } else if (e === 'calculada' && pode.contabil()) {
       acao = `<p>Imprima o formulário${(sol.links || []).length ? ' e o conteúdo do link do curso' : ''}, colha a assinatura do Prefeito e registre a autorização.</p>
         <form id="f-prefeito" class="linha-form">
           ${pode.verValores() ? `<a class="btn btn-sec" href="#/imprimir/solicitacao/${esc(sol.id)}">🖨 Imprimir formulário</a>` : ''}
@@ -696,12 +694,11 @@ function ligarTramitacao(el, sol) {
     fa.onsubmit = async e => {
       e.preventDefault();
       const d = lerForm(fa);
-      if (!d.conta_pagamento || !d.fonte_recursos) return toast('Informe a conta de pagamento e a fonte de recursos para aprovar.', 'erro');
+      if (!sol.conta_pagamento || !sol.fonte_recursos) return toast('A solicitação está sem conta de pagamento ou fonte de recursos: reprove para a secretaria completar.', 'erro');
       const falhas = [...el.querySelectorAll('.verificacao .falha')].length;
       if (!(await confirmar(falhas ? `Há ${falhas} item(ns) da verificação do servidor não atendido(s). Aprovar mesmo assim?` : `Aprovar a solicitação ${sol.numero} e enviar à Contabilidade para cálculo?`, { ok: 'Aprovar', perigo: !!falhas }))) return;
       try {
         await tramitar(sol, 'aprovada', {
-          conta_pagamento: d.conta_pagamento, fonte_recursos: d.fonte_recursos,
           analise: { resultado: 'aprovada', parecer: d.parecer, por: quem(), em: new Date().toISOString() }
         }, d.parecer);
         toast('Solicitação aprovada e enviada à Contabilidade.');
@@ -829,7 +826,7 @@ export function telaDetalheSolicitacao(el, { args, query }) {
       <section class="cartao">
         <h3>Servidor</h3>
         <dl class="dl">
-          <dt>Nome</dt><dd><a href="#/servidores/${esc(sol.servidor_id)}">${esc(sol.servidor?.nome)}</a></dd>
+          <dt>Nome</dt><dd>${pode.editar() || pode.verValores() ? `<a href="#/servidores/${esc(sol.servidor_id)}">${esc(sol.servidor?.nome)}</a>` : esc(sol.servidor?.nome)}</dd>
           <dt>CPF</dt><dd>${esc(formatarCpf(sol.servidor?.cpf))}</dd>
           <dt>Cargo/Função</dt><dd>${esc(sol.servidor?.cargo_funcao)}</dd>
           <dt>Categoria</dt><dd>${esc(GRUPOS[sol.servidor?.grupo] || '')}</dd>
@@ -841,8 +838,8 @@ export function telaDetalheSolicitacao(el, { args, query }) {
         <h3>Viagem</h3>
         <dl class="dl">
           <dt>Destino</dt><dd>${esc(sol.destino_cidade)}/${esc(sol.destino_uf)} · ${numeroBR(sol.distancia_km)} km</dd>
-          <dt>Saída</dt><dd>${esc(dataBR(sol.data_hora_saida))}</dd>
-          <dt>Retorno</dt><dd>${esc(dataBR(sol.data_hora_retorno))}</dd>
+          <dt>Saída de ${esc(estado.config.origem.cidade)}</dt><dd>${esc(dataBR(sol.data_hora_saida))}</dd>
+          <dt>Chegada em ${esc(estado.config.origem.cidade)}</dt><dd>${esc(dataBR(sol.data_hora_retorno))}</dd>
           <dt>Tempo fora</dt><dd>${horasBR(sol.horas_total ?? (calcularDiaria({ grupo: 'DEMAIS_SERVIDORES', km: 1, saida: sol.data_hora_saida, retorno: sol.data_hora_retorno }).horas_total || 0))} h</dd>
           <dt>Objetivo</dt><dd class="pre">${esc(sol.objetivo)}</dd>
           ${sol.observacoes ? `<dt>Observações</dt><dd class="pre">${esc(sol.observacoes)}</dd>` : ''}

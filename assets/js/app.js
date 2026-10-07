@@ -3,7 +3,7 @@
 // Inicialização, login e navegação
 // =============================================================
 import * as db from './db.js';
-import { estado, mesclarConfig, PERFIS, pode, ehSecretaria, secretariaNome, CAMPOS_VALOR } from './estado.js';
+import { estado, mesclarConfig, PERFIS, pode, ehSecretaria, acessoRestrito, secretariaNome, CAMPOS_VALOR } from './estado.js';
 import { esc, $, toast, mensagemErro, lerForm } from './ui.js';
 import { telaPainel } from './views/painel.js';
 import { telaListaSolicitacoes, telaNovaSolicitacao, telaDetalheSolicitacao } from './views/solicitacoes.js';
@@ -240,7 +240,7 @@ function montarLayout() {
     <div class="layout">
       <aside class="lateral" id="lateral">
         ${marca()}
-        <nav>${MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.solicitar()) && (!m.interno || !ehSecretaria()) && (!m.valores || pode.verValores())).map(m => m.grupo
+        <nav>${MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.solicitar()) && (!m.interno || !acessoRestrito()) && (!m.valores || pode.verValores())).map(m => m.grupo
           ? `<div class="menu-grupo">${esc(m.grupo)}</div>`
           : `<a href="#/${m.rota}" data-rota="${m.rota}"><span class="ico" aria-hidden="true">${m.icone}</span>${esc(m.texto)}</a>`).join('')}
         </nav>
@@ -298,7 +298,7 @@ function desenharTela(atualizacao) {
     const m = caminho.match(re);
     if (m) {
       if (req === 'admin' && !pode.admin()) break;
-      if (req === 'interno' && ehSecretaria()) break;
+      if (req === 'interno' && acessoRestrito()) break;
       if (req === 'valores' && (ehSecretaria() || !pode.verValores())) break;
       alvo = fn; args = m.slice(1); break;
     }

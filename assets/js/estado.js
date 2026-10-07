@@ -65,14 +65,16 @@ export function mesclarConfig(doc) {
 
 const perfilAtual = () => estado.sessao?.perfil;
 export const ehSecretaria = () => perfilAtual() === 'secretaria';
+// Secretaria e Controle Interno só trabalham com as solicitações (sem cadastros, sem valores)
+export const acessoRestrito = () => ['secretaria', 'controle_interno'].includes(perfilAtual());
 export const pode = {
   // cadastros (servidores, secretarias) — Controle Interno NÃO altera tabelas do sistema
   editar: () => ['admin', 'operador'].includes(perfilAtual()),
   // criar/editar solicitações (antes da aprovação)
-  solicitar: () => ['admin', 'operador', 'controle_interno', 'secretaria'].includes(perfilAtual()),
+  solicitar: () => ['admin', 'operador', 'secretaria'].includes(perfilAtual()),
   // valores de diária: Secretaria e Controle Interno não veem (o valor só é calculado na Contabilidade)
   verValores: () => !['secretaria', 'controle_interno'].includes(perfilAtual()),
-  // aprovar/reprovar (confere o servidor), ajustar conta de pagamento e fonte
+  // Controle Interno: apenas aprova ou reprova (confere servidor, período, conta e fonte)
   analisar: () => ['admin', 'controle_interno'].includes(perfilAtual()),
   // ficha, empenho, liquidação, pagamento e reembolsos
   contabil: () => ['admin', 'operador'].includes(perfilAtual()),

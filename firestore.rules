@@ -13,7 +13,7 @@ service cloud.firestore {
     function perfil() { return get(caminhoUsuario()).data.perfil; }
     function admin() { return ativo() && perfil() == 'admin'; }
     function operador() { return ativo() && perfil() in ['admin', 'operador']; }          // Contabilidade: cadastros
-    function solicitante() { return ativo() && perfil() in ['admin', 'operador', 'controle_interno', 'secretaria']; }
+    function solicitante() { return ativo() && perfil() in ['admin', 'operador', 'secretaria']; }
     function secretaria() { return ativo() && perfil() == 'secretaria'; }
     function minhaSecretaria() { return get(caminhoUsuario()).data.secretaria_id; }
     function controleInterno() { return ativo() && perfil() == 'controle_interno'; }
@@ -98,10 +98,14 @@ service cloud.firestore {
         && request.resource.data.etapa in ['analise', 'reprovada']
         && !alterou(['analise', 'data_autorizacao', 'autorizacao_registrada_por', 'ficha', 'numero_empenho', 'data_empenho', 'data_liquidacao', 'data_pagamento', 'calculado', 'calculo_por'])
         && !alterou(camposValor());
-      // O número nunca muda. Controle Interno não mexe nos dados da Contabilidade e vice-versa.
+      // Controle Interno: só aprova ou reprova solicitações em análise (grava apenas a análise e a etapa).
+      allow update: if controleInterno()
+        && resource.data.etapa == 'analise'
+        && request.resource.data.etapa in ['aprovada', 'reprovada']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['analise', 'etapa', 'historico', 'atualizado_em', 'atualizado_por']);
+      // O número nunca muda. A Contabilidade não altera a análise do Controle Interno.
       allow update: if solicitante() && !secretaria()
         && request.resource.data.numero == resource.data.numero
-        && !(controleInterno() && (alterou(['ficha', 'numero_empenho', 'data_empenho', 'data_liquidacao', 'data_pagamento', 'calculado', 'calculo_por']) || alterou(camposValor())))
         && !(contabilidade() && alterou(['analise']));
       allow delete: if admin();
     }

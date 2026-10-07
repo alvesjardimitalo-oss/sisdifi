@@ -92,7 +92,7 @@ export function telaUsuarios(el) {
     <div class="cartao legenda-perfis">
       <span><strong>Administrador:</strong> tudo, inclusive usuários, parâmetros, importação e exclusão definitiva.</span>
       <span><strong>Contabilidade:</strong> cadastra servidores e secretarias, emite solicitações, registra ficha, empenho, liquidação, pagamento e reembolsos.</span>
-      <span><strong>Controle Interno:</strong> simula e emite solicitações, aprova ou reprova (conta de pagamento e fonte de recursos) e registra a assinatura do Prefeito. Não altera cadastros nem parâmetros.</span>
+      <span><strong>Controle Interno:</strong> só analisa: vê o pedido da secretaria (servidor, período, destino, conta e fonte) e aprova ou reprova. Não cria solicitações, não vê valores nem cadastros.</span>
       <span><strong>Secretaria (solicitante):</strong> vinculada a uma secretaria; cadastra servidor e envia solicitações dela para análise, com conta e fonte de recurso. Não vê valores nem pedidos de outras secretarias.</span>
       <span><strong>Somente consulta:</strong> visualiza, imprime e exporta.</span>
     </div>
