@@ -3,6 +3,7 @@
 // Todo acesso ao Firebase passa por aqui; as telas usam só estas funções.
 // =============================================================
 import { firebaseConfig } from './firebase-config.js';
+import { separarServidor } from './privacidade.js';
 import { initializeApp, deleteApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import {
   getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail,
@@ -137,8 +138,35 @@ export async function ultimosLogs(n = 200) {
 }
 
 // ---------------- Escrita ----------------
+/**
+ * Servidores: CPF e chave Pix vão para "servidores_privado"; o índice "cpfs/{cpf}" aponta para o servidor.
+ * Devolve as operações [ref, dados] para gravar juntas (lote atômico).
+ */
+function opsServidor(id, dados, carimbo) {
+  const { publico, privado } = separarServidor(dados);
+  const ops = [[doc(fs, 'servidores', id), { ...publico, ...carimbo }]];
+  if (Object.keys(privado).filter(k => k !== 'secretaria_id').length) {
+    ops.push([doc(fs, 'servidores_privado', id), privado]);
+    if (privado.cpf) ops.push([doc(fs, 'cpfs', privado.cpf), { servidor_id: id }]);
+  } else if ('secretaria_id' in publico) {
+    // mudou a lotação: a área privada acompanha (a secretaria nova passa a ver CPF e Pix)
+    ops.push([doc(fs, 'servidores_privado', id), { secretaria_id: publico.secretaria_id || null }]);
+  }
+  return ops;
+}
+async function gravarServidor(id, dados, carimbo) {
+  const b = writeBatch(fs);
+  for (const [ref, d] of opsServidor(id, dados, carimbo)) b.set(ref, d, { merge: true });
+  await b.commit();
+}
+
 export async function salvar(colecao, id, dados) {
   const carimbo = { atualizado_em: serverTimestamp(), atualizado_por: autor() };
+  if (colecao === 'servidores') {
+    const novoId = id || doc(collection(fs, 'servidores')).id;
+    await gravarServidor(novoId, dados, id ? carimbo : { criado_em: serverTimestamp(), criado_por: autor(), ...carimbo });
+    return novoId;
+  }
   if (id) {
     await setDoc(doc(fs, colecao, id), { ...dados, ...carimbo }, { merge: true });
     return id;
@@ -147,6 +175,7 @@ export async function salvar(colecao, id, dados) {
   return ref.id;
 }
 export async function atualizar(colecao, id, dados) {
+  if (colecao === 'servidores') return gravarServidor(id, dados, { atualizado_em: serverTimestamp(), atualizado_por: autor() });
   await updateDoc(doc(fs, colecao, id), { ...dados, atualizado_em: serverTimestamp(), atualizado_por: autor() });
 }
 export const excluir = (colecao, id) => deleteDoc(doc(fs, colecao, id));
@@ -180,16 +209,18 @@ export async function criarSolicitacoes(lista) {
 /** Gravação em lote (importação). operacoes = [{ colecao, id, dados }] */
 export async function gravarEmLote(operacoes, progresso) {
   const falhas = [];
+  // cada operação vira uma ou mais gravações (servidores: público + privado + índice do CPF)
+  const expandir = op => op.colecao === 'servidores' ? opsServidor(op.id, op.dados, {}) : [[doc(fs, op.colecao, op.id), op.dados]];
   for (let i = 0; i < operacoes.length; i += 100) {
     const parte = operacoes.slice(i, i + 100);
     const b = writeBatch(fs);
-    for (const op of parte) b.set(doc(fs, op.colecao, op.id), op.dados, { merge: true });
+    for (const op of parte) for (const [ref, d] of expandir(op)) b.set(ref, d, { merge: true });
     try {
       await b.commit();
     } catch (e) {
       // Um registro recusado derruba o lote inteiro: grava um a um para salvar o resto e apontar qual falhou.
       for (const op of parte) {
-        try { await setDoc(doc(fs, op.colecao, op.id), op.dados, { merge: true }); }
+        try { const b1 = writeBatch(fs); for (const [ref, d] of expandir(op)) b1.set(ref, d, { merge: true }); await b1.commit(); }
         catch (e2) { falhas.push({ colecao: op.colecao, id: op.id, nome: op.dados.nome || op.dados.numero || op.id, erro: e2.code || e2.message }); }
       }
     }
@@ -206,6 +237,21 @@ export async function registrarLog(acao, detalhe = {}) {
 }
 
 /** Move campos de valor do documento da solicitação para a coleção protegida "valores". lista = [{ id, valores }] */
+/** Migração LGPD: tira CPF e Pix do cadastro público e grava na área privada (lista = servidores com cpf no doc público). */
+export async function protegerDadosServidores(lista, progresso) {
+  for (let i = 0; i < lista.length; i += 120) {
+    const b = writeBatch(fs);
+    for (const sv of lista.slice(i, i + 120)) {
+      const { publico, privado } = separarServidor({ cpf: sv.cpf || '', chave_pix: sv.chave_pix || '', secretaria_id: sv.secretaria_id || null });
+      b.set(doc(fs, 'servidores_privado', sv.id), privado, { merge: true });
+      if (privado.cpf) b.set(doc(fs, 'cpfs', privado.cpf), { servidor_id: sv.id }, { merge: true });
+      b.update(doc(fs, 'servidores', sv.id), { cpf_mascara: publico.cpf_mascara || '', cpf_valido: !!publico.cpf_valido, tem_pix: !!publico.tem_pix, cpf: deleteField(), chave_pix: deleteField() });
+    }
+    await b.commit();
+    progresso && progresso(Math.min(i + 120, lista.length), lista.length);
+  }
+}
+
 export async function moverValoresProtegidos(lista, progresso) {
   for (let i = 0; i < lista.length; i += 200) {
     const b = writeBatch(fs);

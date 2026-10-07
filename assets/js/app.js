@@ -3,7 +3,7 @@
 // Inicialização, login e navegação
 // =============================================================
 import * as db from './db.js';
-import { estado, mesclarConfig, PERFIS, pode, ehSecretaria, acessoRestrito, secretariaNome, CAMPOS_VALOR, etapaDe, definirExercicio } from './estado.js';
+import { estado, mesclarConfig, PERFIS, pode, ehSecretaria, acessoRestrito, secretariaNome, CAMPOS_VALOR, etapaDe, definirExercicio, ehRH } from './estado.js';
 import { esc, $, toast, mensagemErro, lerForm } from './ui.js';
 import { telaPainel } from './views/painel.js';
 import { telaListaSolicitacoes, telaNovaSolicitacao, telaDetalheSolicitacao } from './views/solicitacoes.js';
@@ -226,14 +226,47 @@ function completarSecretariaNosValores(base, valores) {
   if (ops.length) db.gravarEmLote(ops).catch(() => { completouSecretaria = false; });
 }
 
+// CPF e Pix: Contabilidade, consulta e RH leem todos; a Secretaria, os da própria pasta; o Controle Interno não lê.
+const lePrivado = () => pode.verValores() || ehRH() || ehSecretaria();
+
+// Migração LGPD (uma vez): a Contabilidade/admin move CPF e Pix que ainda estão no cadastro público para a área privada,
+// e marca a visibilidade das solicitações antigas.
+let protegeuDados = false;
+function protegerDadosAntigos(publicos) {
+  if (protegeuDados || !pode.contabil()) return;
+  protegeuDados = true;
+  const comDado = publicos.filter(s => 'cpf' in s || 'chave_pix' in s);
+  if (comDado.length) db.protegerDadosServidores(comDado).then(() => db.registrarLog('servidores.proteger_dados', { quantidade: comDado.length }))
+    .catch(() => { protegeuDados = false; });
+}
+let marcouVisibilidade = false;
+function marcarVisibilidade(base) {
+  if (marcouVisibilidade || !pode.contabil()) return;
+  marcouVisibilidade = true;
+  const ops = base.filter(s => typeof s.interna !== 'boolean' || typeof s.visivel_secretaria !== 'boolean')
+    .map(s => ({ colecao: 'solicitacoes', id: s.id, dados: { interna: !!s.interna, visivel_secretaria: !s.interna && etapaDe(s) !== 'legado' } }));
+  if (ops.length) db.gravarEmLote(ops).catch(() => { marcouVisibilidade = false; });
+}
+
 // ---------------- Dados em tempo real ----------------
 function iniciarDados() {
   estado.prontos.clear();
-  completouSecretaria = false;
+  completouSecretaria = false; protegeuDados = false; marcouVisibilidade = false;
   definirExercicio(estado.exercicio); // sincroniza os filtros das telas com o exercício salvo
   const pronto = nome => { estado.prontos.add(nome); atualizarTelaViva(nome); };
   const erro = nome => e => toast(`Erro ao carregar ${nome}: ${mensagemErro(e)}`, 'erro');
-  ouvintes.push(db.ouvir('servidores', l => { estado.servidores = l.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')); pronto('servidores'); }, erro('servidores')));
+  // Servidores: cadastro público + CPF/Pix da área privada (só para quem pode ler; a secretaria só os da própria pasta).
+  let svPublico = null, svPrivado = lePrivado() ? null : {};
+  const juntarServidores = () => {
+    if (!svPublico || !svPrivado) return;
+    estado.servidores = svPublico.map(s => svPrivado[s.id] ? { ...s, cpf: svPrivado[s.id].cpf ?? s.cpf, chave_pix: svPrivado[s.id].chave_pix ?? s.chave_pix } : s)
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    pronto('servidores');
+    protegerDadosAntigos(svPublico);
+  };
+  ouvintes.push(db.ouvir('servidores', l => { svPublico = l; juntarServidores(); }, erro('servidores')));
+  if (lePrivado()) ouvintes.push(db.ouvir('servidores_privado', l => { svPrivado = Object.fromEntries(l.map(p => [p.id, p])); juntarServidores(); },
+    () => { svPrivado = {}; juntarServidores(); }, ehSecretaria() ? ['secretaria_id', estado.sessao.secretaria_id || '-'] : null));
   ouvintes.push(db.ouvir('secretarias', l => { estado.secretarias = l.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')); pronto('secretarias'); }, erro('secretarias')));
   // Secretaria só recebe as solicitações da própria secretaria (as regras do Firestore também garantem isso).
   // Os valores ficam na coleção protegida "valores" e só são lidos por quem pode vê-los.
@@ -254,7 +287,10 @@ function iniciarDados() {
     pronto('solicitacoes');
     completarSecretariaNosValores(base, valores);
   };
-  ouvintes.push(db.ouvir('solicitacoes', l => { base = l; juntar(); }, erro('solicitações'), ehSecretaria() ? ['secretaria_id', estado.sessao.secretaria_id || '-'] : null));
+  // As regras do Firestore só entregam à Secretaria o que é visível para ela, e ao Controle Interno/RH o que não é lançamento interno.
+  const filtroSol = ehSecretaria() ? [['secretaria_id', estado.sessao.secretaria_id || '-'], ['visivel_secretaria', true]]
+    : acessoRestrito() ? ['interna', false] : null;
+  ouvintes.push(db.ouvir('solicitacoes', l => { base = l; juntar(); marcarVisibilidade(l); }, erro('solicitações'), filtroSol));
   if (pode.verValores()) ouvintes.push(db.ouvir('valores', l => { valores = Object.fromEntries(l.map(v => [v.id, v])); juntar(); }, erro('valores')));
   // Controle Interno, RH e Secretaria: recebem só os valores já liberados (solicitações empenhadas), para o relatório.
   // A Secretaria recebe apenas os da própria pasta.

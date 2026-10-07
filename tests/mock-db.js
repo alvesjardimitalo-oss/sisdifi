@@ -1,4 +1,5 @@
 // Substituto em memória do db.js, usado só nos testes automatizados de navegador (sem Firebase real).
+import { separarServidor } from './privacidade.js';
 const seed = await (await fetch('/__seed.json')).json();
 const colecoes = {};
 for (const op of seed.operacoes || []) (colecoes[op.colecao] = colecoes[op.colecao] || new Map()).set(op.id, structuredClone(op.dados));
@@ -43,7 +44,28 @@ export function ouvir(c, cb, _erro, filtro = null) {
 export function ouvirDoc(c, id, cb) { const o = { c, id, cb }; ouvintes.push(o); notificar(c); return () => ouvintes.splice(ouvintes.indexOf(o), 1); }
 export async function lerDoc(c, id) { return colecoes[c]?.has(id) ? { id, ...colecoes[c].get(id) } : null; }
 export async function ultimosLogs() { return window.__mock.logs.slice().reverse(); }
+function gravarServidorMock(id, dados) {
+  const { publico, privado } = separarServidor(dados);
+  const m = garantir('servidores'); m.set(id, { ...(m.get(id) || {}), ...structuredClone(publico) });
+  if (Object.keys(privado).filter(k => k !== 'secretaria_id').length || 'secretaria_id' in privado) {
+    const p = garantir('servidores_privado'); p.set(id, { ...(p.get(id) || {}), ...structuredClone(privado) });
+    if (privado.cpf) garantir('cpfs').set(privado.cpf, { servidor_id: id });
+    notificar('servidores_privado');
+  }
+  notificar('servidores');
+}
+export async function protegerDadosServidores(lista, prog) {
+  for (const sv of lista) {
+    const { publico, privado } = separarServidor({ cpf: sv.cpf || '', chave_pix: sv.chave_pix || '', secretaria_id: sv.secretaria_id || null });
+    garantir('servidores_privado').set(sv.id, privado);
+    if (privado.cpf) garantir('cpfs').set(privado.cpf, { servidor_id: sv.id });
+    const m = garantir('servidores'); const atual = { ...m.get(sv.id), cpf_mascara: publico.cpf_mascara || '', cpf_valido: !!publico.cpf_valido, tem_pix: !!publico.tem_pix };
+    delete atual.cpf; delete atual.chave_pix; m.set(sv.id, atual);
+  }
+  notificar('servidores'); notificar('servidores_privado'); prog && prog(lista.length, lista.length);
+}
 export async function salvar(c, id, dados) {
+  if (c === 'servidores') { id = id || ('id' + (contador++)); gravarServidorMock(id, dados); return id; }
   const m = garantir(c); id = id || ('id' + (contador++));
   m.set(id, { ...(m.get(id) || {}), ...structuredClone(dados) });
   if (c === 'usuarios' && usuarios.has(id)) Object.assign(usuarios.get(id), dados);
@@ -69,6 +91,8 @@ export async function criarSolicitacoes(listaDados) {
   notificar('solicitacoes'); return criadas;
 }
 export async function gravarEmLote(ops, prog) {
+  ops.filter(o => o.colecao === 'servidores').forEach(o => gravarServidorMock(o.id, o.dados));
+  ops = ops.filter(o => o.colecao !== 'servidores');
   ops.forEach(o => garantir(o.colecao).set(o.id, { ...(colecoes[o.colecao].get(o.id) || {}), ...structuredClone(o.dados) }));
   new Set(ops.map(o => o.colecao)).forEach(notificar); prog && prog(ops.length, ops.length); return [];
 }

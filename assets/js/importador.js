@@ -99,7 +99,7 @@ export function mapearBancoAntigo(t, { agora = new Date().toISOString() } = {}) 
     };
     // valores vão para a coleção protegida (Secretaria e Controle Interno não leem)
     const { base, val } = separarValores(dadosSol);
-    ops.push({ colecao: 'solicitacoes', id: 'sol_' + s.id, dados: { ...base, calculado: true } });
+    ops.push({ colecao: 'solicitacoes', id: 'sol_' + s.id, dados: { ...base, calculado: true, interna: false, visivel_secretaria: false } });
     ops.push({ colecao: 'valores', id: 'sol_' + s.id, dados: val });
     if (s.destino_cidade && s.destino_uf && num(s.distancia_km) > 0) {
       const k = chaveDistancia(txt(s.destino_cidade), txt(s.destino_uf).toUpperCase());

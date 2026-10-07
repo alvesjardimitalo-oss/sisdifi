@@ -7,6 +7,7 @@ import { ultimaSimulacao } from './simulador.js';
 import { solicitacoesDoRelatorio, agrupar, SITUACOES_REL, BASES_REL, situacaoPagamento } from './relatorio.js';
 import { rotuloFicha } from './orcamento.js';
 import { lerChave } from '../notas.js';
+import { pixExibir } from '../privacidade.js';
 
 function cidadeOrgao() { return estado.config.origem?.cidade || ''; }
 
@@ -40,7 +41,7 @@ function docSolicitacao(sol) {
     <table class="doc-tab"><tr><td class="r" style="width:18%">Nº Solicitação</td><td><strong>${esc(sol.numero)}</strong></td><td class="r" style="width:22%">Data da Solicitação</td><td>${esc(dataBR(sol.data_solicitacao))}</td></tr></table>
     ${secao('1 - Identificação do Servidor', `<table class="doc-tab">
       <tr><td class="r" style="width:18%">Nome</td><td colspan="3">${esc(sv.nome)}</td></tr>
-      <tr><td class="r">CPF</td><td style="width:27%">${esc(formatarCpf(sv.cpf))}</td><td class="r" style="width:22%">Chave Pix</td><td>${esc(sv.chave_pix)}</td></tr>
+      <tr><td class="r">CPF</td><td style="width:27%">${esc(sv.cpf ? formatarCpf(sv.cpf) : (sv.cpf_mascara || ''))}</td><td class="r" style="width:22%">Chave Pix</td><td>${esc(pixExibir(sv))}</td></tr>
       <tr><td class="r">Cargo/Função</td><td>${esc(sv.cargo_funcao)}</td><td class="r">Secretaria Responsável</td><td>${esc(sol.secretaria_nome || secretariaNome(sol.secretaria_id))}</td></tr>
       <tr><td class="r">Categoria (Lei)</td><td colspan="3">${esc(GRUPOS[sv.grupo] || sv.categoria_nome || '')}</td></tr></table>`)}
     ${secao('2 - Viagem', `<table class="doc-tab">
@@ -121,8 +122,8 @@ function docExtratoServidor(sv, mes, ano, base) {
   return `<div class="folha">
     ${cabecalhoDoc('Extrato de Diárias do Servidor', `Período: ${periodo} (pela ${ref})`)}
     ${secao('1 - Servidor', `<table class="doc-tab">
-      <tr><td class="r" style="width:18%">Nome</td><td style="width:32%">${esc(sv.nome)}</td><td class="r" style="width:18%">CPF</td><td>${esc(formatarCpf(sv.cpf))}</td></tr>
-      <tr><td class="r">Cargo/Função</td><td>${esc(sv.cargo_funcao || '')}</td><td class="r">Chave Pix</td><td>${esc(sv.chave_pix || '')}</td></tr>
+      <tr><td class="r" style="width:18%">Nome</td><td style="width:32%">${esc(sv.nome)}</td><td class="r" style="width:18%">CPF</td><td>${esc(sv.cpf ? formatarCpf(sv.cpf) : (sv.cpf_mascara || ''))}</td></tr>
+      <tr><td class="r">Cargo/Função</td><td>${esc(sv.cargo_funcao || '')}</td><td class="r">Chave Pix</td><td>${esc(pixExibir(sv))}</td></tr>
       <tr><td class="r">Secretaria</td><td>${esc(secretariaNome(sv.secretaria_id))}</td><td class="r">Matrícula</td><td>${esc((sv.matriculas || [sv.matricula]).filter(Boolean).join(' / '))}</td></tr></table>`)}
     <table class="doc-resumo"><tr><td><span>Viagens</span><strong>${sols.length}</strong></td><td><span>Recebido (pago)</span><strong>${moeda(tPago)}</strong></td>
       <td><span>A receber</span><strong>${moeda(tTotal - tPago)}</strong></td><td><span>Total</span><strong>${moeda(tTotal)}</strong></td></tr></table>
@@ -149,7 +150,7 @@ function docAutorizacaoConjunta(sols) {
     ${cabecalhoDoc('Solicitação de Diárias — Formulário Único', `${sols.length} viagens · ${sols.map(x => x.numero).join(', ')}`)}
     ${secao('1 - Identificação do Servidor', `<table class="doc-tab">
       <tr><td class="r" style="width:18%">Nome</td><td colspan="3">${esc(sv.nome)}</td></tr>
-      <tr><td class="r">CPF</td><td style="width:27%">${esc(formatarCpf(sv.cpf))}</td><td class="r" style="width:22%">Chave Pix</td><td>${esc(sv.chave_pix)}</td></tr>
+      <tr><td class="r">CPF</td><td style="width:27%">${esc(sv.cpf ? formatarCpf(sv.cpf) : (sv.cpf_mascara || ''))}</td><td class="r" style="width:22%">Chave Pix</td><td>${esc(pixExibir(sv))}</td></tr>
       <tr><td class="r">Cargo/Função</td><td>${esc(sv.cargo_funcao)}</td><td class="r">Categoria (Lei)</td><td>${esc(GRUPOS[sv.grupo] || sv.categoria_nome || '')}</td></tr></table>`)}
     ${secao('2 - Viagens', `<table class="doc-tab doc-tab-peq"><thead><tr><th>Nº</th><th>Destino</th><th>Saída</th><th>Retorno</th><th>Objetivo</th><th>Diárias</th><th>Reemb.</th><th>Total</th></tr></thead>
       <tbody>${sols.map(x => `<tr><td>${esc(x.numero)}</td><td>${esc(x.destino_cidade)}/${esc(x.destino_uf)}<br><small>${numeroBR(x.distancia_km)} km · ${esc(x.faixa_texto || '')}</small></td>
@@ -184,7 +185,7 @@ function docEmpenho(sol) {
     ${cabecalhoDoc('Resumo do Empenho', `Empenho nº ${esc(sol.numero_empenho)} de ${esc(dataBR(sol.data_empenho))}`)}
     ${secao('1 - Credor (Servidor)', `<table class="doc-tab">
       <tr><td class="r" style="width:18%">Nome</td><td colspan="3">${esc(sv.nome)}</td></tr>
-      <tr><td class="r">CPF</td><td style="width:27%">${esc(formatarCpf(sv.cpf))}</td><td class="r" style="width:22%">Chave Pix</td><td>${esc(sv.chave_pix)}</td></tr>
+      <tr><td class="r">CPF</td><td style="width:27%">${esc(sv.cpf ? formatarCpf(sv.cpf) : (sv.cpf_mascara || ''))}</td><td class="r" style="width:22%">Chave Pix</td><td>${esc(pixExibir(sv))}</td></tr>
       <tr><td class="r">Ficha</td><td colspan="3">${esc(rotuloFicha(sol))}</td></tr>
       <tr><td class="r">Fonte / Conta</td><td colspan="3">${esc(sol.fonte_recursos || '')}${sol.conta_pagamento ? ' · ' + esc(sol.conta_pagamento) : ''}</td></tr></table>`)}
     ${secao('2 - Solicitações neste empenho', `<table class="doc-tab"><thead><tr><th>Nº</th><th>Destino</th><th>Saída</th><th>Retorno</th><th>Diárias</th><th>Reembolsos</th><th>Total</th></tr></thead>
@@ -202,7 +203,7 @@ function docReembolso(sol, r) {
     ${cabecalhoDoc('Formulário de Reembolso')}
     ${secao('1 - Servidor', `<table class="doc-tab">
       <tr><td class="r" style="width:18%">Nome</td><td colspan="3">${esc(sv.nome)}</td></tr>
-      <tr><td class="r">CPF</td><td>${esc(formatarCpf(sv.cpf))}</td><td class="r" style="width:20%">Chave Pix</td><td>${esc(sv.chave_pix)}</td></tr>
+      <tr><td class="r">CPF</td><td>${esc(sv.cpf ? formatarCpf(sv.cpf) : (sv.cpf_mascara || ''))}</td><td class="r" style="width:20%">Chave Pix</td><td>${esc(pixExibir(sv))}</td></tr>
       <tr><td class="r">Cargo/Função</td><td>${esc(sv.cargo_funcao)}</td><td class="r">Secretaria</td><td>${esc(sol.secretaria_nome)}</td></tr></table>`)}
     ${secao('2 - Viagem Vinculada', `<table class="doc-tab">
       <tr><td class="r" style="width:25%">Nº Solicitação</td><td style="width:25%">${esc(sol.numero)}</td><td class="r" style="width:25%">Data da Solicitação</td><td>${esc(dataBR(sol.data_solicitacao))}</td></tr>
@@ -231,8 +232,8 @@ function docRelatorioServidor(sv, mes, ano) {
   return `<div class="folha">
     ${cabecalhoDoc('Relatório do Servidor', 'Período: ' + periodo + ' (pela data de saída da viagem)')}
     ${secao('1 - Dados do Servidor', `<table class="doc-tab">
-      <tr><td class="r" style="width:18%">Nome</td><td style="width:32%">${esc(sv.nome)}</td><td class="r" style="width:18%">CPF</td><td>${esc(formatarCpf(sv.cpf))}</td></tr>
-      <tr><td class="r">Cargo/Função</td><td>${esc(sv.cargo_funcao)}</td><td class="r">Chave Pix</td><td>${esc(sv.chave_pix)}</td></tr>
+      <tr><td class="r" style="width:18%">Nome</td><td style="width:32%">${esc(sv.nome)}</td><td class="r" style="width:18%">CPF</td><td>${esc(sv.cpf ? formatarCpf(sv.cpf) : (sv.cpf_mascara || ''))}</td></tr>
+      <tr><td class="r">Cargo/Função</td><td>${esc(sv.cargo_funcao)}</td><td class="r">Chave Pix</td><td>${esc(pixExibir(sv))}</td></tr>
       <tr><td class="r">Categoria</td><td>${esc(GRUPOS[sv.grupo])}</td><td class="r">Secretaria</td><td>${esc(secretariaNome(sv.secretaria_id))}</td></tr></table>`)}
     <table class="doc-resumo"><tr><td><span>Viagens</span><strong>${validas.length}</strong></td><td><span>Diárias</span><strong>${moeda(tD)}</strong></td>
       <td><span>Reembolsos</span><strong>${moeda(tR)}</strong></td><td><span>Total Geral</span><strong>${moeda(tD + tR)}</strong></td></tr></table>

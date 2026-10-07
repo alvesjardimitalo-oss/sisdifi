@@ -5,6 +5,7 @@ import { GRUPOS, formatarCpf, limparCpf, cpfValido, moeda, analisarPix } from '.
 import { esc, $, $$, toast, modal, dataBR, numeroBR, normalizar, lerForm, mensagemErro, baixarArquivo, csv, hojeISO } from '../ui.js';
 import { aguardando, cabecalho, selo, opcoesSecretarias, anosDisponiveis, MESES } from './comum.js';
 import { extrairLinhas } from '../orcamento-pdf.js';
+import { temPix, cpfOk, cpfExibir, pixExibir } from '../privacidade.js';
 import { analisarRelacaoServidores, compararComCadastro, secretariaDaLotacao, grupoSugerido, nomeProprio, SITUACOES } from '../servidores-pdf.js';
 
 const filtros = { busca: '', secretaria: '', status: '1', grupo: '', pix: '', ordem: 'az', pagina: 1 };
@@ -16,8 +17,8 @@ export function telaServidores(el) {
     (filtros.status === '' || String(s.ativo === false ? 0 : 1) === filtros.status) &&
     (!filtros.secretaria || s.secretaria_id === filtros.secretaria) &&
     (!filtros.grupo || s.grupo === filtros.grupo) &&
-    (filtros.pix !== 'sem' || !s.chave_pix) && (filtros.pix !== 'semcargo' || !s.cargo_funcao) &&
-    (!t || normalizar(s.nome).includes(t) || normalizar(s.cargo_funcao).includes(t) || (dig.length >= 3 && String(s.cpf).includes(dig))));
+    (filtros.pix !== 'sem' || !temPix(s)) && (filtros.pix !== 'semcargo' || !s.cargo_funcao) &&
+    (!t || normalizar(s.nome).includes(t) || normalizar(s.cargo_funcao).includes(t) || (dig.length >= 3 && String(s.cpf || '').includes(dig))));
   const ord = {
     az: (a, b) => a.nome.localeCompare(b.nome, 'pt-BR'),
     za: (a, b) => b.nome.localeCompare(a.nome, 'pt-BR'),
@@ -28,8 +29,8 @@ export function telaServidores(el) {
   const porPagina = 30, paginas = Math.max(1, Math.ceil(lista.length / porPagina));
   filtros.pagina = Math.min(filtros.pagina, paginas);
   const pagina = lista.slice((filtros.pagina - 1) * porPagina, filtros.pagina * porPagina);
-  const cpfsInvalidos = estado.servidores.filter(s => s.ativo !== false && !cpfValido(s.cpf)).length;
-  const semPix = estado.servidores.filter(s => s.ativo !== false && !s.chave_pix).length;
+  const cpfsInvalidos = estado.servidores.filter(s => s.ativo !== false && !cpfOk(s)).length;
+  const semPix = estado.servidores.filter(s => s.ativo !== false && !temPix(s)).length;
   const semCargo = estado.servidores.filter(s => s.ativo !== false && !s.cargo_funcao).length;
 
   el.innerHTML = `
@@ -54,8 +55,8 @@ export function telaServidores(el) {
       <thead><tr><th>Nome</th><th>CPF</th><th>Chave Pix</th><th>Cargo/Função</th><th>Categoria</th><th>Secretaria</th><th>Situação</th><th></th></tr></thead>
       <tbody>${pagina.map(s => `<tr class="clicavel" data-id="${esc(s.id)}">
         <td><strong>${esc(s.nome)}</strong></td>
-        <td>${esc(formatarCpf(s.cpf))}${cpfValido(s.cpf) ? '' : ' <span class="selo selo-cancelada" title="Dígito verificador inválido">CPF inválido</span>'}</td>
-        <td>${s.chave_pix ? esc(s.chave_pix) : `<span class="selo selo-pendente">sem Pix</span>`}</td>
+        <td>${esc(cpfExibir(s))}${cpfOk(s) ? '' : ' <span class="selo selo-cancelada" title="Dígito verificador inválido">CPF inválido</span>'}</td>
+        <td>${temPix(s) ? esc(pixExibir(s)) : `<span class="selo selo-pendente">sem Pix</span>`}</td>
         <td>${s.cargo_funcao ? esc(s.cargo_funcao) : '<span class="selo selo-pendente">a informar</span>'}${s.vinculo ? `<small class="muted bloco">${esc(nomeProprio(s.vinculo))}</small>` : ''}</td><td>${esc(GRUPOS[s.grupo] || '')}</td><td>${esc(secretariaNome(s.secretaria_id) || '—')}</td>
         <td>${s.ativo === false ? '<span class="selo selo-cancelada">Inativo</span>' : '<span class="selo selo-emitida">Ativo</span>'}</td>
         <td class="acoes-linha">${podeCompletar(s) ? `<button class="btn ${pendencias(s).length ? '' : 'btn-sec'} btn-peq" data-parar data-pix="${esc(s.id)}" title="Chave Pix e cargo">${pendencias(s).length ? '＋ ' + pendencias(s).join(' e ') : '✎ Pix/cargo'}</button>` : ''}${pode.solicitar() && s.ativo !== false ? `<a class="btn btn-peq" data-parar href="#/solicitacoes/nova?servidor=${esc(s.id)}">＋ Diária</a>` : ''}</td>
@@ -136,7 +137,11 @@ export function formServidor(s, { rapido = false, inicial = {}, secretariaFixa =
     if (!pix.ok) return (erro.textContent = 'Chave Pix inválida. Use CPF, CNPJ, e-mail, telefone com DDD ou chave aleatória.');
     d.chave_pix = pix.valor;
     if (!cpfValido(cpf)) return (erro.textContent = 'CPF inválido: confira os números (dígito verificador não confere).');
-    const dup = estado.servidores.find(x => x.cpf === cpf && x.id !== s?.id);
+    let dup = estado.servidores.find(x => x.cpf === cpf && x.id !== s?.id);
+    if (!dup) {
+      // a secretaria não vê o CPF de servidores de outras pastas: confere no índice de CPFs
+      try { const idx = await db.lerDoc('cpfs', cpf); if (idx && idx.servidor_id !== s?.id) dup = porId('servidores', idx.servidor_id) || { id: idx.servidor_id, nome: 'outro servidor já cadastrado' }; } catch { /* sem acesso: segue */ }
+    }
     if (dup) {
       if (rapido && aoSalvar && dup.ativo !== false) { toast(`${dup.nome} já estava cadastrado — incluído na solicitação.`, 'aviso'); m.fechar(); aoSalvar(dup.id); return; }
       return (erro.textContent = `Já existe servidor com este CPF: ${dup.nome}${dup.ativo === false ? ' (inativo — peça à Contabilidade para reativar)' : ''}.`);
@@ -157,7 +162,7 @@ export function formServidor(s, { rapido = false, inicial = {}, secretariaFixa =
 export function podeAlterarPix(sv) {
   if (!sv) return false;
   if (pode.editar()) return true;
-  return ehSecretaria() && (!sv.chave_pix || sv.secretaria_id === estado.sessao.secretaria_id);
+  return ehSecretaria() && (!temPix(sv) || sv.secretaria_id === estado.sessao.secretaria_id);
 }
 /** Quem pode informar o cargo: Contabilidade/admin sempre; Secretaria se está em branco ou o servidor é da secretaria dela. */
 export function podeAlterarCargo(sv) {
@@ -168,7 +173,7 @@ export function podeAlterarCargo(sv) {
 export const podeCompletar = sv => podeAlterarPix(sv) || podeAlterarCargo(sv);
 /** Motoristas podem receber diárias de qualquer secretaria. */
 export const ehMotorista = sv => /motorista/.test(normalizar(sv?.cargo_funcao));
-export const pendencias = sv => [!sv.chave_pix && 'Pix', !sv.cargo_funcao && 'cargo'].filter(Boolean);
+export const pendencias = sv => [!temPix(sv) && 'Pix', !sv.cargo_funcao && 'cargo'].filter(Boolean);
 
 /** Janela "Completar cadastro": chave Pix e cargo/função de um servidor já cadastrado. */
 export function formPix(sv, aoSalvar = null) {
@@ -176,8 +181,8 @@ export function formPix(sv, aoSalvar = null) {
   const m = modal({
     titulo: 'Completar cadastro do servidor', largura: 500,
     corpo: `<form id="fpix" novalidate>
-      <p><strong>${esc(sv.nome)}</strong><br><small class="muted">${esc(formatarCpf(sv.cpf))} · ${esc(secretariaNome(sv.secretaria_id) || 'sem secretaria')}</small></p>
-      ${pixOk ? `<label class="campo"><span>Chave Pix${sv.chave_pix ? '' : ' (pendente)'} <small class="muted" id="fpix-tipo"></small></span><input name="chave_pix" value="${esc(sv.chave_pix || '')}" maxlength="120" placeholder="CPF, e-mail, telefone ou chave aleatória"></label>
+      <p><strong>${esc(sv.nome)}</strong><br><small class="muted">${esc(cpfExibir(sv))} · ${esc(secretariaNome(sv.secretaria_id) || 'sem secretaria')}</small></p>
+      ${pixOk ? `<label class="campo"><span>Chave Pix${temPix(sv) ? '' : ' (pendente)'} <small class="muted" id="fpix-tipo"></small></span><input name="chave_pix" value="${esc(sv.chave_pix || '')}" maxlength="120" placeholder="CPF, e-mail, telefone ou chave aleatória"></label>
         <p class="dica">A chave deve estar no nome do próprio servidor.</p>`
         : `<p class="muted">Chave Pix: ${esc(sv.chave_pix)} <small>(só a secretaria do servidor ou a Contabilidade altera)</small></p>`}
       ${cargoOk ? `<label class="campo"><span>Cargo/Função${sv.cargo_funcao ? '' : ' (a informar)'}</span><input name="cargo_funcao" value="${esc(sv.cargo_funcao || '')}" maxlength="120" placeholder="Ex.: Motorista, Técnico de enfermagem"></label>`
@@ -245,8 +250,8 @@ export function telaPerfilServidor(el, { args }) {
       `${s.ativo === false ? '<span class="selo selo-cancelada">Inativo</span> ' : ''}${esc(s.cargo_funcao)} · ${esc(GRUPOS[s.grupo] || '')}`)}
     <div class="grade-detalhe">
       <section class="cartao"><h3>Cadastro</h3><dl class="dl">
-        <dt>CPF</dt><dd>${esc(formatarCpf(s.cpf))}${cpfValido(s.cpf) ? '' : ' <span class="selo selo-cancelada">CPF inválido</span>'}</dd>
-        <dt>Chave Pix</dt><dd>${esc(s.chave_pix || '—')} ${podeAlterarPix(s) ? `<button class="link link-peq" id="perfil-pix">${s.chave_pix ? 'alterar' : 'adicionar'}</button>` : ''}</dd>
+        <dt>CPF</dt><dd>${esc(cpfExibir(s))}${cpfOk(s) ? '' : ' <span class="selo selo-cancelada">CPF inválido</span>'}</dd>
+        <dt>Chave Pix</dt><dd>${esc(pixExibir(s) || '—')} ${podeAlterarPix(s) ? `<button class="link link-peq" id="perfil-pix">${s.chave_pix ? 'alterar' : 'adicionar'}</button>` : ''}</dd>
         <dt>Secretaria</dt><dd>${esc(secretariaNome(s.secretaria_id) || '—')}</dd>
         <dt>Últimos destinos</dt><dd>${esc(destinos.join(', ') || '—')}</dd>
       </dl></section>
@@ -375,7 +380,7 @@ export function importarRelacao() {
   $('#rel-importar', m.el).onclick = async () => {
     const btn = $('#rel-importar', m.el); btn.disabled = true;
     const agora = new Date().toISOString(), por = { uid: estado.sessao.uid, nome: estado.sessao.nome };
-    const jaTem = new Set(estado.servidores.map(x => String(x.cpf).replace(/\D/g, '').padStart(11, '0')));
+    const jaTem = new Set(estado.servidores.filter(x => x.cpf).map(x => String(x.cpf).replace(/\D/g, '').padStart(11, '0')));
     const ops = [];
     let novos = 0, completados = 0, corrigidos = 0;
     try {

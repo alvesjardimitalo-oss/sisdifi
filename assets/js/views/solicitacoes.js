@@ -3,6 +3,7 @@ import * as db from '../db.js';
 import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ETAPAS, etapaDe, ehSecretaria, separarValores, ETAPAS_EMPENHADAS } from '../estado.js';
 import { formServidor, formPix, podeCompletar, pendencias, ehMotorista } from './servidores.js';
 import { botoesNota, ligarBotoesNota, lerChave } from '../notas.js';
+import { temPix, cpfOk, cpfExibir, pixExibir } from '../privacidade.js';
 import { consultarFichas, fichasDaSecretaria, buscarFicha, tituloFicha, rotuloFicha, saldoDaFicha } from './orcamento.js';
 import { calcularDiaria, moeda, horasBR, formatarCpf, periodosSobrepostos, GRUPOS, cpfValido } from '../calculo.js';
 import { esc, $, $$, toast, modal, confirmar, hojeISO, dataBR, numeroBR, normalizar, lerForm, baixarArquivo, csv, mensagemErro } from '../ui.js';
@@ -151,7 +152,8 @@ export function telaNovaSolicitacao(el, { query }) {
 }
 
 function snapshotServidor(sv) {
-  return { nome: sv.nome, cpf: sv.cpf, chave_pix: sv.chave_pix || '', cargo_funcao: sv.cargo_funcao, grupo: sv.grupo, categoria_nome: GRUPOS[sv.grupo] };
+  // CPF e Pix só entram se quem cria pode lê-los; a Contabilidade completa no cálculo.
+  return { nome: sv.nome, cpf: sv.cpf || '', cpf_mascara: sv.cpf_mascara || '', chave_pix: sv.chave_pix || '', cargo_funcao: sv.cargo_funcao || '', grupo: sv.grupo, categoria_nome: GRUPOS[sv.grupo] };
 }
 
 /** Campos do cálculo da diária (feito pela Contabilidade). */
@@ -191,12 +193,12 @@ function montarDadosSolicitacao(dados, sv, existente = null) {
     // Lançamento direto da Contabilidade: não passa pelo Controle Interno e não aparece para Secretaria, Controle Interno e RH.
     if (pode.contabil() && dados.tramitacao === 'direta') {
       const agora = new Date().toISOString();
-      return { ...base, calculado: false, status: 'emitida', etapa: 'aprovada', interna: true, numero_empenho: '', data_empenho: '', ficha: '',
+      return { ...base, calculado: false, status: 'emitida', etapa: 'aprovada', interna: true, visivel_secretaria: false, numero_empenho: '', data_empenho: '', ficha: '',
         analise: { resultado: 'dispensada', por: quem(), em: agora },
         historico: [{ etapa: 'aprovada', em: agora, por: estado.sessao.nome, obs: 'Lançamento direto da Contabilidade (sem Controle Interno)' }] };
     }
     // O valor NÃO é calculado aqui: só a Contabilidade calcula, depois da aprovação do Controle Interno.
-    return { ...base, calculado: false, status: 'emitida', etapa: 'analise', numero_empenho: '', data_empenho: '', ficha: '' };
+    return { ...base, calculado: false, status: 'emitida', etapa: 'analise', interna: false, visivel_secretaria: true, numero_empenho: '', data_empenho: '', ficha: '' };
   }
   const r = { ...base };
   // reprovada e corrigida → volta para análise
@@ -313,7 +315,7 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
       const s = porId('servidores', id);
       if (!s) return '';
       return `<div class="sv-item"><div><strong>${esc(s.nome)}</strong>
-        <small>${esc(formatarCpf(s.cpf))} · ${esc(s.cargo_funcao)} · ${esc(GRUPOS[s.grupo] || '')}${s.chave_pix ? ' · Pix: ' + esc(s.chave_pix) : ''}</small>
+        <small>${esc(cpfExibir(s))} · ${esc(s.cargo_funcao || 'cargo a informar')} · ${esc(GRUPOS[s.grupo] || '')}${temPix(s) ? ' · Pix: ' + esc(pixExibir(s)) : ''}</small>
         ${pendencias(s).length ? `<small class="erro-txt">⚠ Cadastro sem ${pendencias(s).join(' e ')}.</small>` : ''}
         ${podeCompletar(s) ? `<button type="button" class="link link-peq" data-pix-sv="${esc(id)}">${pendencias(s).length ? '＋ completar ' + pendencias(s).join(' e ') : 'alterar Pix/cargo'}</button>` : ''}</div>
         ${multiplo || selecionados.length > 1 ? `<button type="button" class="btn-icone" data-remover="${esc(id)}" aria-label="Remover">✕</button>` : ''}</div>`;
@@ -330,18 +332,24 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
     desenharSelecionados(); recalcular();
     busca.focus();
   }
+  // CPF completo de servidor de outra secretaria: consulta o índice (só responde a quem já sabe o CPF inteiro).
+  const porCpf = {};
   busca.oninput = () => {
     const t = normalizar(busca.value), dig = busca.value.replace(/\D/g, '');
+    if (dig.length === 11 && !(dig in porCpf)) {
+      porCpf[dig] = '';
+      db.lerDoc('cpfs', dig).then(r => { porCpf[dig] = r?.servidor_id || ''; if (r) busca.oninput(); }).catch(() => {});
+    }
     if (t.length < 2) { sug.innerHTML = ''; sug.classList.remove('aberta'); return; }
     // Secretaria vê os servidores da própria secretaria e os motoristas de todas as secretarias;
     // outros servidores de outras secretarias, só digitando o CPF completo.
     const minha = s => s.secretaria_id === estado.sessao.secretaria_id;
-    const daMinha = s => !ehSecretaria() || minha(s) || ehMotorista(s) || (dig.length === 11 && s.cpf === dig);
+    const daMinha = s => !ehSecretaria() || minha(s) || ehMotorista(s) || (dig.length === 11 && (s.cpf === dig || s.id === porCpf[dig]));
     const r = estado.servidores.filter(s => s.ativo !== false && !selecionados.includes(s.id) && daMinha(s) &&
-      (normalizar(s.nome).includes(t) || normalizar(s.cargo_funcao).includes(t) || (dig.length >= 3 && String(s.cpf).includes(dig))))
+      (normalizar(s.nome).includes(t) || normalizar(s.cargo_funcao).includes(t) || (dig.length >= 3 && String(s.cpf || '').includes(dig)) || s.id === porCpf[dig]))
       .sort((a, b) => (minha(b) - minha(a)) || a.nome.localeCompare(b.nome, 'pt-BR')).slice(0, 15);
     sug.innerHTML = r.map(s => `<button type="button" role="option" data-id="${esc(s.id)}"><strong>${esc(s.nome)}</strong>
-      <small>${esc(formatarCpf(s.cpf))} · ${esc(s.cargo_funcao || 'cargo a informar')} · ${esc(secretariaNome(s.secretaria_id) || 'sem secretaria')}${ehSecretaria() && !minha(s) && ehMotorista(s) ? ' · motorista de outra secretaria' : ''}</small></button>`).join('')
+      <small>${esc(cpfExibir(s))} · ${esc(s.cargo_funcao || 'cargo a informar')} · ${esc(secretariaNome(s.secretaria_id) || 'sem secretaria')}${ehSecretaria() && !minha(s) && ehMotorista(s) ? ' · motorista de outra secretaria' : ''}</small></button>`).join('')
       || `<div class="sem-resultado">Nenhum servidor encontrado.${podeCadastrarServidor() ? ' <button type="button" class="link" data-novo-sv>Cadastrar novo servidor</button>' : ''}${ehSecretaria() ? '<br><small>Motoristas de todas as secretarias aparecem na busca (digite "motorista" para listar). Outro servidor de outra secretaria: digite o CPF completo.</small>' : ''}</div>`;
     sug.querySelector('[data-novo-sv]')?.addEventListener('click', () => cadastrarRapido(busca.value));
     sug.classList.add('aberta');
@@ -480,7 +488,7 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
       // Secretaria não vê valores: mostra só a conferência do que falta preencher.
       const itens = [
         ['Servidor(es)', selecionados.length > 0],
-        ['Chave Pix do(s) servidor(es)', selecionados.length > 0 && selecionados.every(id => porId('servidores', id)?.chave_pix)],
+        ['Chave Pix do(s) servidor(es)', selecionados.length > 0 && selecionados.every(id => temPix(porId('servidores', id)))],
         ['Saída e chegada', !!(d.data_hora_saida && d.data_hora_retorno) && !linhas.some(l => l.erro && /retorno|data/i.test(l.erro))],
         ['Destino', !!(d.destino_cidade)],
         ['Conta para pagamento', !!d.conta_pagamento],
@@ -557,7 +565,7 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
       // Guarda a distância usada para este destino: próximas viagens para a mesma cidade usam o mesmo km.
       const chave = chaveDistancia(d.destino_cidade, d.destino_uf);
       const km = Math.round(Number(d.distancia_km) * 100) / 100;
-      if (!d.dentro_municipio && km > 0 && estado.distancias[chave]?.km !== km) db.salvar('distancias', chave, { cidade: d.destino_cidade, uf: d.destino_uf, km }).catch(() => {});
+      if (pode.contabil() && !d.dentro_municipio && km > 0 && estado.distancias[chave]?.km !== km) db.salvar('distancias', chave, { cidade: d.destino_cidade, uf: d.destino_uf, km }).catch(() => {});
       await aoSalvar(d, selecionados);
     } catch (err) {
       erro.textContent = mensagemErro(err);
@@ -622,8 +630,8 @@ function checklistServidor(sol) {
   const itens = [
     ['Servidor cadastrado no sistema', !!sv],
     ['Cadastro ativo', !!sv && sv.ativo !== false],
-    ['CPF válido', !!sv && cpfValido(sv.cpf)],
-    ['Chave Pix informada', !!(sv?.chave_pix || sol.servidor?.chave_pix)],
+    ['CPF válido', !!sv && cpfOk(sv)],
+    ['Chave Pix informada', temPix(sv) || !!sol.servidor?.chave_pix],
     ['Cargo/função informado', !!(sv?.cargo_funcao)],
     sv && sv.secretaria_id && sol.secretaria_id && sv.secretaria_id !== sol.secretaria_id
       ? [ehMotorista(sv) ? `Motorista lotado em ${secretariaNome(sv.secretaria_id)} — pode atender outras secretarias` : `Servidor lotado em outra secretaria (${secretariaNome(sv.secretaria_id)}) — confira`, ehMotorista(sv)]
@@ -634,7 +642,7 @@ function checklistServidor(sol) {
     periodosSobrepostos(o.data_hora_saida, o.data_hora_retorno, sol.data_hora_saida, sol.data_hora_retorno));
   itens.push([conflito ? `Sem outra viagem no mesmo período — CONFLITO com ${conflito.numero}` : 'Sem outra viagem no mesmo período', !conflito]);
   return `<div class="verificacao">
-    <p><strong>${esc(sol.servidor?.nome)}</strong> · ${esc(formatarCpf(sol.servidor?.cpf))} · ${esc(sol.servidor?.cargo_funcao)} · enquadramento <strong>${esc(GRUPOS[sv?.grupo || sol.servidor?.grupo] || '')}</strong>
+    <p><strong>${esc(sol.servidor?.nome)}</strong> · ${esc(sol.servidor?.cpf ? formatarCpf(sol.servidor.cpf) : cpfExibir(sv))} · ${esc(sol.servidor?.cargo_funcao)} · enquadramento <strong>${esc(GRUPOS[sv?.grupo || sol.servidor?.grupo] || '')}</strong>
       · lotação ${esc(secretariaNome(sv?.secretaria_id) || '—')}${sol.criado_por?.nome ? ` · enviado por ${esc(sol.criado_por.nome)}` : ''}</p>
     <ul class="checklist">${itens.map(([t, okk]) => `<li class="${okk ? 'ok' : 'falha'}">${okk ? '✓' : '✕'} ${esc(t)}</li>`).join('')}</ul>
   </div>`;
@@ -853,7 +861,7 @@ function ligarTramitacao(el, sol) {
     if (c.erro) return toast(c.erro, 'erro');
     try {
       await tramitar(sol, 'calculada', { ...c, ficha: d.ficha, ficha_titulo: tituloDaFicha(sol, d.ficha), calculo_por: quem(), calculo_em: new Date().toISOString(),
-        servidor: { ...(sol.servidor || {}), ...(sv ? { grupo: sv.grupo, categoria_nome: GRUPOS[sv.grupo], chave_pix: sv.chave_pix || '', cargo_funcao: sv.cargo_funcao } : {}) } },
+        servidor: { ...(sol.servidor || {}), ...(sv ? { grupo: sv.grupo, categoria_nome: GRUPOS[sv.grupo], cpf: sv.cpf || sol.servidor?.cpf || '', chave_pix: sv.chave_pix || sol.servidor?.chave_pix || '', cargo_funcao: sv.cargo_funcao } : {}) } },
         `valor ${moeda(c.valor_total)} · ficha ${d.ficha}`);
       toast('Cálculo e ficha registrados. Imprima o formulário para a assinatura do Prefeito.');
       location.hash = '#/imprimir/solicitacao/' + sol.id;
@@ -996,7 +1004,7 @@ export function telaDetalheSolicitacao(el, { args, query }) {
         <h3>Servidor</h3>
         <dl class="dl">
           <dt>Nome</dt><dd>${pode.editar() || pode.verValores() ? `<a href="#/servidores/${esc(sol.servidor_id)}">${esc(sol.servidor?.nome)}</a>` : esc(sol.servidor?.nome)}</dd>
-          <dt>CPF</dt><dd>${esc(formatarCpf(sol.servidor?.cpf))}</dd>
+          <dt>CPF</dt><dd>${esc(sol.servidor?.cpf ? formatarCpf(sol.servidor.cpf) : (sol.servidor?.cpf_mascara || '—'))}</dd>
           <dt>Cargo/Função</dt><dd>${esc(sol.servidor?.cargo_funcao)}</dd>
           <dt>Categoria</dt><dd>${esc(GRUPOS[sol.servidor?.grupo] || '')}</dd>
           <dt>Chave Pix</dt><dd>${esc(sol.servidor?.chave_pix || '—')}</dd>
