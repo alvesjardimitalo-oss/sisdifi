@@ -58,6 +58,8 @@ code { background: var(--azul-claro); padding: 1px 5px; border-radius: 4px; font
 .btn-sec:hover { background: var(--azul-claro); }
 .btn-perigo { background: var(--vermelho); border-color: var(--vermelho); }
 .btn-perigo:hover { background: #8f1c13; }
+.btn-excluir { color: var(--vermelho); }
+.btn-excluir:hover { background: #fdecea; border-color: var(--vermelho); }
 .btn-peq { padding: 4px 10px; font-size: 12.5px; }
 .btn-bloco { width: 100%; padding: 11px; }
 .btn-google { gap: 10px; }

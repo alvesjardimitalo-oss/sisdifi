@@ -179,6 +179,15 @@ export async function atualizar(colecao, id, dados) {
   await updateDoc(doc(fs, colecao, id), { ...dados, atualizado_em: serverTimestamp(), atualizado_por: autor() });
 }
 export const excluir = (colecao, id) => deleteDoc(doc(fs, colecao, id));
+/** Exclui o servidor por completo: cadastro, área privada (CPF/Pix) e índice do CPF. */
+export async function excluirServidor(id, cpf) {
+  const b = writeBatch(fs);
+  b.delete(doc(fs, 'servidores', id));
+  b.delete(doc(fs, 'servidores_privado', id));
+  const c = String(cpf || '').replace(/\D/g, '');
+  if (c.length === 11) b.delete(doc(fs, 'cpfs', c));
+  await b.commit();
+}
 
 /**
  * Cria uma ou mais solicitações com numeração sequencial por ano (0001/2026...).

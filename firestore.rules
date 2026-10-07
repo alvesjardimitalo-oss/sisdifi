@@ -101,7 +101,7 @@ service cloud.firestore {
         && request.resource.data.nome is string
         && request.resource.data.grupo in ['PREFEITO', 'VICE_SECRETARIO_JURIDICO', 'DEMAIS_SERVIDORES']
         && semDadoPessoal();
-      allow delete: if admin();
+      allow delete: if operador(); // a tela só exclui servidor sem nenhuma solicitação
     }
 
     // Servidores — área PRIVADA: CPF e chave Pix. Contabilidade, consulta e RH leem todos; a Secretaria, os da própria pasta.
@@ -118,7 +118,7 @@ service cloud.firestore {
         && (resource.data.get('chave_pix', '') == ''
             || resource.data.get('chave_pix', '') == resource.data.get('cpf', '-')
             || resource.data.get('secretaria_id', '') == minhaSecretaria()));
-      allow delete: if admin();
+      allow delete: if operador();
     }
 
     // Índice de CPF: só responde a quem já sabe o CPF completo (get); ninguém lista.
@@ -127,7 +127,7 @@ service cloud.firestore {
       allow list: if false;
       allow create: if (operador() || secretaria()) && cpf.size() == 11 && request.resource.data.servidor_id is string;
       allow update: if operador();
-      allow delete: if admin();
+      allow delete: if operador();
     }
 
     match /solicitacoes/{id} {

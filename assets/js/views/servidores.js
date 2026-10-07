@@ -60,7 +60,7 @@ export function telaServidores(el) {
         <td>${temPix(s) ? esc(pixExibir(s)) : `<span class="selo selo-pendente">sem Pix</span>`}</td>
         <td>${s.cargo_funcao ? esc(s.cargo_funcao) : '<span class="selo selo-pendente">a informar</span>'}${s.vinculo ? `<small class="muted bloco">${esc(nomeProprio(s.vinculo))}</small>` : ''}</td><td>${esc(GRUPOS[s.grupo] || '')}</td><td>${esc(secretariaNome(s.secretaria_id) || '—')}</td>
         <td>${s.ativo === false ? '<span class="selo selo-cancelada">Inativo</span>' : '<span class="selo selo-emitida">Ativo</span>'}</td>
-        <td class="acoes-linha">${podeCompletar(s) ? `<button class="btn ${pendencias(s).length ? '' : 'btn-sec'} btn-peq" data-parar data-pix="${esc(s.id)}" title="Chave Pix e cargo">${pendencias(s).length ? '＋ ' + pendencias(s).join(' e ') : '✎ Pix/cargo'}</button>` : ''}${pode.solicitar() && s.ativo !== false ? `<a class="btn btn-peq" data-parar href="#/solicitacoes/nova?servidor=${esc(s.id)}">＋ Diária</a>` : ''}</td>
+        <td class="acoes-linha">${podeCompletar(s) ? `<button class="btn ${pendencias(s).length ? '' : 'btn-sec'} btn-peq" data-parar data-pix="${esc(s.id)}" title="Chave Pix e cargo">${pendencias(s).length ? '＋ ' + pendencias(s).join(' e ') : '✎ Pix/cargo'}</button>` : ''}${pode.solicitar() && s.ativo !== false ? `<a class="btn btn-peq" data-parar href="#/solicitacoes/nova?servidor=${esc(s.id)}">＋ Diária</a>` : ''}${pode.editar() ? `<button class="btn btn-sec btn-peq" data-parar data-editar-sv="${esc(s.id)}" title="Editar servidor">✎ Editar</button><button class="btn btn-sec btn-peq btn-excluir" data-parar data-excluir-sv="${esc(s.id)}" title="Excluir servidor">🗑</button>` : ''}</td>
       </tr>`).join('') || '<tr><td colspan="8" class="vazio-linha">Nenhum servidor encontrado.</td></tr>'}</tbody>
     </table></div>
     ${paginas > 1 ? `<div class="paginacao">${Array.from({ length: paginas }, (_, i) => `<button class="btn btn-peq ${i + 1 === filtros.pagina ? '' : 'btn-sec'}" data-pag="${i + 1}">${i + 1}</button>`).join('')}</div>` : ''}`;
@@ -93,6 +93,8 @@ export function telaServidores(el) {
   $('#inativar-sem-cargo', el)?.addEventListener('click', () => inativarSemCargo());
   $('#pix-cpf-lote', el)?.addEventListener('click', () => pixCpfEmLote());
   $$('[data-pix]', el).forEach(b => b.onclick = ev => { ev.stopPropagation(); formPix(porId('servidores', b.dataset.pix)); });
+  $$('[data-editar-sv]', el).forEach(b => b.onclick = ev => { ev.stopPropagation(); formServidor(porId('servidores', b.dataset.editarSv), { aoSalvar: () => {} }); });
+  $$('[data-excluir-sv]', el).forEach(b => b.onclick = ev => { ev.stopPropagation(); excluirServidor(porId('servidores', b.dataset.excluirSv)); });
   if ($('#exp-sv', el)) $('#exp-sv', el).onclick = () => baixarArquivo(`servidores-${hojeISO()}.csv`, csv([
     ['Nome', 'CPF', 'Matrícula', 'Chave Pix', 'Cargo/Função', 'Vínculo', 'Categoria', 'Secretaria', 'Situação'],
     ...lista.map(s => [s.nome, formatarCpf(s.cpf), (s.matriculas || [s.matricula]).filter(Boolean).join(' / '), s.chave_pix, s.cargo_funcao, s.vinculo || '', GRUPOS[s.grupo], secretariaNome(s.secretaria_id), s.ativo === false ? 'Inativo' : 'Ativo'])]));
@@ -323,7 +325,7 @@ export function telaPerfilServidor(el, { args }) {
       ${pode.solicitar() && s.ativo !== false ? `<a class="btn" href="#/solicitacoes/nova?servidor=${esc(s.id)}">＋ Nova solicitação</a>` : ''}
       ${pode.verValores() ? `<a class="btn btn-sec" href="#/imprimir/servidor/${esc(s.id)}?mes=${esc(filtroPerfil.mes)}&ano=${esc(filtroPerfil.ano)}">🖨 Relatório</a>` : ''}
       ${pode.verValores() ? `<a class="btn btn-sec" href="#/imprimir/extrato/${esc(s.id)}?mes=${esc(filtroPerfil.mes)}&ano=${esc(filtroPerfil.ano)}&base=pagamento" title="O que recebeu e o que tem a receber, pela data do pagamento">🖨 Extrato de diárias</a>` : ''}
-      ${pode.editar() ? '<button class="btn btn-sec" id="editar-sv">✎ Editar cadastro</button>' : ''}`,
+      ${pode.editar() ? '<button class="btn btn-sec" id="editar-sv">✎ Editar cadastro</button><button class="btn btn-sec btn-excluir" id="excluir-sv">🗑 Excluir</button>' : ''}`,
       `${s.ativo === false ? '<span class="selo selo-cancelada">Inativo</span> ' : ''}${esc(s.cargo_funcao)} · ${esc(GRUPOS[s.grupo] || '')}`)}
     <div class="grade-detalhe">
       <section class="cartao"><h3>Cadastro</h3><dl class="dl">
@@ -360,6 +362,7 @@ export function telaPerfilServidor(el, { args }) {
   $('#filtro-perfil', el).onchange = e => { Object.assign(filtroPerfil, lerForm(e.currentTarget)); telaPerfilServidor(el, { args }); };
   $$('tr[data-id]', el).forEach(tr => tr.onclick = () => { location.hash = '#/solicitacoes/' + tr.dataset.id; });
   $('#editar-sv', el)?.addEventListener('click', () => formServidor(s));
+  $('#excluir-sv', el)?.addEventListener('click', () => excluirServidor(s));
   $('#perfil-pix', el)?.addEventListener('click', () => formPix(s));
   return { viva: true, titulo: s.nome };
 }
@@ -621,6 +624,27 @@ export function importarFolha() {
       setTimeout(() => { if (estado.servidores.some(s => s.ativo !== false && categoriaEsperada(s) !== s.grupo)) revisarCategorias(); }, 800);
     } catch (err) { $('#fl-erro', m.el).textContent = mensagemErro(err); btn.disabled = false; }
   };
+}
+
+// ---------- Excluir servidor (só sem solicitações; com histórico, inativa) ----------
+export async function excluirServidor(sv) {
+  if (!sv) return;
+  const todas = estado.solicitacoesBrutas?.length ? estado.solicitacoesBrutas : estado.solicitacoes;
+  const n = todas.filter(x => x.servidor_id === sv.id).length;
+  if (n) {
+    if (sv.ativo === false) return toast(`${sv.nome} tem ${n} solicitação(ões) e já está inativo. Servidor com histórico não pode ser excluído.`, 'aviso');
+    if (!(await confirmar(`${sv.nome} tem ${n} solicitação(ões) no sistema e não pode ser excluído, para não perder o histórico.\n\nDeseja deixá-lo INATIVO? Ele some das novas solicitações e pode ser reativado depois.`, { titulo: 'Excluir servidor', ok: 'Inativar' }))) return;
+    try { await db.atualizar('servidores', sv.id, { ativo: false, inativado_motivo: 'pedido de exclusão (tem histórico)', inativado_em: new Date().toISOString() }); await db.registrarLog('servidor.inativar', { nome: sv.nome }); toast(`${sv.nome} inativado.`); }
+    catch (err) { toast(mensagemErro(err), 'erro'); }
+    return;
+  }
+  if (!(await confirmar(`Excluir ${sv.nome} definitivamente?\n\nO cadastro, o CPF e a chave Pix serão apagados. Não dá para desfazer.`, { titulo: 'Excluir servidor', ok: 'Excluir', perigo: true }))) return;
+  try {
+    await db.excluirServidor(sv.id, sv.cpf);
+    await db.registrarLog('servidor.excluir', { nome: sv.nome, cargo: sv.cargo_funcao || '', secretaria: secretariaNome(sv.secretaria_id) || '' });
+    toast(`${sv.nome} excluído.`);
+    if (location.hash.startsWith('#/servidores/')) location.hash = '#/servidores';
+  } catch (err) { toast(mensagemErro(err), 'erro'); }
 }
 
 // ---------- Chave Pix padrão: o CPF de quem está sem chave ----------

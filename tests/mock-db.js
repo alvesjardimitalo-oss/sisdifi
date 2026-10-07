@@ -76,6 +76,7 @@ export async function atualizar(c, id, dados) {
   return salvar(c, id, dados);
 }
 export async function excluir(c, id) { colecoes[c]?.delete(id); notificar(c); }
+export async function excluirServidor(id, cpf) { for (const c of ['servidores', 'servidores_privado']) { colecoes[c]?.delete(id); notificar(c); } colecoes.cpfs?.delete(String(cpf || '').replace(/\D/g, '')); }
 export async function criarSolicitacoes(listaDados) {
   const criadas = [];
   for (const d of listaDados) {
