@@ -240,6 +240,7 @@ export function telaPerfilServidor(el, { args }) {
     ${cabecalho(s.nome, `
       ${pode.solicitar() && s.ativo !== false ? `<a class="btn" href="#/solicitacoes/nova?servidor=${esc(s.id)}">＋ Nova solicitação</a>` : ''}
       ${pode.verValores() ? `<a class="btn btn-sec" href="#/imprimir/servidor/${esc(s.id)}?mes=${esc(filtroPerfil.mes)}&ano=${esc(filtroPerfil.ano)}">🖨 Relatório</a>` : ''}
+      ${pode.verValores() ? `<a class="btn btn-sec" href="#/imprimir/extrato/${esc(s.id)}?mes=${esc(filtroPerfil.mes)}&ano=${esc(filtroPerfil.ano)}&base=pagamento" title="O que recebeu e o que tem a receber, pela data do pagamento">🖨 Extrato de diárias</a>` : ''}
       ${pode.editar() ? '<button class="btn btn-sec" id="editar-sv">✎ Editar cadastro</button>' : ''}`,
       `${s.ativo === false ? '<span class="selo selo-cancelada">Inativo</span> ' : ''}${esc(s.cargo_funcao)} · ${esc(GRUPOS[s.grupo] || '')}`)}
     <div class="grade-detalhe">

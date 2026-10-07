@@ -3,7 +3,7 @@
 // Inicialização, login e navegação
 // =============================================================
 import * as db from './db.js';
-import { estado, mesclarConfig, PERFIS, pode, ehSecretaria, acessoRestrito, secretariaNome, CAMPOS_VALOR } from './estado.js';
+import { estado, mesclarConfig, PERFIS, pode, ehSecretaria, acessoRestrito, secretariaNome, CAMPOS_VALOR, etapaDe } from './estado.js';
 import { esc, $, toast, mensagemErro, lerForm } from './ui.js';
 import { telaPainel } from './views/painel.js';
 import { telaListaSolicitacoes, telaNovaSolicitacao, telaDetalheSolicitacao } from './views/solicitacoes.js';
@@ -237,7 +237,8 @@ function iniciarDados() {
   const juntar = () => {
     if (!base || !valores) return;
     // Lançamentos diretos da Contabilidade não aparecem para Secretaria, Controle Interno e RH.
-    const visiveis = acessoRestrito() ? base.filter(s => !s.interna) : base;
+    // A Secretaria também não vê o histórico importado do sistema antigo (etapa "legado").
+    const visiveis = acessoRestrito() ? base.filter(s => !s.interna && !(ehSecretaria() && etapaDe(s) === 'legado')) : base;
     estado.solicitacoesBrutas = visiveis;
     estado.solicitacoes = visiveis.map(s => {
       const v = valores[s.id];
@@ -331,6 +332,7 @@ const ROTAS = [
   [/^relatorio$/, telaRelatorio, 'relatorio'],
   [/^orcamento$/, telaOrcamento, 'orcamento'],
   [/^imprimir\/(mensal)$/, telaImprimir, 'relatorio'],
+  [/^imprimir\/(extrato\/[\w-]+)$/, telaImprimir, 'relatorio'],
   [/^imprimir\/(.+)$/, telaImprimir, 'valores']
 ];
 

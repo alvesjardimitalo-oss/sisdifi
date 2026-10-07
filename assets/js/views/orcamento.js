@@ -1,6 +1,6 @@
 // SISDIFI — Orçamento das secretarias: PDFs liberados pela Contabilidade e consultor de fichas/fontes
 import * as db from '../db.js';
-import { estado, pode, ehSecretaria, secretariaNome } from '../estado.js';
+import { estado, pode, ehSecretaria, secretariaNome, ativas, etapaDe, ETAPAS_EMPENHADAS, totalReembolsos } from '../estado.js';
 import { esc, $, $$, toast, modal, confirmar, lerForm, mensagemErro, normalizar, dataBR } from '../ui.js';
 import { aguardando, cabecalho, opcoesSecretarias } from './comum.js';
 import { extrairLinhas, analisarOrcamento, ehDiaria } from '../orcamento-pdf.js';
@@ -40,6 +40,31 @@ export function rotuloFicha(sol, campo = 'ficha') {
   return titulo ? `${numero} — ${titulo}` : String(numero);
 }
 
+// ---------- Saldo da ficha: autorizado no orçamento − empenhado em diárias no SISDIFI ----------
+const digitosFonte = t => String(t || '').replace(/\D/g, '').slice(0, 4);
+
+/** Total (diárias + reembolsos) empenhado no SISDIFI numa ficha, no ano do empenho; opcionalmente só de uma fonte. */
+export function empenhadoNaFicha(numero, ano, fonte = '', ignorarId = null) {
+  const n = String(numero || '').trim(), fd = digitosFonte(fonte);
+  return Math.round(ativas(estado.solicitacoes).filter(s => s.id !== ignorarId && ETAPAS_EMPENHADAS.includes(etapaDe(s)) &&
+    String(s.ficha || '').trim() === n && String(s.data_empenho || '').startsWith(String(ano)) &&
+    (!fd || digitosFonte(s.fonte_recursos) === fd))
+    .reduce((t, s) => t + Number(s.valor_total || 0) + totalReembolsos(s), 0) * 100) / 100;
+}
+
+/** Saldo da ficha no orçamento do ano (null se a ficha não estiver no orçamento importado). */
+export function saldoDaFicha(secId, numero, ano, fonte = '', ignorarId = null) {
+  const n = String(numero || '').trim();
+  const linhas = fichasDaSecretaria(secId).filter(f => String(f.ficha).trim() === n && Number(f.ano) === Number(ano) && f.autorizado !== undefined);
+  if (!linhas.length) return null;
+  const autorizado = Number(linhas[0].autorizado_ficha ?? linhas.reduce((t, f) => t + Number(f.autorizado || 0), 0));
+  const empenhado = empenhadoNaFicha(n, ano, '', ignorarId);
+  const lf = fonte && linhas.find(f => digitosFonte(f.fonte_codigo || f.fonte) === digitosFonte(fonte));
+  const fonteInfo = lf ? { nome: lf.fonte, autorizado: Number(lf.autorizado), empenhado: empenhadoNaFicha(n, ano, fonte, ignorarId) } : null;
+  if (fonteInfo) fonteInfo.saldo = Math.round((fonteInfo.autorizado - fonteInfo.empenhado) * 100) / 100;
+  return { ano: Number(ano), autorizado, empenhado, saldo: Math.round((autorizado - empenhado) * 100) / 100, fonte: fonteInfo };
+}
+
 /** Fichas do orçamento mais recente (as sem ano, cadastradas à mão, sempre entram). */
 export function fichasVigentes(secId) {
   const todas = fichasDaSecretaria(secId);
@@ -52,12 +77,17 @@ function linhaFicha(f, comAcoes) {
     <td><strong>${esc(f.ficha)}</strong></td><td><strong>${esc(tituloFicha(f))}</strong>${codigoAcao(f) ? `<small class="muted bloco">${esc(codigoAcao(f))}</small>` : ''}</td><td>${esc(f.elemento || '')}</td>
     <td>${esc(f.fonte || '')}</td><td>${esc(f.descricao || '')}${f.ano ? `<small class="muted bloco">Orçamento ${esc(f.ano)}</small>` : ''}</td>
     <td class="num">${f.autorizado !== undefined ? moedaBR(f.autorizado) : '—'}</td>
+    ${pode.verValores() ? (() => {
+      if (f.autorizado === undefined || !f.ano) return '<td class="num">—</td><td class="num">—</td>';
+      const emp = empenhadoNaFicha(f.ficha, f.ano, f.fonte_codigo || f.fonte), saldo = Number(f.autorizado) - emp;
+      return `<td class="num">${moedaBR(emp)}</td><td class="num"><strong class="${saldo < 0 ? 'erro-txt' : ''}">${moedaBR(saldo)}</strong></td>`;
+    })() : ''}
     ${comAcoes ? `<td class="acoes-linha"><button class="btn btn-sec btn-peq" data-ed-ficha="${esc(f.id)}">✎</button><button class="btn btn-perigo btn-peq" data-del-ficha="${esc(f.id)}">✕</button></td>` : ''}
   </tr>`;
 }
 
 export function telaOrcamento(el) {
-  if (aguardando(el, ['secretarias', 'fichas', 'orcamentos'])) return { viva: true, titulo: 'Orçamento' };
+  if (aguardando(el, ['secretarias', 'fichas', 'orcamentos', ...(pode.verValores() ? ['solicitacoes'] : [])])) return { viva: true, titulo: 'Orçamento' };
   const gestor = pode.contabil();
   const sec = ehSecretaria() ? estado.sessao.secretaria_id : (filtro.secretaria || estado.secretarias.find(s => s.ativo !== false)?.id || '');
   filtro.secretaria = sec;
@@ -91,8 +121,8 @@ export function telaOrcamento(el) {
       <div class="filtros"><label class="campo cresce"><span>Buscar</span><input type="search" id="busca-ficha" value="${esc(filtro.busca)}" placeholder="Ficha, título (ex.: CRAS, atenção básica), fonte…"></label>
         <label class="check"><input type="checkbox" id="so-diarias" ${filtro.soDiarias ? 'checked' : ''}> Somente diárias (3.3.90.14)</label></div>
       <div class="tabela-wrap"><table class="tabela">
-        <thead><tr><th>Ficha</th><th>Título (ação / atividade)</th><th>Elemento de despesa</th><th>Fonte de recurso</th><th>Unidade / uso</th><th class="num">Autorizado</th>${gestor ? '<th></th>' : ''}</tr></thead>
-        <tbody>${fichas.map(f => linhaFicha(f, gestor)).join('') || `<tr><td colspan="${gestor ? 7 : 6}" class="vazio-linha">Nenhuma ficha cadastrada.</td></tr>`}</tbody>
+        <thead><tr><th>Ficha</th><th>Título (ação / atividade)</th><th>Elemento de despesa</th><th>Fonte de recurso</th><th>Unidade / uso</th><th class="num">Autorizado</th>${pode.verValores() ? '<th class="num" title="Diárias e reembolsos empenhados no SISDIFI nesta ficha e fonte, no ano do orçamento">Empenhado</th><th class="num">Saldo</th>' : ''}${gestor ? '<th></th>' : ''}</tr></thead>
+        <tbody>${fichas.map(f => linhaFicha(f, gestor)).join('') || `<tr><td colspan="${6 + (gestor ? 1 : 0) + (pode.verValores() ? 2 : 0)}" class="vazio-linha">Nenhuma ficha cadastrada.</td></tr>`}</tbody>
       </table></div>
     </section>`;
 

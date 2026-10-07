@@ -59,6 +59,24 @@ function tabelaGrupo(titulo, linhas) {
   </table></div></section>`;
 }
 
+/** Resumo por servidor com o extrato individual (para entregar ao servidor ou arquivar no RH). */
+function tabelaServidores(sols) {
+  const g = {};
+  for (const s of sols) {
+    const k = s.servidor_id || s.servidor?.nome;
+    g[k] = g[k] || { id: s.servidor_id, nome: s.servidor?.nome || '—', n: 0, t: 0, pago: 0 };
+    const v = Number(s.valor_total || 0) + totalReembolsos(s);
+    g[k].n++; g[k].t += v; if (etapaDe(s) === 'paga') g[k].pago += v;
+  }
+  const linhas = Object.values(g).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const qs = new URLSearchParams({ mes: filtro.mes, ano: filtro.ano, base: filtro.base }).toString();
+  return `<section class="cartao"><h3>Por servidor</h3><div class="tabela-wrap"><table class="tabela">
+    <thead><tr><th>Servidor</th><th class="num">Solicitações</th><th class="num">Pago</th><th class="num">A pagar</th><th class="num">Total</th><th></th></tr></thead>
+    <tbody>${linhas.map(l => `<tr><td>${esc(l.nome)}</td><td class="num">${l.n}</td><td class="num">${moeda(l.pago)}</td><td class="num">${moeda(l.t - l.pago)}</td><td class="num"><strong>${moeda(l.t)}</strong></td>
+      <td class="acoes-linha">${l.id ? `<a class="btn btn-sec btn-peq" href="#/imprimir/extrato/${esc(l.id)}?${esc(qs)}" title="Extrato de diárias do servidor">🖨 Extrato</a>` : ''}</td></tr>`).join('')
+      || '<tr><td colspan="6" class="vazio-linha">Nada no período.</td></tr>'}</tbody></table></div></section>`;
+}
+
 export function telaRelatorio(el) {
   if (aguardando(el, ['solicitacoes', 'secretarias'])) return { viva: true, titulo: 'Relatório mensal' };
   const restrito = !pode.verValores();
@@ -94,7 +112,7 @@ export function telaRelatorio(el) {
       <div class="kpi ${sols.length > pagas.length ? 'kpi-alerta' : ''}"><span>A pagar</span><strong>${moeda(tot(sols) - tot(pagas))}</strong><small>${sols.length - pagas.length} solicitação(ões)</small></div>
     </div>
     ${tabelaGrupo('Por situação do pagamento', agrupar(sols, situacaoPagamento))}
-    ${tabelaGrupo('Por servidor', agrupar(sols, s => s.servidor?.nome))}
+    ${tabelaServidores(sols)}
     ${ehSecretaria() ? '' : tabelaGrupo('Por secretaria', agrupar(sols, s => s.secretaria_nome))}
     ${tabelaGrupo('Por fonte de recursos', agrupar(sols, s => s.fonte_recursos))}
     ${tabelaGrupo('Por conta de pagamento', agrupar(sols, s => s.conta_pagamento))}

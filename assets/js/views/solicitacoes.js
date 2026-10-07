@@ -3,7 +3,7 @@ import * as db from '../db.js';
 import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ETAPAS, etapaDe, ehSecretaria, separarValores, ETAPAS_EMPENHADAS } from '../estado.js';
 import { formServidor, formPix, podeCompletar, pendencias, ehMotorista } from './servidores.js';
 import { botoesNota, ligarBotoesNota, lerChave } from '../notas.js';
-import { consultarFichas, fichasDaSecretaria, buscarFicha, tituloFicha, rotuloFicha } from './orcamento.js';
+import { consultarFichas, fichasDaSecretaria, buscarFicha, tituloFicha, rotuloFicha, saldoDaFicha } from './orcamento.js';
 import { calcularDiaria, moeda, horasBR, formatarCpf, periodosSobrepostos, GRUPOS, cpfValido } from '../calculo.js';
 import { esc, $, $$, toast, modal, confirmar, hojeISO, dataBR, numeroBR, normalizar, lerForm, baixarArquivo, csv, mensagemErro } from '../ui.js';
 import { listarUFs, listarMunicipios, calcularDistanciaRodoviaria, chaveDistancia } from '../localidades.js';
@@ -682,6 +682,11 @@ function blocoTramitacao(sol) {
         </form>`;
     } else if (e === 'calculada' && pode.contabil()) {
       acao = `<p>Imprima o formulário${(sol.links || []).length ? ' e o conteúdo do link do curso' : ''}, colha a assinatura do Prefeito e registre a autorização.</p>
+        ${(() => { const irmas = mesmoServidorNaEtapa(sol, 'calculada'); return irmas.length ? `<div class="empenho-itens" id="conjunto-prefeito">
+          <p class="titulo-secao">Formulário único para o Prefeito</p>
+          <p class="dica">Outras viagens de <strong>${esc(sol.servidor?.nome)}</strong> aguardando assinatura — marque para imprimir tudo numa folha só e registrar a assinatura de uma vez:</p>
+          ${irmas.map(o => `<label class="check"><input type="checkbox" name="junto" value="${esc(o.id)}" checked> <span><strong>${esc(o.numero)}</strong> · ${esc(o.destino_cidade)}/${esc(o.destino_uf)} · ${esc(dataBR(o.data_hora_saida).slice(0, 10))} — ${moeda(totalGeral(o))}</span></label>`).join('')}
+          <a class="btn btn-sec btn-peq" id="imp-conjunto" href="#">🖨 Imprimir formulário único</a></div>` : ''; })()}
         <form id="f-prefeito" class="linha-form">
           ${pode.verValores() ? `<a class="btn btn-sec" href="#/imprimir/solicitacao/${esc(sol.id)}">🖨 Imprimir formulário</a>` : ''}
           <label class="campo"><span>Data da assinatura do Prefeito</span><input type="date" name="data_autorizacao" value="${hojeISO()}" required></label>
@@ -760,6 +765,12 @@ function blocoTramitacao(sol) {
 /** Diárias + reembolsos de uma solicitação. */
 export const totalGeral = s => Math.round((Number(s.valor_total || 0) + totalReembolsos(s)) * 100) / 100;
 
+/** Outras solicitações do mesmo servidor na mesma etapa (formulário único para o Prefeito). */
+function mesmoServidorNaEtapa(sol, etapa) {
+  return ativas(estado.solicitacoes).filter(o => o.id !== sol.id && o.servidor_id === sol.servidor_id && etapaDe(o) === etapa)
+    .sort((a, b) => String(a.data_hora_saida).localeCompare(String(b.data_hora_saida)));
+}
+
 /** Outras solicitações do mesmo servidor autorizadas e ainda sem empenho (para empenho conjunto). */
 function outrasParaEmpenhar(sol) {
   return ativas(estado.solicitacoes).filter(o => o.id !== sol.id && o.servidor_id === sol.servidor_id && etapaDe(o) === 'autorizada' && !o.numero_empenho)
@@ -780,12 +791,18 @@ function tituloDaFicha(sol, numero) {
 function ligarTituloFicha(raiz, sol) {
   raiz.querySelectorAll('[data-titulo-ficha]').forEach(inp => {
     const dica = inp.parentElement.querySelector('[data-titulo-de-ficha]');
+    const campoData = inp.form?.querySelector('[name=data_empenho]');
     const mostrar = () => {
       const t = tituloDaFicha(sol, inp.value);
       const f = buscarFicha(sol.secretaria_id, inp.value, sol.fonte_recursos);
-      dica.textContent = !inp.value ? '' : t ? t + (f?.descricao ? ' · ' + f.descricao : '') : 'Ficha não encontrada no orçamento desta secretaria.';
+      let txt = !inp.value ? '' : t ? t + (f?.descricao ? ' · ' + f.descricao : '') : 'Ficha não encontrada no orçamento desta secretaria.';
+      const ano = String(campoData?.value || hojeISO()).slice(0, 4);
+      const sd = inp.value && pode.verValores() ? saldoDaFicha(sol.secretaria_id, inp.value, ano, sol.fonte_recursos, sol.id) : null;
+      if (sd) txt += ` · saldo ${ano}: ${moeda(sd.saldo)} de ${moeda(sd.autorizado)}${sd.fonte ? ` (fonte ${String(sd.fonte.nome).split(' — ')[0]}: ${moeda(sd.fonte.saldo)})` : ''}`;
+      dica.textContent = txt;
+      dica.classList.toggle('erro-txt', !!sd && (sd.saldo < totalGeral(sol) || (sd.fonte && sd.fonte.saldo < totalGeral(sol))));
     };
-    inp.addEventListener('input', mostrar); mostrar();
+    inp.addEventListener('input', mostrar); campoData?.addEventListener('change', mostrar); mostrar();
   });
 }
 
@@ -834,12 +851,17 @@ function ligarTramitacao(el, sol) {
     } catch (err) { erro(err); }
   };
   const fp = $('#f-prefeito', el);
+  const juntas = () => [...el.querySelectorAll('#conjunto-prefeito [name=junto]:checked')].map(c => porId('solicitacoes', c.value)).filter(Boolean);
+  $('#imp-conjunto', el)?.addEventListener('click', ev => { ev.preventDefault(); location.hash = '#/imprimir/autorizacao/' + [sol, ...juntas()].map(x => x.id).join(','); });
   if (fp) fp.onsubmit = async e => {
     e.preventDefault();
     const d = lerForm(fp);
     if (!d.data_autorizacao) return toast('Informe a data da assinatura.', 'erro');
-    try { await tramitar(sol, 'autorizada', { data_autorizacao: d.data_autorizacao, autorizacao_registrada_por: quem() }); toast('Autorização do Prefeito registrada.'); }
-    catch (err) { erro(err); }
+    const lista = [sol, ...juntas()];
+    try {
+      for (const x of lista) await tramitar(x, 'autorizada', { data_autorizacao: d.data_autorizacao, autorizacao_registrada_por: quem(), ...(lista.length > 1 ? { autorizacao_conjunta: lista.map(y => y.numero) } : {}) });
+      toast(lista.length > 1 ? `Autorização registrada em ${lista.length} solicitações (${lista.map(y => y.numero).join(', ')}).` : 'Autorização do Prefeito registrada.');
+    } catch (err) { erro(err); }
   };
   const fe = $('#f-empenho', el);
   if (fe) {
@@ -859,6 +881,9 @@ function ligarTramitacao(el, sol) {
       if (fichasDif.length && !(await confirmar(`${fichasDif.map(x => x.numero).join(', ')} estava(m) com outra ficha. Todas ficarão com a ficha ${d.ficha} neste empenho. Continuar?`, { ok: 'Continuar' }))) return;
       const numeros = lista.map(x => x.numero);
       const total = lista.reduce((a, x) => a + Number(x.valor_total || 0) + (x === sol && !comReemb() ? 0 : totalReembolsos(x)), 0);
+      const sd = saldoDaFicha(sol.secretaria_id, d.ficha, d.data_empenho.slice(0, 4), sol.fonte_recursos, sol.id);
+      if (sd && total > (sd.fonte ? Math.min(sd.saldo, sd.fonte.saldo) : sd.saldo) + 0.004 &&
+        !(await confirmar(`O empenho (${moeda(total)}) passa do saldo da ficha ${d.ficha} em ${d.data_empenho.slice(0, 4)}: saldo ${moeda(sd.saldo)}${sd.fonte ? `, na fonte ${moeda(sd.fonte.saldo)}` : ''}. Verifique a dotação (suplementação). Empenhar mesmo assim?`, { ok: 'Empenhar mesmo assim', perigo: true }))) return;
       try {
         for (const x of lista) {
           await tramitar(x, 'empenhada', { ...d, ficha_titulo: tituloDaFicha(x, d.ficha), empenho_conjunto: numeros.length > 1 ? numeros : [] },
