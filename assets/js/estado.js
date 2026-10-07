@@ -111,6 +111,8 @@ export const pode = {
   orcamento: () => ['admin', 'operador', 'consulta', 'secretaria'].includes(perfilAtual()),
   // simulador do cálculo (não grava nada): quem vê valores e o Controle Interno
   simular: () => ['admin', 'operador', 'consulta', 'controle_interno'].includes(perfilAtual()),
+  // relatório do Controle Interno (análises, reprovações, prestação de contas — sem valores)
+  controle: () => ['admin', 'operador', 'consulta', 'controle_interno'].includes(perfilAtual()),
   admin: () => perfilAtual() === 'admin'
 };
 

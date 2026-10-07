@@ -369,6 +369,19 @@ progress { width: 260px; vertical-align: middle; }
   .col-resultado { position: static; }
   .grade-painel, .grade-detalhe { grid-template-columns: 1fr; }
 }
+/* Controle Interno e secretaria: lote, motivos, histórico, novidades, prestação de contas */
+.barra-lote { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; background: var(--azul-claro); border: 1px solid var(--azul-linha); border-left: 4px solid var(--azul); border-radius: var(--raio-p); padding: 10px 14px; margin-bottom: 12px; color: var(--azul-esc); }
+.barra-lote-acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+.tabela .col-lote { width: 1%; text-align: center; }
+.motivos { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; margin-bottom: 10px; }
+.motivos .check { margin: 6px 0; align-items: flex-start; }
+.motivos .check input { margin-top: 2px; flex: none; }
+.historico-sv { margin-top: 10px; border-top: 1px solid var(--borda-leve); padding-top: 6px; }
+.alerta .acoes-alerta { display: inline-flex; gap: 6px; margin-left: 6px; vertical-align: middle; }
+.novidades { border-left: 4px solid var(--ouro); }
+.novidades .rank-val { font-weight: 400; }
+.prestacao .cab-secao span.selo { flex: none; }
+
 /* Itens só do celular ficam escondidos no computador */
 .abas-mobile, .veu, .lateral-usuario, .filtros-alternar { display: none; }
 
@@ -425,6 +438,11 @@ progress { width: 260px; vertical-align: middle; }
   .acoes-form { position: sticky; bottom: calc(var(--abas-altura) + env(safe-area-inset-bottom)); background: linear-gradient(transparent, #fff 30%); padding: 14px 0 6px; z-index: 5; }
   .acoes-form .btn { flex: 1; }
   .modal .acoes-form { position: static; background: none; }
+  .motivos { grid-template-columns: 1fr; }
+  .barra-lote-acoes { width: 100%; }
+  .barra-lote-acoes .btn { flex: 1; }
+  .tabela-cartoes td.col-lote { grid-column: 1 / -1; text-align: left !important; }
+  .tabela-cartoes td.col-lote:empty { display: none; }
 
   /* Filtros recolhidos: só o primeiro campo + botão "Filtros" */
   .filtros { padding: 12px 12px 4px; gap: 10px; }

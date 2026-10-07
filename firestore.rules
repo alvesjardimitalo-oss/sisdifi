@@ -155,6 +155,11 @@ service cloud.firestore {
         && request.resource.data.etapa in ['analise', 'reprovada']
         && !alterou(['analise', 'data_autorizacao', 'autorizacao_registrada_por', 'ficha', 'numero_empenho', 'data_empenho', 'data_liquidacao', 'data_pagamento', 'calculado', 'calculo_por', 'interna', 'visivel_secretaria', 'sequencia', 'ano'])
         && !alterou(camposValor());
+      // Secretaria informa a prestação de contas da viagem (comprovante), em qualquer etapa.
+      allow update: if secretaria()
+        && resource.data.secretaria_id == minhaSecretaria()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['comprovacao', 'atualizado_em', 'atualizado_por'])
+        && request.resource.data.comprovacao.tipo is string;
       // Controle Interno: só aprova ou reprova solicitações em análise (grava apenas a análise e a etapa).
       allow update: if controleInterno()
         && resource.data.etapa == 'analise'

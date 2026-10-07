@@ -25,6 +25,24 @@ const SITUACOES_LISTA = {
 };
 window.addEventListener('sisdifi:exercicio', e => { filtros.ano = String(e.detail); filtros.pagina = 1; });
 let filtroDaUrl = '';
+const marcadasLote = new Set();
+
+/** Controle Interno aprova de uma vez as solicitações marcadas (todas já passaram nas verificações). */
+async function aprovarEmLote(lista) {
+  if (!lista.length) return;
+  const parecer = await confirmar(`Aprovar ${lista.length} solicitação(ões) e enviar à Contabilidade?\n\n${lista.map(s => `${s.numero} · ${s.servidor?.nome} · ${s.destino_cidade}/${s.destino_uf}`).join('\n')}`,
+    { titulo: 'Aprovar em lote', ok: `Aprovar ${lista.length}`, pedirTexto: 'Parecer (vale para todas)', textoInicial: 'Verificações atendidas.' });
+  if (!parecer) return;
+  let ok = 0;
+  for (const s of lista) {
+    try {
+      await tramitar(s, 'aprovada', { analise: { resultado: 'aprovada', parecer, lote: true, por: quem(), em: new Date().toISOString() } }, `${parecer} (aprovação em lote)`);
+      marcadasLote.delete(s.id); ok++;
+    } catch (err) { toast(`${s.numero}: ${mensagemErro(err)}`, 'erro'); }
+  }
+  await db.registrarLog('solicitacao.aprovar_lote', { quantidade: ok, numeros: lista.map(s => s.numero) });
+  toast(`${ok} solicitação(ões) aprovada(s) e enviada(s) à Contabilidade.`);
+}
 
 export function telaListaSolicitacoes(el, { query }) {
   if (aguardando(el, ['solicitacoes', 'secretarias'])) return { viva: true, titulo: 'Solicitações' };
@@ -52,6 +70,11 @@ export function telaListaSolicitacoes(el, { query }) {
   const paginas = Math.max(1, Math.ceil(lista.length / porPagina));
   filtros.pagina = Math.min(filtros.pagina, paginas);
   const pagina = lista.slice((filtros.pagina - 1) * porPagina, filtros.pagina * porPagina);
+  // Aprovação em lote (Controle Interno): só as que estão em análise e passam em todas as verificações
+  const emAnalise = pode.analisar() && !idsLote.length ? lista.filter(s => etapaDe(s) === 'analise' && s.status !== 'cancelada') : [];
+  const aptas = emAnalise.filter(passaVerificacao);
+  for (const id of [...marcadasLote]) if (!aptas.some(s => s.id === id)) marcadasLote.delete(id);
+  const colLote = emAnalise.length > 0;
 
   el.innerHTML = `
     ${cabecalho(idsLote.length ? 'Solicitações criadas' : 'Solicitações',
@@ -69,15 +92,20 @@ export function telaListaSolicitacoes(el, { query }) {
       <label class="campo"><span>Etapa</span><select name="etapa"><option value="">Todas</option>
         ${Object.entries(ETAPAS).map(([k, v]) => `<option value="${k}" ${filtros.etapa === k ? 'selected' : ''}>${esc(v.curto)}</option>`).join('')}</select></label>
     </form>`}
+    ${colLote ? `<div class="barra-lote">
+      <span><strong>${aptas.length}</strong> de ${emAnalise.length} em análise passam em todas as verificações e podem ser aprovadas em lote.${emAnalise.length > aptas.length ? ' As demais têm alerta e precisam de análise individual.' : ''}</span>
+      <span class="barra-lote-acoes">${aptas.length ? '<button type="button" class="btn btn-sec btn-peq" id="lote-todas">Marcar todas sem alerta</button>' : ''}
+        <button type="button" class="btn btn-peq" id="lote-aprovar" ${marcadasLote.size ? '' : 'disabled'}>✓ Aprovar selecionadas (${marcadasLote.size})</button></span></div>` : ''}
     <div class="resumo-linha">
       <span><strong>${lista.length}</strong> solicitação(ões)</span>
       ${vv ? `<span>Diárias: <strong>${moeda(totalDiarias)}</strong></span>
       <span>Reembolsos: <strong>${moeda(totalReemb)}</strong></span>` : ''}
     </div>
     <div class="tabela-wrap"><table class="tabela">
-      <thead><tr><th>Nº</th><th>Servidor</th><th>Destino</th><th>Saída</th><th>Retorno</th>${vv ? '<th class="num">Diárias</th><th class="num">Reemb.</th><th>Empenho</th>' : ''}<th>Etapa</th><th></th></tr></thead>
+      <thead><tr>${colLote ? '<th class="col-lote"><span class="sr-only">Aprovar em lote</span></th>' : ''}<th>Nº</th><th>Servidor</th><th>Destino</th><th>Saída</th><th>Retorno</th>${vv ? '<th class="num">Diárias</th><th class="num">Reemb.</th><th>Empenho</th>' : ''}<th>Etapa</th><th></th></tr></thead>
       <tbody>${pagina.map(s => `
         <tr class="clicavel" data-id="${esc(s.id)}">
+          ${colLote ? `<td class="col-lote" data-parar>${aptas.includes(s) ? `<input type="checkbox" data-lote="${esc(s.id)}" ${marcadasLote.has(s.id) ? 'checked' : ''} aria-label="Selecionar ${esc(s.numero)} para aprovar">` : etapaDe(s) === 'analise' ? '<span class="selo selo-pendente" title="Tem item da verificação não atendido: abra para analisar">verificar</span>' : ''}</td>` : ''}
           <td><strong>${esc(s.numero)}</strong>${s.interna ? '<small class="muted bloco" title="Lançamento direto da Contabilidade — não aparece para Secretaria, Controle Interno e RH">🔒 direta</small>' : ''}</td>
           <td>${esc(s.servidor?.nome)}<small class="muted bloco">${esc(s.secretaria_nome || secretariaNome(s.secretaria_id))}</small></td>
           <td>${esc(s.destino_cidade)}/${esc(s.destino_uf)}<small class="muted bloco">${numeroBR(s.distancia_km)} km</small></td>
@@ -88,7 +116,7 @@ export function telaListaSolicitacoes(el, { query }) {
           <td>${s.numero_empenho ? esc(s.numero_empenho) : '<span class="muted">—</span>'}</td>` : ''}
           <td>${seloEtapa(s)}</td>
           <td class="acoes-linha">${vv ? `<a class="btn btn-sec btn-peq" href="#/imprimir/solicitacao/${esc(s.id)}" title="Imprimir" data-parar>🖨</a>` : ''}</td>
-        </tr>`).join('') || '<tr><td colspan="${vv ? 10 : 7}" class="vazio-linha">Nenhuma solicitação encontrada.</td></tr>'}
+        </tr>`).join('') || `<tr><td colspan="${(vv ? 10 : 7) + (colLote ? 1 : 0)}" class="vazio-linha">Nenhuma solicitação encontrada.</td></tr>`}
       </tbody></table></div>
     ${paginas > 1 ? `<div class="paginacao">${Array.from({ length: paginas }, (_, i) => `<button class="btn btn-peq ${i + 1 === filtros.pagina ? '' : 'btn-sec'}" data-pag="${i + 1}">${i + 1}</button>`).join('')}</div>` : ''}`;
 
@@ -101,6 +129,9 @@ export function telaListaSolicitacoes(el, { query }) {
   $$('[data-pag]', el).forEach(b => b.onclick = () => { filtros.pagina = Number(b.dataset.pag); telaListaSolicitacoes(el, { query }); });
   $$('tr[data-id]', el).forEach(tr => tr.onclick = e => { if (!e.target.closest('[data-parar]')) location.hash = '#/solicitacoes/' + tr.dataset.id; });
   $('#exportar', el)?.addEventListener('click', () => exportarCSV(lista));
+  $$('[data-lote]', el).forEach(c => c.onchange = () => { c.checked ? marcadasLote.add(c.dataset.lote) : marcadasLote.delete(c.dataset.lote); telaListaSolicitacoes(el, { query }); });
+  $('#lote-todas', el)?.addEventListener('click', () => { aptas.forEach(s => marcadasLote.add(s.id)); telaListaSolicitacoes(el, { query }); });
+  $('#lote-aprovar', el)?.addEventListener('click', () => aprovarEmLote(aptas.filter(s => marcadasLote.has(s.id))));
   return { viva: true, titulo: 'Solicitações' };
 }
 
@@ -133,12 +164,23 @@ export function telaNovaSolicitacao(el, { query }) {
   if (!pode.solicitar()) { el.innerHTML = '<div class="vazio">Seu perfil é somente consulta.</div>'; return { titulo: 'Nova solicitação' }; }
   if (aguardando(el, ['servidores', 'secretarias', 'solicitacoes', 'config'])) return { viva: true, titulo: 'Nova solicitação' };
   const servidorInicial = query.get('servidor');
+  // "Nova a partir desta": copia tudo da viagem escolhida, menos as datas
+  const base = query.get('repetir') ? porId('solicitacoes', query.get('repetir')) : null;
+  const rascunho = !base && !servidorInicial ? lerRascunho() : null;
+  let prefill = null, servidores = servidorInicial && porId('servidores', servidorInicial) ? [servidorInicial] : [];
+  if (base) {
+    prefill = { ...copiaDaViagem(base), data_hora_saida: '', data_hora_retorno: '' };
+    servidores = porId('servidores', base.servidor_id) ? [base.servidor_id] : [];
+  }
   el.innerHTML = cabecalho('Nova solicitação de diária', '', ehSecretaria()
     ? 'Preencha os dados da viagem e envie para análise do Controle Interno. Se o servidor não estiver cadastrado, cadastre-o aqui mesmo. Você pode incluir vários servidores da mesma viagem.'
-    : 'O valor é calculado automaticamente enquanto você preenche. Você pode incluir vários servidores da mesma viagem de uma vez.') + '<div id="form-viagem"></div>';
-  montarFormularioViagem($('#form-viagem', el), {
-    modo: 'nova',
-    servidores: servidorInicial && porId('servidores', servidorInicial) ? [servidorInicial] : [],
+    : 'O valor é calculado automaticamente enquanto você preenche. Você pode incluir vários servidores da mesma viagem de uma vez.')
+    + (base ? `<div class="alerta alerta-info">↻ Repetindo a viagem <strong>${esc(base.numero)}</strong> (${esc(base.destino_cidade)}/${esc(base.destino_uf)}): confira os dados e informe as novas datas de saída e chegada.</div>` : '')
+    + (rascunho ? `<div class="alerta alerta-info" id="aviso-rascunho">📝 Você tem um rascunho não enviado, salvo em ${esc(new Date(rascunho.salvo_em).toLocaleString('pt-BR'))}${rascunho.resumo ? ` (${esc(rascunho.resumo)})` : ''}.
+        <span class="acoes-alerta"><button type="button" class="btn btn-peq" id="usar-rascunho">Continuar o rascunho</button> <button type="button" class="btn btn-sec btn-peq" id="descartar-rascunho">Descartar</button></span></div>` : '')
+    + '<div id="form-viagem"></div>';
+  const montar = (sol, ids) => montarFormularioViagem($('#form-viagem', el), {
+    modo: 'nova', servidores: ids, solicitacao: sol, rascunho: true,
     aoSalvar: async (dados, ids) => {
       const lista = ids.map(id => montarDadosSolicitacao(dados, porId('servidores', id)));
       const criadas = await db.criarSolicitacoes(lista);
@@ -148,7 +190,36 @@ export function telaNovaSolicitacao(el, { query }) {
       location.hash = criadas.length === 1 ? `#/solicitacoes/${criadas[0].id}` : `#/solicitacoes?ids=${criadas.map(c => c.id).join(',')}`;
     }
   });
+  montar(prefill, servidores);
+  $('#usar-rascunho', el)?.addEventListener('click', () => {
+    $('#aviso-rascunho', el).remove();
+    montar(rascunho.dados, (rascunho.servidores || []).filter(id => porId('servidores', id)));
+    toast('Rascunho recuperado.');
+  });
+  $('#descartar-rascunho', el)?.addEventListener('click', () => { apagarRascunho(); $('#aviso-rascunho', el).remove(); });
   return { titulo: 'Nova solicitação' };
+}
+
+/** Campos da viagem que valem para repetir (sem datas, valores ou tramitação). */
+function copiaDaViagem(s) {
+  return { secretaria_id: s.secretaria_id, destino_uf: s.destino_uf, destino_cidade: s.destino_cidade, distancia_km: s.distancia_km, dentro_municipio: !!s.dentro_municipio,
+    objetivo: s.objetivo || '', observacoes: s.observacoes || '', links: s.links || [], conta_pagamento: s.conta_pagamento || '', fonte_recursos: s.fonte_recursos || '',
+    ficha_sugerida: s.ficha_sugerida || '', ficha_sugerida_titulo: s.ficha_sugerida_titulo || '' };
+}
+
+// ---------- Rascunho da nova solicitação (fica só neste navegador) ----------
+const chaveRascunho = () => 'sisdifi.rascunho.' + (estado.sessao?.uid || '');
+function lerRascunho() {
+  try { const r = JSON.parse(localStorage.getItem(chaveRascunho()) || 'null'); return r && r.dados ? r : null; } catch { return null; }
+}
+function apagarRascunho() { try { localStorage.removeItem(chaveRascunho()); } catch { /* sem armazenamento */ } }
+function gravarRascunho(dados, servidores) {
+  const temAlgo = servidores.length || dados.destino_cidade || dados.objetivo || dados.data_hora_saida || dados.conta_pagamento;
+  if (!temAlgo) return apagarRascunho();
+  const nomes = servidores.map(id => porId('servidores', id)?.nome).filter(Boolean);
+  const r = { salvo_em: new Date().toISOString(), servidores, resumo: [nomes.join(', '), dados.destino_cidade].filter(Boolean).join(' → '),
+    dados: { ...dados, dentro_municipio: !!dados.dentro_municipio, links: listaLinks(dados) } };
+  try { localStorage.setItem(chaveRascunho(), JSON.stringify(r)); } catch { /* sem armazenamento */ }
 }
 
 function snapshotServidor(sv) {
@@ -212,10 +283,13 @@ function montarDadosSolicitacao(dados, sv, existente = null) {
  * Formulário da viagem.
  * opcoes: { modo: 'nova'|'editar', servidores: [ids], solicitacao, aoSalvar(dados, idsServidores) }
  */
-function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null, aoSalvar }) {
+function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null, aoSalvar, rascunho = false }) {
   const sol = solicitacao || {};
   let selecionados = [...servidores];
-  let fonteKm = sol.distancia_km ? 'salva' : '';
+  let fonteKm = sol.distancia_km ? (modo === 'nova' ? 'anterior' : 'salva') : '';
+  // rascunho: só grava depois que o usuário mexe no formulário (abrir em branco não apaga um rascunho guardado)
+  let mexeu = false, tRasc, form = null;
+  const salvarRascunho = () => { if (!rascunho || !mexeu || !form) return; clearTimeout(tRasc); tRasc = setTimeout(() => gravarRascunho(lerForm(form), selecionados), 400); };
   const multiplo = modo === 'nova';
 
   el.innerHTML = `
@@ -297,7 +371,7 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
     </aside>
   </form>`;
 
-  const form = $('#fv', el);
+  form = $('#fv', el);
   const busca = $('#busca-sv', el), sug = $('#sugestoes', el);
   // Sugestões de conta e fonte: as cadastradas na secretaria + as gerais dos Parâmetros.
   function preencherListasPagamento() {
@@ -320,10 +394,12 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
         ${podeCompletar(s) ? `<button type="button" class="link link-peq" data-pix-sv="${esc(id)}">${pendencias(s).length ? '＋ completar ' + pendencias(s).join(' e ') : 'alterar Pix/cargo'}</button>` : ''}</div>
         ${multiplo || selecionados.length > 1 ? `<button type="button" class="btn-icone" data-remover="${esc(id)}" aria-label="Remover">✕</button>` : ''}</div>`;
     }).join('') || '<p class="muted">Nenhum servidor selecionado.</p>';
-    $$('[data-remover]', el).forEach(b => b.onclick = () => { selecionados = selecionados.filter(x => x !== b.dataset.remover); desenharSelecionados(); recalcular(); });
+    salvarRascunho();
+    $$('[data-remover]', el).forEach(b => b.onclick = () => { mexeu = true; selecionados = selecionados.filter(x => x !== b.dataset.remover); desenharSelecionados(); recalcular(); });
     $$('[data-pix-sv]', el).forEach(b => b.onclick = () => formPix(porId('servidores', b.dataset.pixSv), () => setTimeout(() => { desenharSelecionados(); recalcular(); }, 150)));
   }
   function adicionar(id) {
+    mexeu = true;
     if (!multiplo) selecionados = [id];
     else if (!selecionados.includes(id)) selecionados.push(id);
     const s = porId('servidores', id);
@@ -388,6 +464,7 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
   const chkDentro = $('#dentro-mun', el);
   const textoFonte = {
     salva: 'Distância salva nesta solicitação.',
+    anterior: 'Mesma distância da viagem anterior. Use "recalcular" se quiser conferir.',
     rota: 'Calculada pela rota rodoviária (OpenStreetMap) entre as sedes dos municípios. Pode ajustar se necessário.',
     estimada: 'ESTIMADA (serviço de rotas fora do ar): linha reta × 1,25. Confira antes de salvar.',
     cadastro: 'Serviço de rotas indisponível: usada a distância já registrada para este destino.',
@@ -517,6 +594,9 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
   }
   form.addEventListener('input', e => { if (e.target !== busca) { recalcular(); $('#erro-fv', el).textContent = ''; } });
   form.addEventListener('change', recalcular);
+  // rascunho automático (só na nova solicitação): guarda a cada alteração
+  const mexer = () => { mexeu = true; salvarRascunho(); };
+  form.addEventListener('input', mexer); form.addEventListener('change', mexer);
 
   const selTram = $('#tramitacao', el);
   if (selTram) {
@@ -568,6 +648,7 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
       const km = Math.round(Number(d.distancia_km) * 100) / 100;
       if (pode.contabil() && !d.dentro_municipio && km > 0 && estado.distancias[chave]?.km !== km) db.salvar('distancias', chave, { cidade: d.destino_cidade, uf: d.destino_uf, km }).catch(() => {});
       await aoSalvar(d, selecionados);
+      if (rascunho) { clearTimeout(tRasc); apagarRascunho(); }
     } catch (err) {
       erro.textContent = mensagemErro(err);
       btn.disabled = false; btn.textContent = modo === 'nova' ? (ehSecretaria() ? 'Enviar para análise' : 'Salvar e enviar para análise') : 'Salvar alterações';
@@ -610,8 +691,8 @@ async function gravarSolicitacao(id, dados) {
 }
 
 /** Registra mudança de etapa com histórico (quem, quando, observação). */
-async function tramitar(sol, etapa, campos = {}, obs = '') {
-  const historico = [...(sol.historico || []), { etapa, em: new Date().toISOString(), por: estado.sessao.nome, obs }];
+export async function tramitar(sol, etapa, campos = {}, obs = '', extraHistorico = {}) {
+  const historico = [...(sol.historico || []), { etapa, em: new Date().toISOString(), por: estado.sessao.nome, obs, ...extraHistorico }];
   // Após o empenho, os valores ficam visíveis para o relatório do Controle Interno.
   const liberar = ETAPAS_EMPENHADAS.includes(etapa);
   // Lançamento direto (interno) nunca é liberado para Controle Interno, RH ou Secretaria.
@@ -625,8 +706,8 @@ function datalist(id, itens) {
   return `<datalist id="${id}">${(itens || []).map(x => `<option value="${esc(x)}">`).join('')}</datalist>`;
 }
 
-/** Verificações do Controle Interno sobre o servidor (sem valores). */
-function checklistServidor(sol) {
+/** Itens da verificação automática do Controle Interno: [texto, ok]. */
+export function itensVerificacao(sol) {
   const sv = porId('servidores', sol.servidor_id);
   const itens = [
     ['Servidor cadastrado no sistema', !!sv],
@@ -642,11 +723,123 @@ function checklistServidor(sol) {
   const conflito = ativas(estado.solicitacoes).find(o => o.servidor_id === sol.servidor_id && o.id !== sol.id &&
     periodosSobrepostos(o.data_hora_saida, o.data_hora_retorno, sol.data_hora_saida, sol.data_hora_retorno));
   itens.push([conflito ? `Sem outra viagem no mesmo período — CONFLITO com ${conflito.numero}` : 'Sem outra viagem no mesmo período', !conflito]);
+  return itens;
+}
+/** A solicitação passa em todas as verificações automáticas? (pode entrar na aprovação em lote) */
+export const passaVerificacao = sol => itensVerificacao(sol).every(([, ok]) => ok);
+
+/** Verificações do Controle Interno sobre o servidor (sem valores). */
+function checklistServidor(sol) {
+  const sv = porId('servidores', sol.servidor_id);
+  const itens = itensVerificacao(sol);
   return `<div class="verificacao">
     <p><strong>${esc(sol.servidor?.nome)}</strong> · ${esc(sol.servidor?.cpf ? formatarCpf(sol.servidor.cpf) : cpfExibir(sv))} · ${esc(sol.servidor?.cargo_funcao)} · enquadramento <strong>${esc(GRUPOS[sv?.grupo || sol.servidor?.grupo] || '')}</strong>
       · lotação ${esc(secretariaNome(sv?.secretaria_id) || '—')}${sol.criado_por?.nome ? ` · enviado por ${esc(sol.criado_por.nome)}` : ''}</p>
     <ul class="checklist">${itens.map(([t, okk]) => `<li class="${okk ? 'ok' : 'falha'}">${okk ? '✓' : '✕'} ${esc(t)}</li>`).join('')}</ul>
+    ${historicoServidor(sol)}
   </div>`;
+}
+
+/** Últimas viagens do servidor (sem valores), para o Controle Interno notar padrões. */
+export function historicoServidor(sol) {
+  const outras = ativas(estado.solicitacoes).filter(o => o.servidor_id === sol.servidor_id && o.id !== sol.id && etapaDe(o) !== 'reprovada')
+    .sort((a, b) => String(b.data_hora_saida).localeCompare(String(a.data_hora_saida)));
+  if (!outras.length) return `<p class="dica">Primeira viagem de ${esc(sol.servidor?.nome)} registrada no sistema.</p>`;
+  const umAno = new Date(new Date(sol.data_hora_saida || Date.now()).getTime() - 365 * 864e5).toISOString();
+  const noAno = outras.filter(o => String(o.data_hora_saida) >= umAno);
+  const cont = {};
+  noAno.forEach(o => { const k = `${o.destino_cidade}/${o.destino_uf}`; cont[k] = (cont[k] || 0) + 1; });
+  const [topo, vezes] = Object.entries(cont).sort((a, b) => b[1] - a[1])[0] || [];
+  const mesmoDestino = noAno.filter(o => o.destino_cidade === sol.destino_cidade && o.destino_uf === sol.destino_uf).length;
+  return `<details class="historico-sv" ${mesmoDestino >= 3 ? 'open' : ''}><summary>Últimas viagens de ${esc(sol.servidor?.nome)} (${noAno.length} nos 12 meses anteriores)</summary>
+    <p class="dica">${topo ? `Destino mais frequente: <strong>${esc(topo)}</strong> (${vezes}×).` : ''} ${mesmoDestino ? `Para ${esc(sol.destino_cidade)}: <strong>${mesmoDestino}×</strong> no período.` : ''}</p>
+    <ul class="lista-peq">${outras.slice(0, 8).map(o => `<li><a href="#/solicitacoes/${esc(o.id)}">${esc(o.numero)}</a> · ${esc(o.destino_cidade)}/${esc(o.destino_uf)} · ${esc(dataBR(o.data_hora_saida).slice(0, 10))} a ${esc(dataBR(o.data_hora_retorno).slice(0, 10))} · ${esc(ETAPAS[etapaDe(o)].curto)}${o.comprovacao ? ' · ✓ contas prestadas' : ''}</li>`).join('')}</ul>
+  </details>`;
+}
+
+// ---------- Prestação de contas depois da viagem ----------
+export const TIPOS_COMPROVACAO = ['Certificado de participação', 'Lista de presença', 'Declaração do órgão ou evento', 'Relatório de viagem', 'Outro comprovante'];
+/** A viagem já aconteceu e ainda não tem a prestação de contas informada? */
+export function pendentePrestacao(sol) {
+  if (sol.status === 'cancelada' || sol.interna || sol.comprovacao) return false;
+  if (['reprovada', 'legado', 'analise'].includes(etapaDe(sol))) return false;
+  return !!sol.data_hora_retorno && new Date(sol.data_hora_retorno) < new Date();
+}
+const podePrestarContas = sol => sol.status !== 'cancelada' && (pode.contabil() || (ehSecretaria() && sol.secretaria_id === estado.sessao.secretaria_id));
+
+function blocoPrestacao(sol) {
+  const voltou = sol.data_hora_retorno && new Date(sol.data_hora_retorno) < new Date();
+  if (etapaDe(sol) === 'legado' || (!voltou && !sol.comprovacao) || sol.status === 'cancelada' || sol.interna) return '';
+  const c = sol.comprovacao;
+  const edita = podePrestarContas(sol);
+  return `<section class="cartao prestacao">
+    <div class="cab-secao"><h3>Prestação de contas da viagem</h3>${c ? '<span class="selo selo-emitida">Informada</span>' : '<span class="selo selo-pendente">Pendente</span>'}</div>
+    ${c ? `<dl class="dl">
+        <dt>Comprovante</dt><dd>${esc(c.tipo)}</dd>
+        ${c.descricao ? `<dt>Descrição</dt><dd class="pre">${esc(c.descricao)}</dd>` : ''}
+        ${c.link ? `<dt>Link</dt><dd><a href="${esc(c.link)}" target="_blank" rel="noopener noreferrer">${esc(c.link)}</a></dd>` : ''}
+        <dt>Informado por</dt><dd>${esc(c.por?.nome || '')} em ${esc(dataBR(c.em))}</dd></dl>
+        ${edita ? '<button class="link link-peq" id="alterar-prestacao">alterar</button>' : ''}`
+      : edita ? `<p class="muted">A viagem já aconteceu. Informe o comprovante de que ela foi realizada (certificado, lista de presença, declaração…). Se o documento estiver no Drive ou em outro site, cole o link.</p>` : '<p class="muted">A secretaria ainda não informou o comprovante da viagem.</p>'}
+    ${edita ? `<form id="f-prestacao" class="grade-2" ${c ? 'hidden' : ''}>
+      <label class="campo"><span>Tipo de comprovante</span><select name="tipo" required>${TIPOS_COMPROVACAO.map(t => `<option ${c?.tipo === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+      <label class="campo"><span>Link do documento (opcional)</span><input type="url" name="link" value="${esc(c?.link || '')}" placeholder="https://…"></label>
+      <label class="campo span-2"><span>Descrição</span><textarea name="descricao" rows="2" maxlength="500" placeholder="Ex.: certificado de 16 horas emitido pela SES-MG, arquivado na secretaria.">${esc(c?.descricao || '')}</textarea></label>
+      <div class="acoes-form span-2"><button class="btn" type="submit">✓ Registrar prestação de contas</button></div></form>` : ''}
+  </section>`;
+}
+function ligarPrestacao(el, sol) {
+  $('#alterar-prestacao', el)?.addEventListener('click', () => { $('#f-prestacao', el).hidden = false; $('#alterar-prestacao', el).remove(); });
+  const f = $('#f-prestacao', el);
+  if (!f) return;
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const d = lerForm(f);
+    if (d.link && !/^https?:\/\/[^\s.]+\.[^\s]+$/i.test(d.link)) return toast('Link inválido: use o endereço completo começando com https://', 'erro');
+    if (!d.link && !d.descricao) return toast('Informe a descrição ou o link do comprovante.', 'erro');
+    try {
+      await db.atualizar('solicitacoes', sol.id, { comprovacao: { tipo: d.tipo, descricao: d.descricao || '', link: d.link || '', por: quem(), em: new Date().toISOString() } });
+      await db.registrarLog('solicitacao.prestacao_contas', { numero: sol.numero, tipo: d.tipo });
+      toast('Prestação de contas registrada.');
+    } catch (err) { toast(mensagemErro(err), 'erro'); }
+  };
+}
+
+// ---------- Motivos de reprovação prontos ----------
+export const MOTIVOS_REPROVACAO = [
+  'Falta o convite, a programação ou o comprovante do curso/evento',
+  'Objetivo da viagem genérico ou incompleto',
+  'Período sobreposto a outra viagem do servidor',
+  'Conta de pagamento ou fonte de recurso incorreta',
+  'Cadastro do servidor incompleto (cargo ou chave Pix)',
+  'Destino ou distância divergente',
+  'Servidor de outra secretaria sem justificativa',
+  'Datas ou horários da viagem incorretos'
+];
+/** Janela de reprovação: escolhe os motivos prontos e completa. Devolve { motivos, texto } ou null. */
+export function pedirMotivosReprovacao(titulo) {
+  return new Promise(resolve => {
+    let ok = false;
+    const m = modal({
+      titulo, largura: 620, aoFechar: () => { if (!ok) resolve(null); },
+      corpo: `<form id="f-motivos">
+        <p class="muted">Marque o que precisa ser corrigido. A secretaria vê estes motivos e corrige antes de reenviar.</p>
+        <div class="motivos">${MOTIVOS_REPROVACAO.map((t, i) => `<label class="check"><input type="checkbox" name="m" value="${i}"> ${esc(t)}</label>`).join('')}</div>
+        <label class="campo"><span>Detalhe ou outro motivo</span><textarea name="texto" rows="3" maxlength="500" placeholder="Ex.: anexar a programação do curso com as datas."></textarea></label>
+        <p class="erro-form" id="erro-motivos"></p>
+        <div class="acoes-form"><button type="button" class="btn btn-sec" data-nao>Cancelar</button><button class="btn btn-perigo" type="submit">✕ Reprovar</button></div></form>`
+    });
+    const f = $('#f-motivos', m.el);
+    f.querySelector('[data-nao]').onclick = () => m.fechar();
+    f.onsubmit = e => {
+      e.preventDefault();
+      const motivos = [...f.querySelectorAll('[name=m]:checked')].map(c => MOTIVOS_REPROVACAO[c.value]);
+      const texto = f.texto.value.trim();
+      if (!motivos.length && !texto) return ($('#erro-motivos', m.el).textContent = 'Marque ao menos um motivo ou escreva o detalhe.');
+      ok = true; m.fechar();
+      resolve({ motivos, texto, resumo: [...motivos, texto].filter(Boolean).join('; ') });
+    };
+  });
 }
 
 function blocoLinks(sol) {
@@ -736,7 +929,9 @@ function blocoTramitacao(sol) {
         <label class="campo"><span>Data do pagamento</span><input type="date" name="data_pagamento" value="${hojeISO()}" required></label>
         <button class="btn" type="submit">✓ Paga pelo Financeiro</button></form>`;
     } else if (e === 'reprovada') {
-      acao = `<div class="alerta">Reprovada por ${esc(sol.analise?.por?.nome || '')} em ${esc(dataBR(sol.analise?.em))}: ${esc(sol.analise?.motivo || '')}<br>
+      acao = `<div class="alerta">Reprovada por ${esc(sol.analise?.por?.nome || '')} em ${esc(dataBR(sol.analise?.em))}${(sol.analise?.motivos || []).length
+          ? `. O que corrigir:<ul>${sol.analise.motivos.map(x => `<li>${esc(x)}</li>`).join('')}</ul>${sol.analise.detalhe ? `<p><strong>Detalhe:</strong> ${esc(sol.analise.detalhe)}</p>` : ''}`
+          : `: ${esc(sol.analise?.motivo || '')}<br>`}
         ${pode.solicitar() ? 'Corrija a viagem em "Editar viagem" e salve: ela volta para análise do Controle Interno.' : ''}</div>`;
     } else if (e === 'legado' && pode.contabil()) {
       acao = `<form id="f-legado" class="grade-3">
@@ -843,10 +1038,10 @@ function ligarTramitacao(el, sol) {
       } catch (err) { erro(err); }
     };
     $('#reprovar', el).onclick = async () => {
-      const motivo = await confirmar(`Reprovar a solicitação ${sol.numero}? Quem lançou poderá corrigir e reenviar.`, { titulo: 'Reprovar', ok: 'Reprovar', perigo: true, pedirTexto: 'Motivo da reprovação' });
-      if (!motivo) return;
+      const r = await pedirMotivosReprovacao(`Reprovar a solicitação ${sol.numero}`);
+      if (!r) return;
       try {
-        await tramitar(sol, 'reprovada', { analise: { resultado: 'reprovada', motivo, parecer: fa.parecer.value.trim(), por: quem(), em: new Date().toISOString() } }, motivo);
+        await tramitar(sol, 'reprovada', { analise: { resultado: 'reprovada', motivo: r.resumo, motivos: r.motivos, detalhe: r.texto, parecer: fa.parecer.value.trim(), por: quem(), em: new Date().toISOString() } }, r.resumo, { motivos: r.motivos });
         toast('Solicitação reprovada.');
       } catch (err) { erro(err); }
     };
@@ -994,12 +1189,14 @@ export function telaDetalheSolicitacao(el, { args, query }) {
     ${cabecalho(`Solicitação ${sol.numero}`, `
       ${pode.verValores() && (sol.calculado || !sol.etapa) ? `<a class="btn" href="#/imprimir/solicitacao/${esc(sol.id)}">🖨 Imprimir</a>` : ''}
       ${editavel ? `<a class="btn btn-sec" href="#/solicitacoes/${esc(sol.id)}?editar=1">✎ Editar viagem</a>` : ''}
+      ${pode.solicitar() && (!ehSecretaria() || sol.secretaria_id === estado.sessao.secretaria_id) ? `<a class="btn btn-sec" href="#/solicitacoes/nova?repetir=${esc(sol.id)}" title="Abre uma nova solicitação com os mesmos dados, faltando só as datas">↻ Nova a partir desta</a>` : ''}
       ${podeCancelar(sol) ? '<button class="btn btn-sec" id="cancelar-sol">Cancelar solicitação</button>' : ''}
       ${pode.admin() && sol.status === 'cancelada' ? '<button class="btn btn-sec" id="reativar-sol">Reativar</button>' : ''}
       ${pode.admin() ? '<button class="btn btn-perigo" id="excluir-sol">Excluir</button>' : ''}`,
       `${seloEtapa(sol)} &nbsp; Emitida em ${esc(dataBR(sol.data_solicitacao))}${sol.criado_por?.nome ? ' por ' + esc(sol.criado_por.nome) : ''}`)}
     ${sol.status === 'cancelada' ? `<div class="alerta">Solicitação cancelada${sol.motivo_cancelamento ? ': ' + esc(sol.motivo_cancelamento) : ''}.</div>` : ''}
     ${blocoTramitacao(sol)}
+    ${blocoPrestacao(sol)}
     <div class="grade-detalhe">
       <section class="cartao">
         <h3>Servidor</h3>
@@ -1065,6 +1262,7 @@ export function telaDetalheSolicitacao(el, { args, query }) {
     </section>${pode.verValores() ? '' : '-->'}`;
 
   ligarTramitacao(el, sol);
+  ligarPrestacao(el, sol);
   ligarBotoesNota(el);
   $('#add-reemb', el)?.addEventListener('click', () => formReembolso(sol, null));
   $$('[data-editar-r]', el).forEach(b => b.onclick = () => formReembolso(sol, reemb.find(r => r.id === b.dataset.editarR)));

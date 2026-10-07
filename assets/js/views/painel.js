@@ -7,6 +7,7 @@ import { moeda } from '../calculo.js';
 import { esc, $, $$, dataBR, lerForm } from '../ui.js';
 import { aguardando, cabecalho, anosDisponiveis, MESES } from './comum.js';
 import { analisarPendencias } from './conferencia.js';
+import { pendentePrestacao } from './solicitacoes.js';
 
 const filtro = { ano: String(new Date().getFullYear()), mes: '' };
 window.addEventListener('sisdifi:exercicio', e => { filtro.ano = String(e.detail); filtro.mes = ''; });
@@ -164,6 +165,9 @@ function painelSemValores(el) {
     ${cabecalho('Painel', pode.solicitar() ? '<a class="btn" href="#/solicitacoes/nova">＋ Nova solicitação</a>' : '',
       `Olá, ${esc(estado.sessao.nome.split(' ')[0])}. ${sec ? 'Solicitações da ' + esc(estado.sessao.secretaria_nome || secretariaNome(estado.sessao.secretaria_id)) + '.' : 'Solicitações para conferência do Controle Interno.'}`)}
     ${sec && !estado.sessao.secretaria_id ? '<div class="alerta">Seu usuário ainda não está vinculado a uma secretaria. Peça ao administrador para ajustar em Usuários.</div>' : ''}
+    ${sec ? blocoNovidades() : ''}
+    ${sec ? avisoPrestacao(sols) : ''}
+    ${!sec ? `<a class="alerta alerta-link alerta-info" href="#/controle">📊 Relatório do Controle Interno: análises, reprovações por secretaria, motivos mais comuns e prestações de contas pendentes.</a>` : ''}
     <div class="fila">${cards.map(([e, t, n]) => `<a href="#/solicitacoes?etapa=${e}"><div class="kpi ${n ? '' : 'zero'} ${(e === 'reprovada' && sec || e === 'analise' && !sec) && n ? 'kpi-alerta' : ''}"><span>${esc(t)}</span><strong>${n}</strong></div></a>`).join('')}</div>
     <section class="cartao"><h3>Últimas solicitações</h3>
       <div class="tabela-wrap"><table class="tabela"><thead><tr><th>Nº</th><th>Servidor</th>${sec ? '' : '<th>Secretaria</th>'}<th>Destino</th><th>Saída</th><th>Etapa</th></tr></thead>
@@ -171,5 +175,56 @@ function painelSemValores(el) {
         <td>${esc(s.destino_cidade)}/${esc(s.destino_uf)}</td><td>${esc(dataBR(s.data_hora_saida))}</td><td>${seloEtapa(s)}</td></tr>`).join('') || `<tr><td colspan="${sec ? 5 : 6}" class="vazio-linha">Nenhuma solicitação ainda.</td></tr>`}</tbody></table></div>
     </section>`;
   el.querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = () => { location.hash = '#/solicitacoes/' + tr.dataset.id; });
+  $('#novidades-visto', el)?.addEventListener('click', () => { marcarVisto(); painelSemValores(el); });
   return { viva: true, titulo: 'Painel' };
+}
+
+// ---------- Novidades desde o último acesso (o que outras pessoas fizeram nas solicitações da secretaria) ----------
+const chaveVisto = () => 'sisdifi.visto.' + estado.sessao.uid;
+function ultimoVisto() {
+  try {
+    const v = localStorage.getItem(chaveVisto());
+    if (v) return v;
+    // primeiro acesso neste aparelho: mostra a última semana
+    const ini = new Date(Date.now() - 7 * 864e5).toISOString();
+    localStorage.setItem(chaveVisto(), ini);
+    return ini;
+  } catch { return new Date(Date.now() - 7 * 864e5).toISOString(); }
+}
+function marcarVisto() { try { localStorage.setItem(chaveVisto(), new Date().toISOString()); } catch { /* sem armazenamento */ } }
+const TEXTO_ETAPA = { aprovada: 'aprovada pelo Controle Interno', reprovada: 'reprovada pelo Controle Interno', calculada: 'calculada pela Contabilidade', autorizada: 'autorizada pelo Prefeito', empenhada: 'empenhada', liquidada: 'liquidada', paga: 'paga', analise: 'voltou para análise' };
+
+export function novidadesDesde(desde, sols = estado.solicitacoes) {
+  const eu = estado.sessao.nome;
+  const lista = [];
+  for (const s of sols) {
+    const evs = (s.historico || []).filter(h => h.em > desde && h.por !== eu && TEXTO_ETAPA[h.etapa]);
+    if (evs.length) lista.push({ s, h: evs[evs.length - 1] });
+  }
+  return lista.sort((a, b) => b.h.em.localeCompare(a.h.em));
+}
+function blocoNovidades() {
+  const lista = novidadesDesde(ultimoVisto());
+  if (!lista.length) return '';
+  const cont = {};
+  lista.forEach(x => { cont[x.h.etapa] = (cont[x.h.etapa] || 0) + 1; });
+  const NOMES = { aprovada: ['aprovada', 'aprovadas'], reprovada: ['reprovada', 'reprovadas'], calculada: ['calculada', 'calculadas'], autorizada: ['autorizada pelo Prefeito', 'autorizadas pelo Prefeito'],
+    empenhada: ['empenhada', 'empenhadas'], liquidada: ['liquidada', 'liquidadas'], paga: ['paga', 'pagas'], analise: ['de volta à análise', 'de volta à análise'] };
+  const resumo = Object.entries(cont).map(([e, n]) => `${n} ${NOMES[e][n > 1 ? 1 : 0]}`).join(', ');
+  return `<section class="cartao novidades">
+    <div class="cab-secao"><h3>🔔 ${lista.length} novidade(s) desde o seu último acesso</h3><button type="button" class="btn btn-sec btn-peq" id="novidades-visto">Marcar como visto</button></div>
+    <p class="muted">${esc(resumo)}.</p>
+    <ul class="lista-rank">${lista.slice(0, 8).map(({ s, h }) => `<li><span class="rank-txt"><a href="#/solicitacoes/${esc(s.id)}"><strong>${esc(s.numero)}</strong> · ${esc(s.servidor?.nome)} · ${esc(s.destino_cidade)}/${esc(s.destino_uf)}</a>
+      <small>${esc(TEXTO_ETAPA[h.etapa])}${h.por ? ' por ' + esc(h.por) : ''} em ${esc(new Date(h.em).toLocaleString('pt-BR').slice(0, 17))}${h.etapa === 'reprovada' && h.obs ? ' — ' + esc(h.obs) : ''}</small></span>
+      <span class="rank-val">${seloEtapa(s)}</span></li>`).join('')}</ul>
+    ${lista.length > 8 ? `<p class="dica">E mais ${lista.length - 8}. Veja todas em Solicitações.</p>` : ''}
+  </section>`;
+}
+
+function avisoPrestacao(sols) {
+  const pend = sols.filter(pendentePrestacao).sort((a, b) => String(a.data_hora_retorno).localeCompare(String(b.data_hora_retorno)));
+  if (!pend.length) return '';
+  return `<div class="alerta">📎 ${pend.length} viagem(ns) já realizada(s) sem prestação de contas. Abra cada uma e informe o comprovante (certificado, lista de presença, declaração):
+    <ul>${pend.slice(0, 6).map(s => `<li><a href="#/solicitacoes/${esc(s.id)}">${esc(s.numero)}</a> · ${esc(s.servidor?.nome)} · ${esc(s.destino_cidade)}/${esc(s.destino_uf)} · voltou em ${esc(dataBR(s.data_hora_retorno).slice(0, 10))}</li>`).join('')}</ul>
+    ${pend.length > 6 ? `<small>E mais ${pend.length - 6}.</small>` : ''}</div>`;
 }
