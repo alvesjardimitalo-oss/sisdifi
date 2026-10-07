@@ -341,16 +341,15 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
       db.lerDoc('cpfs', dig).then(r => { porCpf[dig] = r?.servidor_id || ''; if (r) busca.oninput(); }).catch(() => {});
     }
     if (t.length < 2) { sug.innerHTML = ''; sug.classList.remove('aberta'); return; }
-    // Secretaria vê os servidores da própria secretaria e os motoristas de todas as secretarias;
-    // outros servidores de outras secretarias, só digitando o CPF completo.
+    // Secretaria vê os servidores da própria secretaria e os motoristas de todas as secretarias (as regras também garantem).
     const minha = s => s.secretaria_id === estado.sessao.secretaria_id;
-    const daMinha = s => !ehSecretaria() || minha(s) || ehMotorista(s) || (dig.length === 11 && (s.cpf === dig || s.id === porCpf[dig]));
+    const daMinha = s => !ehSecretaria() || minha(s) || ehMotorista(s);
     const r = estado.servidores.filter(s => s.ativo !== false && !selecionados.includes(s.id) && daMinha(s) &&
       (normalizar(s.nome).includes(t) || normalizar(s.cargo_funcao).includes(t) || (dig.length >= 3 && String(s.cpf || '').includes(dig)) || s.id === porCpf[dig]))
       .sort((a, b) => (minha(b) - minha(a)) || a.nome.localeCompare(b.nome, 'pt-BR')).slice(0, 15);
     sug.innerHTML = r.map(s => `<button type="button" role="option" data-id="${esc(s.id)}"><strong>${esc(s.nome)}</strong>
       <small>${esc(cpfExibir(s))} · ${esc(s.cargo_funcao || 'cargo a informar')} · ${esc(secretariaNome(s.secretaria_id) || 'sem secretaria')}${ehSecretaria() && !minha(s) && ehMotorista(s) ? ' · motorista de outra secretaria' : ''}</small></button>`).join('')
-      || `<div class="sem-resultado">Nenhum servidor encontrado.${podeCadastrarServidor() ? ' <button type="button" class="link" data-novo-sv>Cadastrar novo servidor</button>' : ''}${ehSecretaria() ? '<br><small>Motoristas de todas as secretarias aparecem na busca (digite "motorista" para listar). Outro servidor de outra secretaria: digite o CPF completo.</small>' : ''}</div>`;
+      || `<div class="sem-resultado">Nenhum servidor encontrado.${podeCadastrarServidor() ? ' <button type="button" class="link" data-novo-sv>Cadastrar novo servidor</button>' : ''}${ehSecretaria() ? `<br><small>${porCpf[dig] && !porId('servidores', porCpf[dig]) ? 'Este CPF está cadastrado em outra secretaria. Peça à Contabilidade a transferência do servidor.' : 'Aparecem os servidores da sua secretaria e os motoristas de todas (digite "motorista" para listar).'}</small>` : ''}</div>`;
     sug.querySelector('[data-novo-sv]')?.addEventListener('click', () => cadastrarRapido(busca.value));
     sug.classList.add('aberta');
     $$('button[data-id]', sug).forEach(b => b.onclick = () => adicionar(b.dataset.id));

@@ -7,6 +7,9 @@ import { cpfValido, formatarCpf } from './calculo.js';
 
 export const CAMPOS_PRIVADOS = ['cpf', 'chave_pix', 'cpf_anterior'];
 
+/** Motoristas ficam visíveis a todas as secretarias (indicador público "motorista", conferido nas regras). */
+export const cargoMotorista = cargo => /motorista/i.test(String(cargo || ''));
+
 export function mascararCpf(cpf) {
   const c = String(cpf || '').replace(/\D/g, '');
   return c.length === 11 ? `***.${c.slice(3, 6)}.${c.slice(6, 9)}-**` : '';
@@ -24,6 +27,7 @@ export function separarServidor(dados) {
     publico.cpf_mascara = mascararCpf(privado.cpf);
     publico.cpf_valido = cpfValido(privado.cpf);
   }
+  if ('cargo_funcao' in publico) publico.motorista = cargoMotorista(publico.cargo_funcao);
   if ('chave_pix' in privado) publico.tem_pix = !!String(privado.chave_pix || '').trim();
   if ('secretaria_id' in publico && Object.keys(privado).length) privado.secretaria_id = publico.secretaria_id || null;
   return { publico, privado };

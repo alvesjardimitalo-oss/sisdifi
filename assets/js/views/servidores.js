@@ -5,7 +5,7 @@ import { GRUPOS, formatarCpf, limparCpf, cpfValido, moeda, analisarPix } from '.
 import { esc, $, $$, toast, modal, dataBR, numeroBR, normalizar, lerForm, mensagemErro, baixarArquivo, csv, hojeISO } from '../ui.js';
 import { aguardando, cabecalho, selo, opcoesSecretarias, anosDisponiveis, MESES } from './comum.js';
 import { extrairLinhas } from '../orcamento-pdf.js';
-import { temPix, cpfOk, cpfExibir, pixExibir } from '../privacidade.js';
+import { temPix, cpfOk, cpfExibir, pixExibir, cargoMotorista } from '../privacidade.js';
 import { analisarFolha, cruzarFolha, cargoDaFolha } from '../folha-pdf.js';
 import { analisarRelacaoServidores, compararComCadastro, secretariaDaLotacao, grupoSugerido, nomeProprio, SITUACOES } from '../servidores-pdf.js';
 
@@ -36,7 +36,7 @@ export function telaServidores(el) {
 
   el.innerHTML = `
     ${cabecalho('Servidores', `${ehSecretaria() ? '' : '<button class="btn btn-sec" id="exp-sv">⭳ Exportar</button>'}${pode.editar() ? '<button class="btn btn-sec" id="revisar-cat">⚖ Revisar categorias</button><button class="btn btn-sec" id="importar-rel">📄 Importar relação (PDF)</button><button class="btn btn-sec" id="importar-folha">📄 Atualizar pela folha (PDF)</button>' : ''}${pode.solicitar() ? '<button class="btn" id="novo-sv">＋ Novo servidor</button>' : ''}`,
-      ehSecretaria() ? 'Pesquise no banco de servidores da Prefeitura. Complete a chave Pix e o cargo de quem estiver pendente, ou cadastre um servidor novo.' : '')}
+      ehSecretaria() ? 'Aqui aparecem os servidores da sua secretaria e os motoristas de todas as secretarias. Complete a chave Pix e o cargo de quem estiver pendente, ou cadastre um servidor novo.' : '')}
     ${semPix ? `<div class="alerta">⚠ ${semPix} servidor(es) ativo(s) sem chave Pix. Use o filtro "Pendências" → "Sem chave Pix" e clique no botão "＋" da linha para completar.</div>` : ''}
     ${semCargo ? `<div class="alerta">⚠ ${semCargo} servidor(es) ativo(s) sem cargo/função informado. Use o filtro "Pendências" → "Sem cargo" e clique no botão "＋" da linha.</div>` : ''}
     ${cpfsInvalidos && !ehSecretaria() ? `<div class="alerta">⚠ ${cpfsInvalidos} servidor(es) ativo(s) com CPF de dígito verificador inválido. Eles aparecem marcados como "CPF inválido" na lista.</div>` : ''}
@@ -142,8 +142,9 @@ export function formServidor(s, { rapido = false, inicial = {}, secretariaFixa =
     let dup = estado.servidores.find(x => x.cpf === cpf && x.id !== s?.id);
     if (!dup) {
       // a secretaria não vê o CPF de servidores de outras pastas: confere no índice de CPFs
-      try { const idx = await db.lerDoc('cpfs', cpf); if (idx && idx.servidor_id !== s?.id) dup = porId('servidores', idx.servidor_id) || { id: idx.servidor_id, nome: 'outro servidor já cadastrado' }; } catch { /* sem acesso: segue */ }
+      try { const idx = await db.lerDoc('cpfs', cpf); if (idx && idx.servidor_id !== s?.id) dup = porId('servidores', idx.servidor_id) || { id: idx.servidor_id, nome: '', oculto: true }; } catch { /* sem acesso: segue */ }
     }
+    if (dup?.oculto) return (erro.textContent = 'Este CPF já está cadastrado em outra secretaria. Para pedir diária para ele, peça à Contabilidade a transferência do servidor (motoristas aparecem para todas as secretarias).');
     if (dup) {
       if (rapido && aoSalvar && dup.ativo !== false) { toast(`${dup.nome} já estava cadastrado — incluído na solicitação.`, 'aviso'); m.fechar(); aoSalvar(dup.id); return; }
       return (erro.textContent = `Já existe servidor com este CPF: ${dup.nome}${dup.ativo === false ? ' (inativo — peça à Contabilidade para reativar)' : ''}.`);
@@ -174,7 +175,7 @@ export function podeAlterarCargo(sv) {
 }
 export const podeCompletar = sv => podeAlterarPix(sv) || podeAlterarCargo(sv);
 /** Motoristas podem receber diárias de qualquer secretaria. */
-export const ehMotorista = sv => /motorista/.test(normalizar(sv?.cargo_funcao));
+export const ehMotorista = sv => !!sv && (sv.motorista === true || cargoMotorista(sv.cargo_funcao));
 export const pendencias = sv => [!temPix(sv) && 'Pix', !sv.cargo_funcao && 'cargo'].filter(Boolean);
 
 /** Janela "Completar cadastro": chave Pix e cargo/função de um servidor já cadastrado. */

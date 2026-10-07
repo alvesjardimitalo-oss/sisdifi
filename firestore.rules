@@ -73,11 +73,20 @@ service cloud.firestore {
       return !request.resource.data.keys().hasAny(['cpf', 'chave_pix', 'cpf_anterior'])
         || (resource != null && !alterou(['cpf', 'chave_pix', 'cpf_anterior'])); // registros antigos até a migração
     }
+    // "motorista" acompanha o cargo: quem tem "motorista" no cargo aparece para todas as secretarias.
+    function motoristaConfere() {
+      return request.resource.data.get('motorista', false) == request.resource.data.get('cargo_funcao', '').lower().matches('.*motorista.*');
+    }
     match /servidores/{id} {
-      allow read: if ativo();
+      // Secretaria vê só os servidores da própria pasta e os motoristas de todas as secretarias.
+      allow read: if ativo() && (!secretaria()
+        || resource.data.secretaria_id == minhaSecretaria()
+        || resource.data.motorista == true);
       // Secretaria completa o cadastro: cargo quando está em branco (ou servidor da própria pasta) e o indicador de Pix.
       allow update: if secretaria()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['cargo_funcao', 'tem_pix', 'atualizado_em', 'atualizado_por'])
+        && (resource.data.get('secretaria_id', '') == minhaSecretaria() || resource.data.get('motorista', false) == true)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['cargo_funcao', 'motorista', 'tem_pix', 'atualizado_em', 'atualizado_por'])
+        && motoristaConfere()
         && (!alterou(['tem_pix']) || request.resource.data.tem_pix == true)
         && (!alterou(['cargo_funcao']) || (request.resource.data.cargo_funcao is string && request.resource.data.cargo_funcao.size() > 0
             && (resource.data.get('cargo_funcao', '') == '' || resource.data.get('secretaria_id', '') == minhaSecretaria())));
@@ -86,6 +95,7 @@ service cloud.firestore {
         && request.resource.data.secretaria_id == minhaSecretaria()
         && request.resource.data.nome is string
         && request.resource.data.grupo == 'DEMAIS_SERVIDORES'
+        && motoristaConfere()
         && semDadoPessoal();
       allow create, update: if operador()
         && request.resource.data.nome is string
