@@ -4,6 +4,7 @@
 // =============================================================
 import * as db from './db.js';
 import { cargoMotorista } from './privacidade.js';
+import { iniciarResponsivo } from './responsivo.js';
 import { estado, mesclarConfig, PERFIS, pode, ehSecretaria, acessoRestrito, secretariaNome, CAMPOS_VALOR, etapaDe, definirExercicio, definirHistorico, ehRH } from './estado.js';
 import { esc, $, toast, mensagemErro, lerForm } from './ui.js';
 import { telaPainel } from './views/painel.js';
@@ -18,7 +19,7 @@ import { telaConferencia } from './views/conferencia.js';
 import { telaRelatorio } from './views/relatorio.js';
 import { telaOrcamento } from './views/orcamento.js';
 
-const VERSAO = '2.6.0';
+const VERSAO = '3.0.0';
 const ICONE_GOOGLE = '<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>';
 const raiz = document.getElementById('app');
 let ouvintes = [];
@@ -39,6 +40,7 @@ const ICONES = {
   chave: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M14.5 8.5l2.5 2.5"/>',
   importar: '<path d="M12 3v12M7 10l5 5 5-5M4 17v2.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V17"/>',
   historico: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
   calendario: '<rect x="3" y="4.5" width="18" height="16.5" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/>'
 };
 const icone = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONES[n] || ''}</svg>`;
@@ -60,6 +62,11 @@ const MENU = [
   { rota: 'importar', icone: 'importar', texto: 'Importar / Backup', admin: true },
   { rota: 'auditoria', icone: 'historico', texto: 'Auditoria', admin: true }
 ];
+
+iniciarResponsivo();
+
+// Atalhos da barra inferior no celular (os 4 primeiros que o perfil pode usar) + "Menu"
+const ABAS = [['painel', 'Painel'], ['solicitacoes/nova', 'Nova'], ['solicitacoes', 'Solicitações'], ['servidores', 'Servidores'], ['relatorio', 'Relatório']];
 
 // ---------------- Inicialização ----------------
 if (!db.configurado) {
@@ -120,7 +127,7 @@ async function telaLogin() {
   try { primeiroAcesso = !(await db.bootstrapExiste()); } catch { /* offline: mostra login normal */ }
   if (primeiroAcesso) return telaPrimeiroAdmin();
   raiz.innerHTML = `
-    <div class="login-fundo"><form class="login-caixa" id="form-login" novalidate>
+    <div class="login-fundo com-capa"><div class="login-capa"><img src="assets/img/brasao.png" alt="" width="88" height="88"><div><strong>SISDIFI</strong><p>Diárias de viagem dos servidores municipais: da solicitação ao pagamento, num só lugar.</p></div></div><form class="login-caixa" id="form-login" novalidate>
       ${marca()}
       <h2>Entrar</h2>
       <label class="campo"><span>E-mail</span><input type="email" name="email" autocomplete="username" required></label>
@@ -362,16 +369,20 @@ function atualizarTelaViva() {
 // ---------------- Layout e rotas ----------------
 function montarLayout() {
   const s = estado.sessao;
+  const itensMenu = MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.solicitar()) && (!m.interno || !acessoRestrito()) && (!m.servidores || !acessoRestrito() || ehSecretaria()) && (!m.valores || pode.verValores()) && (!m.simulador || pode.simular()) && (!m.relatorio || pode.relatorio()) && (!m.orcamento || pode.orcamento()) && (!m.contabil || pode.contabil()));
+  const abas = ABAS.map(([r, t]) => [itensMenu.find(m => m.rota === r), t]).filter(([m]) => m).slice(0, 4);
   raiz.innerHTML = `
     <div class="layout">
       <aside class="lateral" id="lateral">
         ${marca()}
-        <nav>${MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.solicitar()) && (!m.interno || !acessoRestrito()) && (!m.servidores || !acessoRestrito() || ehSecretaria()) && (!m.valores || pode.verValores()) && (!m.simulador || pode.simular()) && (!m.relatorio || pode.relatorio()) && (!m.orcamento || pode.orcamento()) && (!m.contabil || pode.contabil())).map(m => m.grupo
+        <nav>${itensMenu.map(m => m.grupo
           ? `<div class="menu-grupo">${esc(m.grupo)}</div>`
           : `<a href="#/${m.rota}" data-rota="${m.rota}"><span class="ico" aria-hidden="true">${icone(m.icone)}</span>${esc(m.texto)}</a>`).join('')}
         </nav>
+        <div class="lateral-usuario"><a href="#/conta">${esc(s.nome)}<small>${esc(PERFIS[s.perfil] || s.perfil)}</small></a></div>
         <div class="versao">v${VERSAO}</div>
       </aside>
+      <div class="veu" id="veu" hidden></div>
       <div class="principal">
         <header class="topo">
           <button class="btn-icone menu-mobile" id="abrir-menu" aria-label="Menu">☰</button>
@@ -386,12 +397,19 @@ function montarLayout() {
         </header>
         <main id="conteudo" tabindex="-1"></main>
       </div>
+      <nav class="abas-mobile" aria-label="Atalhos">
+        ${abas.map(([m, t]) => `<a href="#/${m.rota}" data-aba="${m.rota}"><span class="ico" aria-hidden="true">${icone(m.icone)}</span>${esc(t)}</a>`).join('')}
+        <button type="button" id="abas-menu"><span class="ico" aria-hidden="true">${icone('menu')}</span>Menu</button>
+      </nav>
     </div>`;
   $('#btn-sair').onclick = () => db.sair();
   $('#sel-exercicio').onchange = e => definirExercicio(e.target.value);
   $('#chk-historico')?.addEventListener('change', e => definirHistorico(e.target.checked));
   preencherExercicios();
-  $('#abrir-menu').onclick = () => $('#lateral').classList.toggle('aberta');
+  const menu = abrir => { $('#lateral').classList.toggle('aberta', abrir); $('#veu').hidden = !abrir; document.body.classList.toggle('sem-rolagem', abrir); };
+  $('#abrir-menu').onclick = () => menu(!$('#lateral').classList.contains('aberta'));
+  $('#abas-menu').onclick = () => menu(true);
+  $('#veu').onclick = () => menu(false);
 }
 
 const ROTAS = [
@@ -464,7 +482,13 @@ function desenharTela(atualizacao) {
     const r = a.dataset.rota;
     a.classList.toggle('ativo', caminho === r || (r !== 'solicitacoes/nova' && caminho.startsWith(r + '/') && !caminho.startsWith('solicitacoes/nova')));
   });
+  document.querySelectorAll('.abas-mobile a').forEach(a => {
+    const r = a.dataset.aba;
+    a.classList.toggle('ativo', caminho === r || (r === 'solicitacoes' && /^solicitacoes\/(?!nova)/.test(caminho)) || (r !== 'solicitacoes/nova' && r !== 'solicitacoes' && caminho.startsWith(r + '/')));
+  });
   $('#lateral')?.classList.remove('aberta');
+  if ($('#veu')) $('#veu').hidden = true;
+  document.body.classList.remove('sem-rolagem');
   if (atualizacao) window.scrollTo(0, rolagem); else window.scrollTo(0, 0);
 }
 

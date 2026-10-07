@@ -36,7 +36,7 @@
 @page { size: A4; margin: 6mm; }
 @media print {
   body, body.modo-impressao { background: #fff !important; }
-  .lateral, .topo, .barra-impressao, #toasts { display: none !important; }
+  .lateral, .topo, .barra-impressao, #toasts, .abas-mobile, .veu { display: none !important; }
   .layout { display: block; }
   main { padding: 0 !important; max-width: none; }
   .documentos { display: block; overflow: visible; }

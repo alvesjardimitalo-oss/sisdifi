@@ -53,15 +53,14 @@ export function telaServidores(el) {
     </form>
     <div class="resumo-linha"><span><strong>${lista.length}</strong> servidor(es)</span></div>
     <div class="tabela-wrap"><table class="tabela">
-      <thead><tr><th>Nome</th><th>CPF</th><th>Chave Pix</th><th>Cargo/Função</th><th>Categoria</th><th>Secretaria</th><th>Situação</th><th></th></tr></thead>
+      <thead><tr><th>Nome</th><th>CPF</th><th>Chave Pix</th><th>Cargo/Função</th><th>Categoria</th><th>Secretaria</th><th></th></tr></thead>
       <tbody>${pagina.map(s => `<tr class="clicavel" data-id="${esc(s.id)}">
-        <td><strong>${esc(s.nome)}</strong></td>
-        <td>${esc(cpfExibir(s))}${cpfOk(s) ? '' : ' <span class="selo selo-cancelada" title="Dígito verificador inválido">CPF inválido</span>'}</td>
+        <td class="col-nome"><strong>${esc(s.nome)}</strong>${s.ativo === false ? '<span class="selo selo-cancelada bloco-selo">Inativo</span>' : ''}</td>
+        <td><span class="nowrap">${esc(cpfExibir(s))}</span>${cpfOk(s) ? '' : '<span class="selo selo-cancelada bloco-selo" title="Dígito verificador inválido">CPF inválido</span>'}</td>
         <td>${temPix(s) ? esc(pixExibir(s)) : `<span class="selo selo-pendente">sem Pix</span>`}</td>
         <td>${s.cargo_funcao ? esc(s.cargo_funcao) : '<span class="selo selo-pendente">a informar</span>'}${s.vinculo ? `<small class="muted bloco">${esc(nomeProprio(s.vinculo))}</small>` : ''}</td><td>${esc(GRUPOS[s.grupo] || '')}</td><td>${esc(secretariaNome(s.secretaria_id) || '—')}</td>
-        <td>${s.ativo === false ? '<span class="selo selo-cancelada">Inativo</span>' : '<span class="selo selo-emitida">Ativo</span>'}</td>
-        <td class="acoes-linha">${podeCompletar(s) ? `<button class="btn ${pendencias(s).length ? '' : 'btn-sec'} btn-peq" data-parar data-pix="${esc(s.id)}" title="Chave Pix e cargo">${pendencias(s).length ? '＋ ' + pendencias(s).join(' e ') : '✎ Pix/cargo'}</button>` : ''}${pode.solicitar() && s.ativo !== false ? `<a class="btn btn-peq" data-parar href="#/solicitacoes/nova?servidor=${esc(s.id)}">＋ Diária</a>` : ''}${pode.editar() ? `<button class="btn btn-sec btn-peq" data-parar data-editar-sv="${esc(s.id)}" title="Editar servidor">✎ Editar</button><button class="btn btn-sec btn-peq btn-excluir" data-parar data-excluir-sv="${esc(s.id)}" title="Excluir servidor">🗑</button>` : ''}</td>
-      </tr>`).join('') || '<tr><td colspan="8" class="vazio-linha">Nenhum servidor encontrado.</td></tr>'}</tbody>
+        <td class="acoes-linha">${podeCompletar(s) && (pendencias(s).length || !pode.editar()) ? `<button class="btn ${pendencias(s).length ? '' : 'btn-sec'} btn-peq" data-parar data-pix="${esc(s.id)}" title="Chave Pix e cargo">${pendencias(s).length ? '＋ ' + pendencias(s).join(' e ') : '✎ Pix/cargo'}</button>` : ''}${pode.solicitar() && s.ativo !== false ? `<a class="btn btn-peq" data-parar href="#/solicitacoes/nova?servidor=${esc(s.id)}">＋ Diária</a>` : ''}${pode.editar() ? `<button class="btn btn-sec btn-peq" data-parar data-editar-sv="${esc(s.id)}" title="Editar servidor" aria-label="Editar ${esc(s.nome)}">✎</button><button class="btn btn-sec btn-peq btn-excluir" data-parar data-excluir-sv="${esc(s.id)}" title="Excluir servidor" aria-label="Excluir ${esc(s.nome)}">🗑</button>` : ''}</td>
+      </tr>`).join('') || '<tr><td colspan="7" class="vazio-linha">Nenhum servidor encontrado.</td></tr>'}</tbody>
     </table></div>
     ${paginas > 1 ? `<div class="paginacao">${Array.from({ length: paginas }, (_, i) => `<button class="btn btn-peq ${i + 1 === filtros.pagina ? '' : 'btn-sec'}" data-pag="${i + 1}">${i + 1}</button>`).join('')}</div>` : ''}`;
 
