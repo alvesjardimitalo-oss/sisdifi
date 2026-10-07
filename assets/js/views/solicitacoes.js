@@ -12,7 +12,16 @@ import { aguardando, cabecalho, selo, seloEtapa, opcoesSecretarias, anosDisponiv
 // =============================================================
 // LISTA
 // =============================================================
-const filtros = { busca: '', secretaria: '', status: 'emitida', etapa: '', ano: '', mes: '', pagina: 1 };
+const filtros = { busca: '', secretaria: '', status: 'andamento', etapa: '', ano: '', mes: '', pagina: 1 };
+// Situação da lista: em andamento (padrão) some com as pagas e com o histórico do sistema antigo.
+const SITUACOES_LISTA = {
+  andamento: ['Em andamento', s => (s.status || 'emitida') !== 'cancelada' && !['paga', 'legado'].includes(etapaDe(s))],
+  pagas: ['Concluídas (pagas)', s => (s.status || 'emitida') !== 'cancelada' && etapaDe(s) === 'paga'],
+  legado: ['Histórico do sistema antigo', s => (s.status || 'emitida') !== 'cancelada' && etapaDe(s) === 'legado'],
+  emitida: ['Todas as emitidas', s => (s.status || 'emitida') !== 'cancelada'],
+  cancelada: ['Canceladas', s => s.status === 'cancelada'],
+  '': ['Todas', () => true]
+};
 window.addEventListener('sisdifi:exercicio', e => { filtros.ano = String(e.detail); filtros.pagina = 1; });
 let filtroDaUrl = '';
 
@@ -22,12 +31,13 @@ export function telaListaSolicitacoes(el, { query }) {
 
   let lista = estado.solicitacoes;
   if (query.has('etapa') && filtroDaUrl !== location.hash) { filtroDaUrl = location.hash; filtros.etapa = query.get('etapa'); filtros.status = 'emitida'; filtros.busca = ''; }
+  if (!(filtros.status in SITUACOES_LISTA)) filtros.status = 'andamento';
   if (idsLote.length) {
     lista = lista.filter(s => idsLote.includes(s.id));
   } else {
     const termo = normalizar(filtros.busca);
     lista = lista.filter(s =>
-      (!filtros.status || (s.status || 'emitida') === filtros.status) &&
+      SITUACOES_LISTA[filtros.status][1](s) &&
       (!filtros.secretaria || s.secretaria_id === filtros.secretaria) &&
       (!filtros.etapa || etapaDe(s) === filtros.etapa) &&
       (!filtros.ano || String(s.data_hora_saida).startsWith(filtros.ano)) &&
@@ -53,9 +63,7 @@ export function telaListaSolicitacoes(el, { query }) {
       <label class="campo"><span>Ano da viagem</span><select name="ano"><option value="">Todos</option>${anosDisponiveis().map(a => `<option ${String(a) === filtros.ano ? 'selected' : ''}>${a}</option>`).join('')}</select></label>
       <label class="campo"><span>Mês</span><select name="mes"><option value="">Todos</option>${MESES.map((m, i) => `<option value="${i + 1}" ${String(i + 1) === filtros.mes ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
       <label class="campo"><span>Situação</span><select name="status">
-        <option value="emitida" ${filtros.status === 'emitida' ? 'selected' : ''}>Emitidas</option>
-        <option value="cancelada" ${filtros.status === 'cancelada' ? 'selected' : ''}>Canceladas</option>
-        <option value="" ${filtros.status === '' ? 'selected' : ''}>Todas</option></select></label>
+        ${Object.entries(SITUACOES_LISTA).filter(([k]) => k !== 'legado' || !ehSecretaria()).map(([k, [nome]]) => `<option value="${k}" ${filtros.status === k ? 'selected' : ''}>${esc(nome)}</option>`).join('')}</select></label>
       ${ehSecretaria() ? '' : `<label class="campo"><span>Secretaria</span><select name="secretaria">${opcoesSecretarias(filtros.secretaria, { incluirInativas: true, vazio: 'Todas' })}</select></label>`}
       <label class="campo"><span>Etapa</span><select name="etapa"><option value="">Todas</option>
         ${Object.entries(ETAPAS).map(([k, v]) => `<option value="${k}" ${filtros.etapa === k ? 'selected' : ''}>${esc(v.curto)}</option>`).join('')}</select></label>
