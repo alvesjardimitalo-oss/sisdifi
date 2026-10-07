@@ -1,6 +1,6 @@
 // SISDIFI — Servidores: lista, cadastro/edição e perfil
 import * as db from '../db.js';
-import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ehSecretaria, acessoRestrito } from '../estado.js';
+import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ehSecretaria, acessoRestrito, etapaDe } from '../estado.js';
 import { GRUPOS, formatarCpf, limparCpf, cpfValido, moeda, analisarPix } from '../calculo.js';
 import { esc, $, $$, toast, modal, dataBR, numeroBR, normalizar, lerForm, mensagemErro, baixarArquivo, csv, hojeISO } from '../ui.js';
 import { aguardando, cabecalho, selo, opcoesSecretarias, anosDisponiveis, MESES } from './comum.js';
@@ -38,7 +38,7 @@ export function telaServidores(el) {
     ${cabecalho('Servidores', `${ehSecretaria() ? '' : '<button class="btn btn-sec" id="exp-sv">⭳ Exportar</button>'}${pode.editar() ? '<button class="btn btn-sec" id="revisar-cat">⚖ Revisar categorias</button><button class="btn btn-sec" id="importar-rel">📄 Importar relação (PDF)</button><button class="btn btn-sec" id="importar-folha">📄 Atualizar pela folha (PDF)</button>' : ''}${pode.solicitar() ? '<button class="btn" id="novo-sv">＋ Novo servidor</button>' : ''}`,
       ehSecretaria() ? 'Aqui aparecem os servidores da sua secretaria e os motoristas de todas as secretarias. Complete a chave Pix e o cargo de quem estiver pendente, ou cadastre um servidor novo.' : '')}
     ${semPix ? `<div class="alerta">⚠ ${semPix} servidor(es) ativo(s) sem chave Pix. Use o filtro "Pendências" → "Sem chave Pix" e clique no botão "＋" da linha para completar.</div>` : ''}
-    ${semCargo ? `<div class="alerta">⚠ ${semCargo} servidor(es) ativo(s) sem cargo/função informado. Use o filtro "Pendências" → "Sem cargo" e clique no botão "＋" da linha.</div>` : ''}
+    ${semCargo ? `<div class="alerta">⚠ ${semCargo} servidor(es) ativo(s) sem cargo/função informado. Use o filtro "Pendências" → "Sem cargo" e clique no botão "＋" da linha.${pode.editar() ? ' <button type="button" class="btn btn-sec btn-peq" id="inativar-sem-cargo">Inativar os sem cargo</button>' : ''}</div>` : ''}
     ${cpfsInvalidos && !ehSecretaria() ? `<div class="alerta">⚠ ${cpfsInvalidos} servidor(es) ativo(s) com CPF de dígito verificador inválido. Eles aparecem marcados como "CPF inválido" na lista.</div>` : ''}
     <form class="filtros" id="filtros-sv">
       <label class="campo cresce"><span>Buscar</span><input type="search" name="busca" value="${esc(filtros.busca)}" placeholder="Nome, CPF ou cargo"></label>
@@ -90,6 +90,7 @@ export function telaServidores(el) {
   $('#importar-rel', el)?.addEventListener('click', () => importarRelacao());
   $('#importar-folha', el)?.addEventListener('click', () => importarFolha());
   $('#revisar-cat', el)?.addEventListener('click', () => revisarCategorias());
+  $('#inativar-sem-cargo', el)?.addEventListener('click', () => inativarSemCargo());
   $$('[data-pix]', el).forEach(b => b.onclick = ev => { ev.stopPropagation(); formPix(porId('servidores', b.dataset.pix)); });
   if ($('#exp-sv', el)) $('#exp-sv', el).onclick = () => baixarArquivo(`servidores-${hojeISO()}.csv`, csv([
     ['Nome', 'CPF', 'Matrícula', 'Chave Pix', 'Cargo/Função', 'Vínculo', 'Categoria', 'Secretaria', 'Situação'],
@@ -546,6 +547,44 @@ export function importarFolha() {
       // com o vínculo novo, os agentes políticos ficam identificados: abre a revisão das categorias se houver ajuste
       setTimeout(() => { if (estado.servidores.some(s => s.ativo !== false && categoriaEsperada(s) !== s.grupo)) revisarCategorias(); }, 800);
     } catch (err) { $('#fl-erro', m.el).textContent = mensagemErro(err); btn.disabled = false; }
+  };
+}
+
+// ---------- Inativar em lote os servidores ativos sem cargo ----------
+export function inativarSemCargo() {
+  const lista = estado.servidores.filter(s => s.ativo !== false && !String(s.cargo_funcao || '').trim())
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const emAndamento = new Set(ativas(estado.solicitacoes).filter(x => !['paga', 'legado', 'reprovada'].includes(etapaDe(x))).map(x => x.servidor_id));
+  const m = modal({
+    titulo: `Inativar servidores sem cargo (${lista.length})`, largura: 900,
+    corpo: `<p>Os marcados ficam <strong>inativos</strong>: deixam de aparecer na busca das novas solicitações. O histórico continua e dá para reativar no cadastro do servidor.</p>
+      ${emAndamento.size && lista.some(s => emAndamento.has(s.id)) ? '<p class="dica">Quem tem solicitação em andamento vem desmarcado.</p>' : ''}
+      <div class="tabela-wrap tabela-rolagem"><table class="tabela tabela-peq">
+        <thead><tr><th><input type="checkbox" id="isc-todos" checked></th><th>Servidor</th><th>Vínculo</th><th>Secretaria</th></tr></thead>
+        <tbody>${lista.map((s, i) => `<tr><td><input type="checkbox" data-isc="${i}" ${emAndamento.has(s.id) ? '' : 'checked'}></td>
+          <td><strong>${esc(s.nome)}</strong>${emAndamento.has(s.id) ? '<small class="muted bloco">solicitação em andamento</small>' : ''}</td>
+          <td>${esc(nomeProprio(s.vinculo || '') || '—')}</td><td>${esc(secretariaNome(s.secretaria_id) || '—')}</td></tr>`).join('')}</tbody></table></div>
+      <p class="erro-form" id="isc-erro"></p><div id="isc-prog"></div>
+      <div class="acoes-form"><button type="button" class="btn btn-sec" data-cancelar>Cancelar</button><button class="btn btn-perigo" id="isc-aplicar">Inativar marcados</button></div>`
+  });
+  m.el.querySelector('[data-cancelar]').onclick = m.fechar;
+  const marcados = () => $$('[data-isc]', m.el).filter(c => c.checked).map(c => lista[c.dataset.isc]);
+  const contar = () => { const n = marcados().length; $('#isc-aplicar', m.el).textContent = `Inativar ${n} servidor(es)`; $('#isc-aplicar', m.el).disabled = !n; };
+  $('#isc-todos', m.el).onchange = e => { $$('[data-isc]', m.el).forEach(c => { c.checked = e.target.checked; }); contar(); };
+  $$('[data-isc]', m.el).forEach(c => c.onchange = contar);
+  contar();
+  $('#isc-aplicar', m.el).onclick = async () => {
+    const sel = marcados(); if (!sel.length) return;
+    const btn = $('#isc-aplicar', m.el); btn.disabled = true;
+    const agora = new Date().toISOString();
+    try {
+      const falhas = await db.gravarEmLote(sel.map(s => ({ colecao: 'servidores', id: s.id, dados: { ativo: false, inativado_motivo: 'sem cargo', inativado_em: agora } })),
+        (i, n) => { $('#isc-prog', m.el).innerHTML = `<progress max="${n}" value="${i}"></progress> ${i}/${n}`; });
+      await db.registrarLog('servidor.inativar_sem_cargo', { quantidade: sel.length - falhas.length });
+      if (falhas.length) { $('#isc-erro', m.el).textContent = `${falhas.length} não foram gravados.`; btn.disabled = false; return; }
+      toast(`${sel.length} servidor(es) sem cargo inativado(s).`);
+      m.fechar();
+    } catch (err) { $('#isc-erro', m.el).textContent = mensagemErro(err); btn.disabled = false; }
   };
 }
 

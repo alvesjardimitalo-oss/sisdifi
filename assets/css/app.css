@@ -132,6 +132,7 @@ input:disabled, select:disabled { background: #f1f3f6; color: var(--muted); }
 input[type=file] { padding: 6px; }
 .check { display: flex; gap: 8px; align-items: center; margin: 10px 0; }
 .check input { width: auto; min-height: 0; }
+input[type=checkbox], input[type=radio] { width: auto; min-height: 0; padding: 0; width: 16px; height: 16px; accent-color: var(--azul); cursor: pointer; vertical-align: middle; }
 .dica { color: var(--muted); font-size: 12px; }
 .erro-form { color: var(--vermelho); font-weight: 500; min-height: 1em; margin: 6px 0; }
 .acoes-form { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
