@@ -13,7 +13,9 @@ service cloud.firestore {
     function perfil() { return get(caminhoUsuario()).data.perfil; }
     function admin() { return ativo() && perfil() == 'admin'; }
     function operador() { return ativo() && perfil() in ['admin', 'operador']; }          // Contabilidade: cadastros
-    function solicitante() { return ativo() && perfil() in ['admin', 'operador', 'controle_interno']; }
+    function solicitante() { return ativo() && perfil() in ['admin', 'operador', 'controle_interno', 'secretaria']; }
+    function secretaria() { return ativo() && perfil() == 'secretaria'; }
+    function minhaSecretaria() { return get(caminhoUsuario()).data.secretaria_id; }
     function controleInterno() { return ativo() && perfil() == 'controle_interno'; }
     function contabilidade() { return ativo() && perfil() == 'operador'; }
     function alterou(campos) { return request.resource.data.diff(resource.data).affectedKeys().hasAny(campos); }
@@ -64,6 +66,12 @@ service cloud.firestore {
 
     match /servidores/{id} {
       allow read: if ativo();
+      // Secretaria pode cadastrar servidor novo (lotado nela), mas não altera cadastros existentes.
+      allow create: if secretaria()
+        && request.resource.data.secretaria_id == minhaSecretaria()
+        && request.resource.data.nome is string
+        && request.resource.data.cpf is string && request.resource.data.cpf.size() == 11
+        && request.resource.data.grupo in ['PREFEITO', 'VICE_SECRETARIO_JURIDICO', 'DEMAIS_SERVIDORES'];
       allow create, update: if operador()
         && request.resource.data.nome is string
         && request.resource.data.cpf is string && request.resource.data.cpf.size() == 11
@@ -72,16 +80,26 @@ service cloud.firestore {
     }
 
     match /solicitacoes/{id} {
-      allow read: if ativo();
+      // Secretaria só enxerga as solicitações da própria secretaria.
+      allow read: if ativo() && (!secretaria() || resource.data.secretaria_id == minhaSecretaria());
       allow create: if solicitante()
         && request.resource.data.numero is string
         && request.resource.data.valor_total is number
-        && request.resource.data.servidor_id is string;
+        && request.resource.data.servidor_id is string
+        && (!secretaria() || (request.resource.data.secretaria_id == minhaSecretaria() && request.resource.data.etapa == 'analise'));
+      // Secretaria só altera/cancela enquanto está em análise ou reprovada, sem tocar em análise, autorização ou contabilidade.
+      allow update: if secretaria()
+        && request.resource.data.numero == resource.data.numero
+        && resource.data.secretaria_id == minhaSecretaria()
+        && request.resource.data.secretaria_id == minhaSecretaria()
+        && resource.data.etapa in ['analise', 'reprovada']
+        && request.resource.data.etapa in ['analise', 'reprovada']
+        && !alterou(['analise', 'data_autorizacao', 'autorizacao_registrada_por', 'ficha', 'numero_empenho', 'data_empenho', 'data_liquidacao', 'data_pagamento', 'reembolsos', 'total_reembolsos']);
       // O número nunca muda. Controle Interno não mexe nos dados da Contabilidade e vice-versa.
-      allow update: if solicitante()
+      allow update: if solicitante() && !secretaria()
         && request.resource.data.numero == resource.data.numero
         && !(controleInterno() && alterou(['ficha', 'numero_empenho', 'data_empenho', 'data_liquidacao', 'data_pagamento', 'reembolsos', 'total_reembolsos']))
-        && !(contabilidade() && alterou(['analise', 'conta_pagamento', 'fonte_recursos', 'data_autorizacao', 'autorizacao_registrada_por']));
+        && !(contabilidade() && alterou(['analise', 'data_autorizacao', 'autorizacao_registrada_por']));
       allow delete: if admin();
     }
 

@@ -1,5 +1,6 @@
 // SISDIFI — Painel (indicadores)
-import { estado, pode, totalReembolsos, ativas, secretariaNome, ETAPAS, etapaDe } from '../estado.js';
+import { estado, pode, totalReembolsos, ativas, secretariaNome, ETAPAS, etapaDe, ehSecretaria } from '../estado.js';
+import { seloEtapa } from './comum.js';
 import { moeda } from '../calculo.js';
 import { esc, $, $$, dataBR, lerForm } from '../ui.js';
 import { aguardando, cabecalho, anosDisponiveis, MESES } from './comum.js';
@@ -9,6 +10,7 @@ const filtro = { ano: String(new Date().getFullYear()), mes: '' };
 
 export function telaPainel(el) {
   if (aguardando(el, ['solicitacoes', 'servidores', 'secretarias'])) return { viva: true, titulo: 'Painel' };
+  if (ehSecretaria()) return painelSecretaria(el);
   const doAno = ativas(estado.solicitacoes).filter(s => !filtro.ano || String(s.data_hora_saida).startsWith(filtro.ano));
   const periodo = doAno.filter(s => !filtro.mes || String(s.data_hora_saida).slice(5, 7) === filtro.mes.padStart(2, '0'));
   const tDiarias = periodo.reduce((t, s) => t + Number(s.valor_total || 0), 0);
@@ -122,4 +124,28 @@ function blocoDotacao(ano) {
     ${linhas.map(l => `<div class="linha-barra"><div class="linha-barra-txt"><span>${esc(l.nome)}</span><span>${moeda(l.gasto)} de ${moeda(l.prev)} · ${Math.round(l.pct)}%</span></div>
       <div class="linha-barra-trilho"><div class="${l.pct > 100 ? 'estouro' : ''}" style="width:${Math.min(100, Math.max(2, l.pct))}%"></div></div></div>`).join('')}
   </section>`;
+}
+
+/** Painel do usuário de Secretaria: acompanha os próprios pedidos, sem valores. */
+function painelSecretaria(el) {
+  const sols = estado.solicitacoes.filter(s => s.status !== 'cancelada');
+  const conta = (...es) => sols.filter(s => es.includes(etapaDe(s))).length;
+  const cards = [
+    ['reprovada', 'Reprovadas — corrigir e reenviar', conta('reprovada')],
+    ['analise', 'Em análise no Controle Interno', conta('analise')],
+    ['aprovada', 'Aprovadas — aguardando Prefeito', conta('aprovada')],
+    ['autorizada', 'Autorizadas — na Contabilidade', conta('autorizada', 'empenhada', 'liquidada')],
+    ['paga', 'Pagas', conta('paga')]
+  ];
+  el.innerHTML = `
+    ${cabecalho('Painel', '<a class="btn" href="#/solicitacoes/nova">＋ Nova solicitação</a>', `Olá, ${esc(estado.sessao.nome.split(' ')[0])}. Solicitações da ${esc(estado.sessao.secretaria_nome || secretariaNome(estado.sessao.secretaria_id))}.`)}
+    ${!estado.sessao.secretaria_id ? '<div class="alerta">Seu usuário ainda não está vinculado a uma secretaria. Peça ao administrador para ajustar em Usuários.</div>' : ''}
+    <div class="fila">${cards.map(([e, t, n]) => `<a href="#/solicitacoes?etapa=${e}"><div class="kpi ${n ? '' : 'zero'} ${e === 'reprovada' && n ? 'kpi-alerta' : ''}"><span>${esc(t)}</span><strong>${n}</strong></div></a>`).join('')}</div>
+    <section class="cartao"><h3>Últimas solicitações</h3>
+      <div class="tabela-wrap"><table class="tabela"><thead><tr><th>Nº</th><th>Servidor</th><th>Destino</th><th>Saída</th><th>Etapa</th></tr></thead>
+      <tbody>${estado.solicitacoes.slice(0, 15).map(s => `<tr class="clicavel" data-id="${esc(s.id)}"><td><strong>${esc(s.numero)}</strong></td><td>${esc(s.servidor?.nome)}</td>
+        <td>${esc(s.destino_cidade)}/${esc(s.destino_uf)}</td><td>${esc(dataBR(s.data_hora_saida))}</td><td>${seloEtapa(s)}</td></tr>`).join('') || '<tr><td colspan="5" class="vazio-linha">Nenhuma solicitação ainda.</td></tr>'}</tbody></table></div>
+    </section>`;
+  el.querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = () => { location.hash = '#/solicitacoes/' + tr.dataset.id; });
+  return { viva: true, titulo: 'Painel' };
 }

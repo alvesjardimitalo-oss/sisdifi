@@ -20,6 +20,7 @@ export const PERFIS = {
   admin: 'Administrador',
   operador: 'Contabilidade',
   controle_interno: 'Controle Interno',
+  secretaria: 'Secretaria (solicitante)',
   consulta: 'Somente consulta'
 };
 
@@ -61,11 +62,14 @@ export function mesclarConfig(doc) {
 }
 
 const perfilAtual = () => estado.sessao?.perfil;
+export const ehSecretaria = () => perfilAtual() === 'secretaria';
 export const pode = {
   // cadastros (servidores, secretarias) — Controle Interno NÃO altera tabelas do sistema
   editar: () => ['admin', 'operador'].includes(perfilAtual()),
   // criar/editar solicitações (antes da aprovação)
-  solicitar: () => ['admin', 'operador', 'controle_interno'].includes(perfilAtual()),
+  solicitar: () => ['admin', 'operador', 'controle_interno', 'secretaria'].includes(perfilAtual()),
+  // valores de diária: a Secretaria solicitante não vê
+  verValores: () => perfilAtual() !== 'secretaria',
   // aprovar/reprovar, conta de pagamento e fonte, registrar assinatura do Prefeito
   analisar: () => ['admin', 'controle_interno'].includes(perfilAtual()),
   // ficha, empenho, liquidação, pagamento e reembolsos

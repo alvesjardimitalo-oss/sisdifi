@@ -297,3 +297,10 @@ main { max-width: none; }
 .barras-mes { padding-top: 34px; height: 250px; }
 .barra-valor { transform: none; font-size: 9.5px; height: auto; }
 @media (max-width: 1500px) { .barra-valor { display: none; } }
+.alerta-info { background: var(--azul-claro); border-color: var(--azul-linha); color: var(--azul-esc); }
+.checklist { list-style: none; padding: 0; margin: 0 0 10px; }
+.checklist li { padding: 5px 0; color: var(--muted); border-bottom: 1px solid #eef1f4; }
+.checklist li.ok { color: var(--verde); font-weight: 600; }
+.linha-barra-txt span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.linha-barra-txt span:last-child { white-space: nowrap; flex: none; }
+.grade-painel > *, .grade-detalhe > * { min-width: 0; }

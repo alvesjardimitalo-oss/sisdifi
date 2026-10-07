@@ -12,7 +12,7 @@ import {
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   doc, getDoc, setDoc, updateDoc, deleteDoc, collection, onSnapshot, runTransaction,
-  writeBatch, serverTimestamp, addDoc, query, orderBy, limit as limitar, getDocs
+  writeBatch, serverTimestamp, addDoc, query, orderBy, limit as limitar, getDocs, where
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 export const configurado = !Object.values(firebaseConfig).some(v => !v || String(v).includes('COLE_AQUI'));
@@ -99,13 +99,13 @@ export async function obterPerfil(uid) {
  * Admin cria um usuário sem perder a própria sessão:
  * usa uma segunda instância do Firebase só para criar a conta.
  */
-export async function criarUsuario({ nome, email, senha, perfil }) {
+export async function criarUsuario({ nome, email, senha, perfil, secretaria_id = null, secretaria_nome = '' }) {
   const sec = initializeApp(firebaseConfig, 'criador-' + Date.now());
   try {
     const cred = await createUserWithEmailAndPassword(getAuth(sec), email.trim(), senha);
     const uid = cred.user.uid;
     await setDoc(doc(fs, 'usuarios', uid), {
-      nome, email: email.trim().toLowerCase(), perfil, ativo: true, criado_em: serverTimestamp(), criado_por: autor()
+      nome, email: email.trim().toLowerCase(), perfil, secretaria_id, secretaria_nome, ativo: true, criado_em: serverTimestamp(), criado_por: autor()
     });
     await signOut(getAuth(sec));
     return uid;
@@ -115,8 +115,10 @@ export async function criarUsuario({ nome, email, senha, perfil }) {
 }
 
 // ---------------- Leitura em tempo real ----------------
-export function ouvir(colecao, cb, onErro) {
-  return onSnapshot(collection(fs, colecao),
+/** filtro opcional: [campo, valor] → só documentos com campo == valor (ex.: solicitações da própria secretaria). */
+export function ouvir(colecao, cb, onErro, filtro = null) {
+  const alvo = filtro ? query(collection(fs, colecao), where(filtro[0], '==', filtro[1])) : collection(fs, colecao);
+  return onSnapshot(alvo,
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
     e => onErro && onErro(e));
 }

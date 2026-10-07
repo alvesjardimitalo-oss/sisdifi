@@ -3,7 +3,7 @@ import * as db from '../db.js';
 import { estado, PERFIS, CONFIG_PADRAO, pode } from '../estado.js';
 import { GRUPOS, FAIXAS, moeda } from '../calculo.js';
 import { esc, $, $$, toast, modal, confirmar, lerForm, mensagemErro, dataBR, baixarArquivo } from '../ui.js';
-import { aguardando, cabecalho } from './comum.js';
+import { aguardando, cabecalho, opcoesSecretarias } from './comum.js';
 import { mapearBancoAntigo } from '../importador.js';
 
 // =============================================================
@@ -93,13 +93,14 @@ export function telaUsuarios(el) {
       <span><strong>Administrador:</strong> tudo, inclusive usuários, parâmetros, importação e exclusão definitiva.</span>
       <span><strong>Contabilidade:</strong> cadastra servidores e secretarias, emite solicitações, registra ficha, empenho, liquidação, pagamento e reembolsos.</span>
       <span><strong>Controle Interno:</strong> simula e emite solicitações, aprova ou reprova (conta de pagamento e fonte de recursos) e registra a assinatura do Prefeito. Não altera cadastros nem parâmetros.</span>
+      <span><strong>Secretaria (solicitante):</strong> vinculada a uma secretaria; cadastra servidor e envia solicitações dela para análise, com conta e fonte de recurso. Não vê valores nem pedidos de outras secretarias.</span>
       <span><strong>Somente consulta:</strong> visualiza, imprime e exporta.</span>
     </div>
     <div class="tabela-wrap"><table class="tabela">
       <thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Situação</th><th></th></tr></thead>
       <tbody>${lista.map(u => `<tr>
         <td><strong>${esc(u.nome)}</strong>${u.id === estado.sessao.uid ? ' <small class="muted">(você)</small>' : ''}</td><td>${esc(u.email)}</td>
-        <td>${esc(PERFIS[u.perfil] || u.perfil)}</td>
+        <td>${esc(PERFIS[u.perfil] || u.perfil)}${u.perfil === 'secretaria' ? `<small class="muted bloco">${esc(u.secretaria_nome || '— sem secretaria —')}</small>` : ''}</td>
         <td>${u.pendente && !u.ativo ? '<span class="selo selo-pendente">Aguardando liberação</span>' : u.ativo === false ? '<span class="selo selo-cancelada">Bloqueado</span>' : '<span class="selo selo-emitida">Ativo</span>'}</td>
         <td class="acoes-linha">${u.id === estado.sessao.uid ? '' : `<button class="btn ${u.pendente && !u.ativo ? '' : 'btn-sec'} btn-peq" data-editar="${esc(u.id)}">${u.pendente && !u.ativo ? '✓ Liberar' : '✎ Editar'}</button>`}
           <button class="btn btn-sec btn-peq" data-reset="${esc(u.email)}" title="Enviar e-mail para criar nova senha">✉ Redefinir senha</button></td></tr>`).join('')}</tbody>
@@ -123,6 +124,7 @@ function formUsuario(u) {
       <label class="campo"><span>Senha provisória (mín. 8 caracteres)</span><input name="senha" minlength="8" required value="${gerarSenha()}"></label>
       <p class="muted">Passe a senha provisória ao usuário. Ele pode trocá-la em "Minha conta".</p>`}
       <label class="campo"><span>Perfil</span><select name="perfil">${Object.entries(PERFIS).map(([k, v]) => `<option value="${k}" ${(u?.perfil || 'operador') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label class="campo" id="campo-sec-usr"><span>Secretaria do usuário *</span><select name="secretaria_id">${opcoesSecretarias(u?.secretaria_id || '')}</select></label>
       ${u ? `<label class="campo"><span>Situação</span><select name="ativo"><option value="1" ${u.ativo === false && !u.pendente ? '' : 'selected'}>Ativo</option><option value="0" ${u.ativo === false && !u.pendente ? 'selected' : ''}>Bloqueado</option></select></label>` : ''}
       <p class="erro-form" id="erro-usr"></p>
       <div class="acoes-form"><button type="button" class="btn btn-sec" data-cancelar>Cancelar</button><button class="btn" type="submit">Salvar</button></div>
@@ -130,20 +132,26 @@ function formUsuario(u) {
   });
   const f = $('#fusr', m.el);
   f.querySelector('[data-cancelar]').onclick = m.fechar;
+  const mostrarSec = () => { $('#campo-sec-usr', m.el).hidden = f.perfil.value !== 'secretaria'; };
+  f.perfil.addEventListener('change', mostrarSec); mostrarSec();
   f.onsubmit = async e => {
     e.preventDefault();
     const d = lerForm(f);
     const erro = $('#erro-usr', m.el);
     if (!d.nome) return (erro.textContent = 'Informe o nome.');
+    if (d.perfil === 'secretaria' && !d.secretaria_id) return (erro.textContent = 'Escolha a secretaria deste usuário.');
+    const vinculo = d.perfil === 'secretaria'
+      ? { secretaria_id: d.secretaria_id, secretaria_nome: estado.secretarias.find(x => x.id === d.secretaria_id)?.nome || '' }
+      : { secretaria_id: null, secretaria_nome: '' };
     const btn = f.querySelector('[type=submit]'); btn.disabled = true;
     try {
       if (u) {
-        await db.salvar('usuarios', u.id, { nome: d.nome, perfil: d.perfil, ativo: d.ativo === '1', pendente: false });
+        await db.salvar('usuarios', u.id, { nome: d.nome, perfil: d.perfil, ativo: d.ativo === '1', pendente: false, ...vinculo });
         await db.registrarLog('usuario.editar', { email: u.email, perfil: d.perfil, ativo: d.ativo === '1' });
       } else {
         if (!d.email) { btn.disabled = false; return (erro.textContent = 'Informe o e-mail.'); }
         if ((d.senha || '').length < 8) { btn.disabled = false; return (erro.textContent = 'A senha provisória precisa ter 8 caracteres ou mais.'); }
-        await db.criarUsuario({ nome: d.nome, email: d.email, senha: d.senha, perfil: d.perfil });
+        await db.criarUsuario({ nome: d.nome, email: d.email, senha: d.senha, perfil: d.perfil, ...vinculo });
         await db.registrarLog('usuario.criar', { email: d.email, perfil: d.perfil });
       }
       toast('Usuário salvo.');

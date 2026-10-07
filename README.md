@@ -7,7 +7,8 @@ conforme a **Lei Ordinária nº 994/2025** (Anexo I). Hospedado no **GitHub Page
 
 ## O que o sistema faz
 
-- **Login por e-mail/senha ou Google**, com perfis: *Administrador*, *Contabilidade*, *Controle Interno* e *Somente consulta*. Só entra quem o administrador liberar.
+- **Login por e-mail/senha ou Google**, com perfis: *Administrador*, *Contabilidade*, *Controle Interno*, *Secretaria (solicitante)* e *Somente consulta*. Só entra quem o administrador liberar.
+- **Secretarias solicitantes**: cada secretaria tem seu usuário, cadastra o servidor na hora (nome, CPF, Pix, cargo) e envia a solicitação para análise com conta para pagamento e fonte de recurso obrigatórias. Não vê valores nem pedidos de outras secretarias.
 - **Tramitação**: Solicitação → Controle Interno (aprova/reprova, conta de pagamento e fonte de recursos) → assinatura do Prefeito → Contabilidade (ficha e empenho → liquidação) → Financeiro (pagamento). Cada passo registra quem fez e quando; cada perfil vê a sua fila de trabalho no Painel.
 - **Nova solicitação** com cálculo ao vivo, vários servidores da mesma viagem de uma vez (cada um com a sua categoria) e aviso de viagens sobrepostas.
 - **Numeração automática por ano** (`0001/2026`…), sem risco de número repetido com dois usuários ao mesmo tempo.

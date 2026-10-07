@@ -1,6 +1,7 @@
 // SISDIFI — Solicitações de diária: lista, nova, detalhe/edição, empenho e reembolsos
 import * as db from '../db.js';
-import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ETAPAS, etapaDe } from '../estado.js';
+import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ETAPAS, etapaDe, ehSecretaria } from '../estado.js';
+import { formServidor } from './servidores.js';
 import { calcularDiaria, moeda, horasBR, formatarCpf, periodosSobrepostos, GRUPOS } from '../calculo.js';
 import { esc, $, $$, toast, modal, confirmar, hojeISO, dataBR, numeroBR, normalizar, lerForm, baixarArquivo, csv, mensagemErro } from '../ui.js';
 import { listarUFs, listarMunicipios, calcularDistanciaRodoviaria, chaveDistancia } from '../localidades.js';
@@ -30,6 +31,7 @@ export function telaListaSolicitacoes(el, { query }) {
       (!filtros.mes || String(s.data_hora_saida).slice(5, 7) === filtros.mes.padStart(2, '0')) &&
       (!termo || normalizar(`${s.numero} ${s.servidor?.nome} ${s.destino_cidade} ${s.destino_uf} ${s.servidor?.cpf} ${s.numero_empenho || ''}`).includes(termo)));
   }
+  const vv = pode.verValores();
   const totalDiarias = lista.reduce((t, s) => t + Number(s.valor_total || 0), 0);
   const totalReemb = lista.reduce((t, s) => t + totalReembolsos(s), 0);
   const porPagina = 50;
@@ -39,29 +41,29 @@ export function telaListaSolicitacoes(el, { query }) {
 
   el.innerHTML = `
     ${cabecalho(idsLote.length ? 'Solicitações criadas' : 'Solicitações',
-      `${idsLote.length ? `<a class="btn" href="#/imprimir/lote/${esc(idsLote.join(','))}">🖨 Imprimir todas</a><a class="btn btn-sec" href="#/solicitacoes">Ver todas</a>` : ''}
-       <button class="btn btn-sec" id="exportar">⭳ Exportar planilha</button>
+      `${idsLote.length ? `${vv ? `<a class="btn" href="#/imprimir/lote/${esc(idsLote.join(','))}">🖨 Imprimir todas</a>` : ''}<a class="btn btn-sec" href="#/solicitacoes">Ver todas</a>` : ''}
+       ${vv ? '<button class="btn btn-sec" id="exportar">⭳ Exportar planilha</button>' : ''}
        ${pode.solicitar() ? '<a class="btn" href="#/solicitacoes/nova">＋ Nova solicitação</a>' : ''}`)}
     ${idsLote.length ? '' : `
     <form class="filtros" id="filtros">
       <label class="campo cresce"><span>Buscar</span><input type="search" name="busca" value="${esc(filtros.busca)}" placeholder="Nº, servidor, CPF, destino ou empenho"></label>
-      <label class="campo"><span>Secretaria</span><select name="secretaria">${opcoesSecretarias(filtros.secretaria, { incluirInativas: true, vazio: 'Todas' })}</select></label>
       <label class="campo"><span>Ano da viagem</span><select name="ano"><option value="">Todos</option>${anosDisponiveis().map(a => `<option ${String(a) === filtros.ano ? 'selected' : ''}>${a}</option>`).join('')}</select></label>
       <label class="campo"><span>Mês</span><select name="mes"><option value="">Todos</option>${MESES.map((m, i) => `<option value="${i + 1}" ${String(i + 1) === filtros.mes ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
       <label class="campo"><span>Situação</span><select name="status">
         <option value="emitida" ${filtros.status === 'emitida' ? 'selected' : ''}>Emitidas</option>
         <option value="cancelada" ${filtros.status === 'cancelada' ? 'selected' : ''}>Canceladas</option>
         <option value="" ${filtros.status === '' ? 'selected' : ''}>Todas</option></select></label>
+      ${ehSecretaria() ? '' : `<label class="campo"><span>Secretaria</span><select name="secretaria">${opcoesSecretarias(filtros.secretaria, { incluirInativas: true, vazio: 'Todas' })}</select></label>`}
       <label class="campo"><span>Etapa</span><select name="etapa"><option value="">Todas</option>
         ${Object.entries(ETAPAS).map(([k, v]) => `<option value="${k}" ${filtros.etapa === k ? 'selected' : ''}>${esc(v.curto)}</option>`).join('')}</select></label>
     </form>`}
     <div class="resumo-linha">
       <span><strong>${lista.length}</strong> solicitação(ões)</span>
-      <span>Diárias: <strong>${moeda(totalDiarias)}</strong></span>
-      <span>Reembolsos: <strong>${moeda(totalReemb)}</strong></span>
+      ${vv ? `<span>Diárias: <strong>${moeda(totalDiarias)}</strong></span>
+      <span>Reembolsos: <strong>${moeda(totalReemb)}</strong></span>` : ''}
     </div>
     <div class="tabela-wrap"><table class="tabela">
-      <thead><tr><th>Nº</th><th>Servidor</th><th>Destino</th><th>Saída</th><th>Retorno</th><th class="num">Diárias</th><th class="num">Reemb.</th><th>Empenho</th><th>Etapa</th><th></th></tr></thead>
+      <thead><tr><th>Nº</th><th>Servidor</th><th>Destino</th><th>Saída</th><th>Retorno</th>${vv ? '<th class="num">Diárias</th><th class="num">Reemb.</th><th>Empenho</th>' : ''}<th>Etapa</th><th></th></tr></thead>
       <tbody>${pagina.map(s => `
         <tr class="clicavel" data-id="${esc(s.id)}">
           <td><strong>${esc(s.numero)}</strong></td>
@@ -69,12 +71,12 @@ export function telaListaSolicitacoes(el, { query }) {
           <td>${esc(s.destino_cidade)}/${esc(s.destino_uf)}<small class="muted bloco">${numeroBR(s.distancia_km)} km</small></td>
           <td>${esc(dataBR(s.data_hora_saida))}</td>
           <td>${esc(dataBR(s.data_hora_retorno))}</td>
-          <td class="num">${moeda(s.valor_total)}</td>
+          ${vv ? `<td class="num">${moeda(s.valor_total)}</td>
           <td class="num">${totalReembolsos(s) ? moeda(totalReembolsos(s)) : '—'}</td>
-          <td>${s.numero_empenho ? esc(s.numero_empenho) : '<span class="muted">—</span>'}</td>
+          <td>${s.numero_empenho ? esc(s.numero_empenho) : '<span class="muted">—</span>'}</td>` : ''}
           <td>${seloEtapa(s)}</td>
-          <td class="acoes-linha"><a class="btn btn-sec btn-peq" href="#/imprimir/solicitacao/${esc(s.id)}" title="Imprimir" data-parar>🖨</a></td>
-        </tr>`).join('') || '<tr><td colspan="10" class="vazio-linha">Nenhuma solicitação encontrada.</td></tr>'}
+          <td class="acoes-linha">${vv ? `<a class="btn btn-sec btn-peq" href="#/imprimir/solicitacao/${esc(s.id)}" title="Imprimir" data-parar>🖨</a>` : ''}</td>
+        </tr>`).join('') || '<tr><td colspan="${vv ? 10 : 7}" class="vazio-linha">Nenhuma solicitação encontrada.</td></tr>'}
       </tbody></table></div>
     ${paginas > 1 ? `<div class="paginacao">${Array.from({ length: paginas }, (_, i) => `<button class="btn btn-peq ${i + 1 === filtros.pagina ? '' : 'btn-sec'}" data-pag="${i + 1}">${i + 1}</button>`).join('')}</div>` : ''}`;
 
@@ -86,7 +88,7 @@ export function telaListaSolicitacoes(el, { query }) {
   }
   $$('[data-pag]', el).forEach(b => b.onclick = () => { filtros.pagina = Number(b.dataset.pag); telaListaSolicitacoes(el, { query }); });
   $$('tr[data-id]', el).forEach(tr => tr.onclick = e => { if (!e.target.closest('[data-parar]')) location.hash = '#/solicitacoes/' + tr.dataset.id; });
-  $('#exportar', el).onclick = () => exportarCSV(lista);
+  $('#exportar', el)?.addEventListener('click', () => exportarCSV(lista));
   return { viva: true, titulo: 'Solicitações' };
 }
 
@@ -119,7 +121,9 @@ export function telaNovaSolicitacao(el, { query }) {
   if (!pode.solicitar()) { el.innerHTML = '<div class="vazio">Seu perfil é somente consulta.</div>'; return { titulo: 'Nova solicitação' }; }
   if (aguardando(el, ['servidores', 'secretarias', 'solicitacoes', 'config'])) return { viva: true, titulo: 'Nova solicitação' };
   const servidorInicial = query.get('servidor');
-  el.innerHTML = cabecalho('Nova solicitação de diária', '', 'O valor é calculado automaticamente enquanto você preenche. Você pode incluir vários servidores da mesma viagem de uma vez.') + '<div id="form-viagem"></div>';
+  el.innerHTML = cabecalho('Nova solicitação de diária', '', ehSecretaria()
+    ? 'Preencha os dados da viagem e envie para análise do Controle Interno. Se o servidor não estiver cadastrado, cadastre-o aqui mesmo. Você pode incluir vários servidores da mesma viagem.'
+    : 'O valor é calculado automaticamente enquanto você preenche. Você pode incluir vários servidores da mesma viagem de uma vez.') + '<div id="form-viagem"></div>';
   montarFormularioViagem($('#form-viagem', el), {
     modo: 'nova',
     servidores: servidorInicial && porId('servidores', servidorInicial) ? [servidorInicial] : [],
@@ -128,7 +132,8 @@ export function telaNovaSolicitacao(el, { query }) {
       const criadas = await db.criarSolicitacoes(lista);
       await db.registrarLog('solicitacao.criar', { numeros: criadas.map(c => c.numero) });
       toast(criadas.length === 1 ? `Solicitação ${criadas[0].numero} criada.` : `${criadas.length} solicitações criadas.`);
-      location.hash = criadas.length === 1 ? `#/imprimir/solicitacao/${criadas[0].id}` : `#/solicitacoes?ids=${criadas.map(c => c.id).join(',')}`;
+      if (ehSecretaria()) { toast('Enviada para análise do Controle Interno.'); location.hash = `#/solicitacoes?ids=${criadas.map(c => c.id).join(',')}`; return; }
+      location.hash = criadas.length === 1 ? `#/solicitacoes/${criadas[0].id}` : `#/solicitacoes?ids=${criadas.map(c => c.id).join(',')}`;
     }
   });
   return { titulo: 'Nova solicitação' };
@@ -152,6 +157,8 @@ function montarDadosSolicitacao(dados, sv, existente = null) {
     data_hora_retorno: dados.data_hora_retorno,
     objetivo: dados.objetivo,
     observacoes: dados.observacoes || '',
+    conta_pagamento: dados.conta_pagamento || '',
+    fonte_recursos: dados.fonte_recursos || '',
     data_solicitacao: dados.data_solicitacao,
     ...camposCalc,
     faixa_codigo,
@@ -185,15 +192,19 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
           <div class="sugestoes" id="sugestoes" role="listbox"></div>
         </div>
         <div id="sv-selecionados" class="sv-lista"></div>
-        <label class="campo"><span>Secretaria responsável</span>
-          <select name="secretaria_id" required>${opcoesSecretarias(sol.secretaria_id || '')}</select></label>
+        ${podeCadastrarServidor() ? '<button type="button" class="btn btn-sec btn-peq" id="novo-sv-rapido">＋ Servidor não cadastrado? Cadastrar agora</button>' : ''}
+        ${ehSecretaria()
+          ? `<input type="hidden" name="secretaria_id" value="${esc(estado.sessao.secretaria_id || '')}">
+             <label class="campo mt"><span>Secretaria solicitante</span><input value="${esc(secretariaNome(estado.sessao.secretaria_id) || estado.sessao.secretaria_nome)}" disabled></label>`
+          : `<label class="campo mt"><span>Secretaria responsável</span>
+          <select name="secretaria_id" required>${opcoesSecretarias(sol.secretaria_id || '')}</select></label>`}
       </section>
 
       <section class="cartao">
         <h3>2. Viagem</h3>
         <div class="grade-2">
-          <label class="campo"><span>Saída (data e hora)</span><input type="datetime-local" name="data_hora_saida" value="${esc(sol.data_hora_saida || '')}" required></label>
-          <label class="campo"><span>Retorno (data e hora)</span><input type="datetime-local" name="data_hora_retorno" value="${esc(sol.data_hora_retorno || '')}" required></label>
+          <label class="campo"><span>Saída de ${esc(estado.config.origem.cidade)} (data e hora)</span><input type="datetime-local" name="data_hora_saida" value="${esc(sol.data_hora_saida || '')}" required></label>
+          <label class="campo"><span>Chegada em ${esc(estado.config.origem.cidade)} (data e hora)</span><input type="datetime-local" name="data_hora_retorno" value="${esc(sol.data_hora_retorno || '')}" required></label>
         </div>
         <div class="grade-3">
           <label class="campo"><span>Estado (UF)</span><select name="destino_uf" id="uf" required><option value="${esc(sol.destino_uf || 'MG')}">${esc(sol.destino_uf || 'MG')}</option></select></label>
@@ -209,9 +220,18 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
       </section>
 
       <section class="cartao">
-        <h3>3. Objetivo da viagem</h3>
+        <h3>3. Pagamento <small class="muted">(obrigatório)</small></h3>
+        <div class="grade-2">
+          <label class="campo"><span>Conta para pagamento *</span><input name="conta_pagamento" list="dl-contas-f" value="${esc(sol.conta_pagamento || '')}" required placeholder="Banco, agência e conta da secretaria/fundo"></label>
+          <label class="campo"><span>Fonte de recurso *</span><input name="fonte_recursos" list="dl-fontes-f" value="${esc(sol.fonte_recursos || '')}" required placeholder="Ex.: 1500 — Recursos não vinculados"></label>
+        </div>
+        <datalist id="dl-contas-f"></datalist><datalist id="dl-fontes-f"></datalist>
+      </section>
+
+      <section class="cartao">
+        <h3>4. Objetivo da viagem</h3>
         <textarea name="objetivo" rows="3" maxlength="500" required>${esc(sol.objetivo || '')}</textarea>
-        <h3 class="mt">4. Observações</h3>
+        <h3 class="mt">5. Observações</h3>
         <textarea name="observacoes" rows="2" maxlength="500">${esc(sol.observacoes || '')}</textarea>
       </section>
     </div>
@@ -222,13 +242,22 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
       <p class="erro-form" id="erro-fv" role="alert"></p>
       <div class="acoes-form">
         <button type="button" class="btn btn-sec" id="cancelar-fv">Cancelar</button>
-        <button type="submit" class="btn" id="salvar-fv">${modo === 'nova' ? 'Salvar e imprimir' : 'Salvar alterações'}</button>
+        <button type="submit" class="btn" id="salvar-fv">${modo === 'nova' ? (ehSecretaria() ? 'Enviar para análise' : 'Salvar e enviar para análise') : 'Salvar alterações'}</button>
       </div>
     </aside>
   </form>`;
 
   const form = $('#fv', el);
   const busca = $('#busca-sv', el), sug = $('#sugestoes', el);
+  // Sugestões de conta e fonte: as cadastradas na secretaria + as gerais dos Parâmetros.
+  function preencherListasPagamento() {
+    const sec = porId('secretarias', form.secretaria_id.value) || {};
+    const un = a => [...new Set(a.filter(Boolean))];
+    $('#dl-contas-f', el).innerHTML = un([...(sec.contas_pagamento || []), ...(estado.config.contas_pagamento || [])]).map(x => `<option value="${esc(x)}">`).join('');
+    $('#dl-fontes-f', el).innerHTML = un([...(sec.fontes_recursos || []), ...(estado.config.fontes_recursos || [])]).map(x => `<option value="${esc(x)}">`).join('');
+  }
+  preencherListasPagamento();
+  form.secretaria_id.addEventListener?.('change', preencherListasPagamento);
 
   // ---------- Servidores ----------
   function desenharSelecionados() {
@@ -253,11 +282,14 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
   busca.oninput = () => {
     const t = normalizar(busca.value), dig = busca.value.replace(/\D/g, '');
     if (t.length < 2) { sug.innerHTML = ''; sug.classList.remove('aberta'); return; }
-    const r = estado.servidores.filter(s => s.ativo !== false && !selecionados.includes(s.id) &&
+    // Secretaria vê os servidores da própria secretaria; de outras, só digitando o CPF completo.
+    const daMinha = s => !ehSecretaria() || s.secretaria_id === estado.sessao.secretaria_id || (dig.length === 11 && s.cpf === dig);
+    const r = estado.servidores.filter(s => s.ativo !== false && !selecionados.includes(s.id) && daMinha(s) &&
       (normalizar(s.nome).includes(t) || (dig.length >= 3 && String(s.cpf).includes(dig)))).slice(0, 12);
     sug.innerHTML = r.map(s => `<button type="button" role="option" data-id="${esc(s.id)}"><strong>${esc(s.nome)}</strong>
       <small>${esc(formatarCpf(s.cpf))} · ${esc(s.cargo_funcao)} · ${esc(secretariaNome(s.secretaria_id))}</small></button>`).join('')
-      || '<div class="sem-resultado">Nenhum servidor ativo encontrado. <a href="#/servidores">Cadastrar servidor</a></div>';
+      || `<div class="sem-resultado">Nenhum servidor encontrado.${podeCadastrarServidor() ? ' <button type="button" class="link" data-novo-sv>Cadastrar novo servidor</button>' : ''}${ehSecretaria() ? '<br><small>Servidor de outra secretaria: digite o CPF completo.</small>' : ''}</div>`;
+    sug.querySelector('[data-novo-sv]')?.addEventListener('click', () => cadastrarRapido(busca.value));
     sug.classList.add('aberta');
     $$('button[data-id]', sug).forEach(b => b.onclick = () => adicionar(b.dataset.id));
   };
@@ -269,6 +301,22 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
     if (!el.isConnected) return document.removeEventListener('click', fecharSug);
     if (!e.target.closest('.busca-servidor')) sug.classList.remove('aberta');
   });
+
+  function cadastrarRapido(texto = '') {
+    sug.classList.remove('aberta');
+    const dig = String(texto).replace(/\D/g, '');
+    formServidor(null, {
+      rapido: true,
+      inicial: dig.length >= 3 ? { cpf: dig } : { nome: texto },
+      secretariaFixa: ehSecretaria() ? estado.sessao.secretaria_id : (form.secretaria_id.value || ''),
+      aoSalvar: id => {
+        // espera o novo servidor chegar do banco e já o seleciona
+        let tentativas = 0;
+        const t = setInterval(() => { if (porId('servidores', id) || ++tentativas > 40) { clearInterval(t); if (porId('servidores', id)) adicionar(id); } }, 100);
+      }
+    });
+  }
+  $('#novo-sv-rapido', el)?.addEventListener('click', () => cadastrarRapido(''));
 
   // ---------- UF / município / distância ----------
   // O destino é escolhido na lista oficial de municípios do estado; a distância é calculada
@@ -373,7 +421,22 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
         periodosSobrepostos(o.data_hora_saida, o.data_hora_retorno, d.data_hora_saida, d.data_hora_retorno));
       if (conflito) alertas.push(`${s.nome} já tem a solicitação ${conflito.numero} (${dataBR(conflito.data_hora_saida)} a ${dataBR(conflito.data_hora_retorno)}) em período que se sobrepõe a esta viagem.`);
     }
-    if (!linhas.length) { res.innerHTML = '<p class="muted">Selecione o servidor para ver o cálculo.</p>'; avisos.innerHTML = ''; return; }
+    avisos.innerHTML = alertas.map(a => `<div class="alerta">⚠ ${esc(a)}</div>`).join('');
+    if (!pode.verValores()) {
+      // Secretaria não vê valores: mostra só a conferência do que falta preencher.
+      const itens = [
+        ['Servidor(es)', selecionados.length > 0],
+        ['Saída e chegada', !!(d.data_hora_saida && d.data_hora_retorno) && !linhas.some(l => l.erro && /retorno|data/i.test(l.erro))],
+        ['Destino', !!(d.destino_cidade)],
+        ['Conta para pagamento', !!d.conta_pagamento],
+        ['Fonte de recurso', !!d.fonte_recursos],
+        ['Objetivo', !!d.objetivo]
+      ];
+      res.innerHTML = `<h3>Conferência do pedido</h3><ul class="checklist">${itens.map(([n, okk]) => `<li class="${okk ? 'ok' : ''}">${okk ? '✓' : '○'} ${esc(n)}</li>`).join('')}</ul>
+        <p class="muted">O valor da diária é calculado e conferido pelo Controle Interno após o envio.</p>`;
+      return;
+    }
+    if (!linhas.length) { res.innerHTML = '<p class="muted">Selecione o servidor para ver o cálculo.</p>'; return; }
     const primeiro = linhas.find(l => l.c)?.c;
     res.innerHTML = `
       <h3>Cálculo da diária</h3>
@@ -387,9 +450,8 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
         : `<li><span>${esc(l.s.nome)}<small>${esc(GRUPOS[l.s.grupo])}</small></span><strong>${moeda(l.c.valor_total)}</strong></li>`).join('')}</ul>
       ${linhas.length > 1 ? `<div class="calc-total"><span>Total da viagem</span><strong>${moeda(total)}</strong></div>` : ''}
       ${primeiro ? `<details><summary>Descritivo do cálculo</summary><ul class="lista-peq">${primeiro.descricao_calculo.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}`;
-    avisos.innerHTML = alertas.map(a => `<div class="alerta">⚠ ${esc(a)}</div>`).join('');
   }
-  form.addEventListener('input', e => { if (e.target !== busca) recalcular(); });
+  form.addEventListener('input', e => { if (e.target !== busca) { recalcular(); $('#erro-fv', el).textContent = ''; } });
   form.addEventListener('change', recalcular);
 
   $('#cancelar-fv', el).onclick = () => history.back();
@@ -406,6 +468,8 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
     if (!d.data_hora_saida || !d.data_hora_retorno) faltando.push('saída e retorno');
     if (!d.destino_uf || !d.destino_cidade) faltando.push('destino');
     if (!d.dentro_municipio && !(Number(d.distancia_km) > 0)) faltando.push('distância');
+    if (!d.conta_pagamento) faltando.push('conta para pagamento');
+    if (!d.fonte_recursos) faltando.push('fonte de recurso');
     if (!d.objetivo) faltando.push('objetivo');
     if (!d.data_solicitacao) faltando.push('data da solicitação');
     if (faltando.length) { erro.textContent = 'Preencha: ' + faltando.join(', ') + '.'; return; }
@@ -425,7 +489,7 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
       await aoSalvar(d, selecionados);
     } catch (err) {
       erro.textContent = mensagemErro(err);
-      btn.disabled = false; btn.textContent = modo === 'nova' ? 'Salvar e imprimir' : 'Salvar alterações';
+      btn.disabled = false; btn.textContent = modo === 'nova' ? (ehSecretaria() ? 'Enviar para análise' : 'Salvar e enviar para análise') : 'Salvar alterações';
     }
   };
 
@@ -436,6 +500,8 @@ function montarFormularioViagem(el, { modo, servidores = [], solicitacao = null,
 // =============================================================
 // DETALHE
 // =============================================================
+function podeCadastrarServidor() { return pode.editar() || ehSecretaria(); }
+
 function podeEditarViagem(sol) {
   if (sol.status === 'cancelada') return false;
   if (pode.admin()) return true;
@@ -478,7 +544,9 @@ function blocoTramitacao(sol) {
   let acao = '';
   if (!cancelada) {
     if (['analise'].includes(e) && pode.analisar()) {
-      acao = `<form id="f-analise" class="grade-2">
+      acao = `<div class="alerta alerta-info">Confira: <strong>${esc(sol.servidor?.nome)}</strong> — ${esc(sol.servidor?.cargo_funcao)} — enquadramento <strong>${esc(GRUPOS[sol.servidor?.grupo] || '')}</strong>
+        · ${esc(sol.faixa_texto)} · valor calculado <strong>${moeda(sol.valor_total)}</strong>${sol.criado_por?.nome ? ` · enviado por ${esc(sol.criado_por.nome)}` : ''}</div>
+      <form id="f-analise" class="grade-2">
         <label class="campo"><span>Conta de pagamento</span><input name="conta_pagamento" list="dl-contas" value="${esc(sol.conta_pagamento || '')}" placeholder="Ex.: BB 12345-6 — FMS"></label>
         <label class="campo"><span>Fonte de recursos</span><input name="fonte_recursos" list="dl-fontes" value="${esc(sol.fonte_recursos || '')}" placeholder="Ex.: 1500 — Recursos ordinários"></label>
         <label class="campo span-2"><span>Parecer / observação do Controle Interno</span><textarea name="parecer" rows="2" maxlength="500">${esc(sol.analise?.parecer || '')}</textarea></label>
@@ -660,7 +728,7 @@ export function telaDetalheSolicitacao(el, { args, query }) {
   const reemb = sol.reembolsos || [];
   el.innerHTML = `
     ${cabecalho(`Solicitação ${sol.numero}`, `
-      <a class="btn" href="#/imprimir/solicitacao/${esc(sol.id)}">🖨 Imprimir</a>
+      ${pode.verValores() ? `<a class="btn" href="#/imprimir/solicitacao/${esc(sol.id)}">🖨 Imprimir</a>` : ''}
       ${editavel ? `<a class="btn btn-sec" href="#/solicitacoes/${esc(sol.id)}?editar=1">✎ Editar viagem</a>` : ''}
       ${podeCancelar(sol) ? '<button class="btn btn-sec" id="cancelar-sol">Cancelar solicitação</button>' : ''}
       ${pode.admin() && sol.status === 'cancelada' ? '<button class="btn btn-sec" id="reativar-sol">Reativar</button>' : ''}
@@ -691,7 +759,7 @@ export function telaDetalheSolicitacao(el, { args, query }) {
           ${sol.observacoes ? `<dt>Observações</dt><dd class="pre">${esc(sol.observacoes)}</dd>` : ''}
         </dl>
       </section>
-      <section class="cartao span-detalhe">
+      ${pode.verValores() ? `<section class="cartao span-detalhe">
         <h3>Cálculo</h3>
         <dl class="dl">
           <dt>Faixa</dt><dd>${esc(sol.faixa_texto)}</dd>
@@ -704,10 +772,10 @@ export function telaDetalheSolicitacao(el, { args, query }) {
           <ul class="lista-peq">${(sol.descricao_calculo || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul>
           <ul class="lista-peq">${(sol.justificativa_legal || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul>
         </details>
-      </section>
+      </section>` : `<section class="cartao span-detalhe"><h3>Pagamento</h3><dl class="dl"><dt>Conta para pagamento</dt><dd>${esc(sol.conta_pagamento || '—')}</dd><dt>Fonte de recurso</dt><dd>${esc(sol.fonte_recursos || '—')}</dd></dl></section>`}
     </div>
 
-    <section class="cartao">
+    ${pode.verValores() ? '' : '<!--'}<section class="cartao">
       <div class="cab-secao"><h3>Reembolsos da viagem</h3>
         ${pode.contabil() ? '<button class="btn btn-peq" id="add-reemb">＋ Lançar reembolso</button>' : ''}</div>
       <div class="tabela-wrap"><table class="tabela">
@@ -724,7 +792,7 @@ export function telaDetalheSolicitacao(el, { args, query }) {
           </td></tr>`).join('') || '<tr><td colspan="7" class="vazio-linha">Nenhum reembolso lançado nesta viagem.</td></tr>'}</tbody>
         ${reemb.length ? `<tfoot><tr><td colspan="3">Total</td><td class="num"><strong>${moeda(totalReembolsos(sol))}</strong></td><td colspan="3"></td></tr></tfoot>` : ''}
       </table></div>
-    </section>`;
+    </section>${pode.verValores() ? '' : '-->'}`;
 
   ligarTramitacao(el, sol);
   $('#add-reemb', el)?.addEventListener('click', () => formReembolso(sol, null));

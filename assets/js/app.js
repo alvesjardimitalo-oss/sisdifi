@@ -3,7 +3,7 @@
 // Inicialização, login e navegação
 // =============================================================
 import * as db from './db.js';
-import { estado, mesclarConfig, PERFIS, pode } from './estado.js';
+import { estado, mesclarConfig, PERFIS, pode, ehSecretaria, secretariaNome } from './estado.js';
 import { esc, $, toast, mensagemErro, lerForm } from './ui.js';
 import { telaPainel } from './views/painel.js';
 import { telaListaSolicitacoes, telaNovaSolicitacao, telaDetalheSolicitacao } from './views/solicitacoes.js';
@@ -25,10 +25,10 @@ const MENU = [
   { rota: 'painel', icone: '◧', texto: 'Painel' },
   { rota: 'solicitacoes/nova', icone: '＋', texto: 'Nova solicitação', editar: true },
   { rota: 'solicitacoes', icone: '☰', texto: 'Solicitações' },
-  { rota: 'servidores', icone: '👤', texto: 'Servidores' },
-  { rota: 'secretarias', icone: '🏛', texto: 'Secretarias' },
-  { rota: 'conferencia', icone: '✓', texto: 'Conferência' },
-  { rota: 'simulador', icone: '∑', texto: 'Simulador' },
+  { rota: 'servidores', icone: '👤', texto: 'Servidores', interno: true },
+  { rota: 'secretarias', icone: '🏛', texto: 'Secretarias', interno: true },
+  { rota: 'conferencia', icone: '✓', texto: 'Conferência', interno: true },
+  { rota: 'simulador', icone: '∑', texto: 'Simulador', interno: true },
   { grupo: 'Administração', admin: true },
   { rota: 'parametros', icone: '⚙', texto: 'Parâmetros da lei', admin: true },
   { rota: 'usuarios', icone: '🔑', texto: 'Usuários', admin: true },
@@ -59,7 +59,7 @@ if (!db.configurado) {
         try { await db.solicitarAcesso(); perfil = await db.obterPerfil(usuario.uid); } catch { /* sem permissão: segue como não liberado */ }
       }
       if (!perfil || !perfil.ativo) return telaSemAcesso(usuario, perfil);
-      estado.sessao = { uid: usuario.uid, email: usuario.email, nome: perfil.nome, perfil: perfil.perfil };
+      estado.sessao = { uid: usuario.uid, email: usuario.email, nome: perfil.nome, perfil: perfil.perfil, secretaria_id: perfil.secretaria_id || null, secretaria_nome: perfil.secretaria_nome || '' };
       db.definirSessao(estado.sessao);
       iniciarDados();
       montarLayout();
@@ -197,10 +197,11 @@ function iniciarDados() {
   const erro = nome => e => toast(`Erro ao carregar ${nome}: ${mensagemErro(e)}`, 'erro');
   ouvintes.push(db.ouvir('servidores', l => { estado.servidores = l.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')); pronto('servidores'); }, erro('servidores')));
   ouvintes.push(db.ouvir('secretarias', l => { estado.secretarias = l.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')); pronto('secretarias'); }, erro('secretarias')));
+  // Secretaria só recebe as solicitações da própria secretaria (as regras do Firestore também garantem isso).
   ouvintes.push(db.ouvir('solicitacoes', l => {
     estado.solicitacoes = l.sort((a, b) => (b.ano - a.ano) || (b.sequencia - a.sequencia));
     pronto('solicitacoes');
-  }, erro('solicitações')));
+  }, erro('solicitações'), ehSecretaria() ? ['secretaria_id', estado.sessao.secretaria_id || '-'] : null));
   ouvintes.push(db.ouvir('distancias', l => { estado.distancias = Object.fromEntries(l.map(d => [d.id, d])); pronto('distancias'); }, () => {}));
   ouvintes.push(db.ouvirDoc('config', 'parametros', d => { estado.config = mesclarConfig(d); pronto('config'); }, erro('parâmetros')));
   if (pode.admin()) ouvintes.push(db.ouvir('usuarios', l => { estado.usuarios = l; pronto('usuarios'); }, erro('usuários')));
@@ -227,7 +228,7 @@ function montarLayout() {
     <div class="layout">
       <aside class="lateral" id="lateral">
         ${marca()}
-        <nav>${MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.solicitar())).map(m => m.grupo
+        <nav>${MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.solicitar()) && (!m.interno || !ehSecretaria())).map(m => m.grupo
           ? `<div class="menu-grupo">${esc(m.grupo)}</div>`
           : `<a href="#/${m.rota}" data-rota="${m.rota}"><span class="ico" aria-hidden="true">${m.icone}</span>${esc(m.texto)}</a>`).join('')}
         </nav>
@@ -238,7 +239,7 @@ function montarLayout() {
           <button class="btn-icone menu-mobile" id="abrir-menu" aria-label="Menu">☰</button>
           <div class="topo-titulo" id="topo-titulo"></div>
           <div class="usuario">
-            <a href="#/conta" class="usuario-nome" title="Minha conta">${esc(s.nome)}<small>${esc(PERFIS[s.perfil] || s.perfil)}</small></a>
+            <a href="#/conta" class="usuario-nome" title="Minha conta">${esc(s.nome)}<small>${esc(PERFIS[s.perfil] || s.perfil)}${s.perfil === 'secretaria' ? ' · ' + esc(s.secretaria_nome || 'sem secretaria') : ''}</small></a>
             <button class="btn btn-sec btn-peq" id="btn-sair">Sair</button>
           </div>
         </header>
@@ -254,17 +255,17 @@ const ROTAS = [
   [/^solicitacoes\/nova$/, telaNovaSolicitacao],
   [/^solicitacoes\/([\w-]+)$/, telaDetalheSolicitacao],
   [/^solicitacoes$/, telaListaSolicitacoes],
-  [/^servidores\/([\w-]+)$/, telaPerfilServidor],
-  [/^servidores$/, telaServidores],
-  [/^secretarias$/, telaSecretarias],
-  [/^simulador$/, telaSimulador],
-  [/^conferencia$/, telaConferencia],
+  [/^servidores\/([\w-]+)$/, telaPerfilServidor, 'interno'],
+  [/^servidores$/, telaServidores, 'interno'],
+  [/^secretarias$/, telaSecretarias, 'interno'],
+  [/^simulador$/, telaSimulador, 'interno'],
+  [/^conferencia$/, telaConferencia, 'interno'],
   [/^parametros$/, telaParametros, 'admin'],
   [/^usuarios$/, telaUsuarios, 'admin'],
   [/^importar$/, telaImportar, 'admin'],
   [/^auditoria$/, telaAuditoria, 'admin'],
   [/^conta$/, telaConta],
-  [/^imprimir\/(.+)$/, telaImprimir]
+  [/^imprimir\/(.+)$/, telaImprimir, 'interno']
 ];
 
 function rotaAtual() {
@@ -285,6 +286,7 @@ function desenharTela(atualizacao) {
     const m = caminho.match(re);
     if (m) {
       if (req === 'admin' && !pode.admin()) break;
+      if (req === 'interno' && ehSecretaria()) break;
       alvo = fn; args = m.slice(1); break;
     }
   }

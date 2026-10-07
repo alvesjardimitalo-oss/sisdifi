@@ -75,20 +75,30 @@ export function telaServidores(el) {
   return { viva: true, titulo: 'Servidores' };
 }
 
-export function formServidor(s) {
+/**
+ * Cadastro/edição de servidor.
+ * opcoes.rapido: cadastro feito de dentro da solicitação (não navega; chama aoSalvar(id)).
+ * opcoes.secretariaFixa: lotação definida (usuário de Secretaria).
+ */
+export function formServidor(s, { rapido = false, inicial = {}, secretariaFixa = null, aoSalvar = null } = {}) {
+  const v = { ...inicial, ...(s || {}) };
+  const fixa = secretariaFixa !== null && secretariaFixa !== '' && !s;
   const m = modal({
-    titulo: s ? 'Editar servidor' : 'Novo servidor', largura: 680,
+    titulo: s ? 'Editar servidor' : 'Cadastrar servidor', largura: 680,
     corpo: `<form id="fsv" class="grade-2" novalidate>
-      <label class="campo span-2"><span>Nome completo *</span><input name="nome" value="${esc(s?.nome || '')}" required maxlength="150"></label>
-      <label class="campo"><span>CPF *</span><input name="cpf" value="${esc(formatarCpf(s?.cpf || ''))}" inputmode="numeric" maxlength="14" required></label>
-      <label class="campo"><span>Chave Pix</span><input name="chave_pix" value="${esc(s?.chave_pix || '')}" maxlength="120"></label>
-      <label class="campo"><span>Cargo/Função *</span><input name="cargo_funcao" value="${esc(s?.cargo_funcao || '')}" required maxlength="120"></label>
-      <label class="campo"><span>Categoria da lei *</span><select name="grupo" required><option value="">Selecione</option>
-        ${Object.entries(GRUPOS).map(([k, v]) => `<option value="${k}" ${s?.grupo === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
-      <label class="campo"><span>Secretaria de lotação</span><select name="secretaria_id">${opcoesSecretarias(s?.secretaria_id || '', { vazio: '— Nenhuma —' })}</select></label>
-      <label class="campo"><span>Situação</span><select name="ativo"><option value="1" ${s?.ativo === false ? '' : 'selected'}>Ativo</option><option value="0" ${s?.ativo === false ? 'selected' : ''}>Inativo</option></select></label>
+      ${rapido ? '<p class="span-2 muted">O servidor fica cadastrado no banco e é incluído nesta solicitação.</p>' : ''}
+      <label class="campo span-2"><span>Nome completo *</span><input name="nome" value="${esc(v.nome || '')}" required maxlength="150"></label>
+      <label class="campo"><span>CPF *</span><input name="cpf" value="${esc(formatarCpf(v.cpf || ''))}" inputmode="numeric" maxlength="14" required></label>
+      <label class="campo"><span>Chave Pix *</span><input name="chave_pix" value="${esc(v.chave_pix || '')}" maxlength="120" ${rapido ? 'required' : ''}></label>
+      <label class="campo"><span>Cargo/Função *</span><input name="cargo_funcao" value="${esc(v.cargo_funcao || '')}" required maxlength="120"></label>
+      <label class="campo"><span>Enquadramento do cargo (Anexo I) *</span><select name="grupo" required>
+        ${Object.entries(GRUPOS).map(([k, n]) => `<option value="${k}" ${(v.grupo || 'DEMAIS_SERVIDORES') === k ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+      ${fixa
+        ? `<input type="hidden" name="secretaria_id" value="${esc(secretariaFixa)}">`
+        : `<label class="campo"><span>Secretaria de lotação</span><select name="secretaria_id">${opcoesSecretarias(v.secretaria_id || secretariaFixa || '', { vazio: '— Nenhuma —' })}</select></label>`}
+      ${rapido ? '<input type="hidden" name="ativo" value="1">' : `<label class="campo"><span>Situação</span><select name="ativo"><option value="1" ${v.ativo === false ? '' : 'selected'}>Ativo</option><option value="0" ${v.ativo === false ? 'selected' : ''}>Inativo</option></select></label>`}
       <p class="erro-form span-2" id="erro-sv"></p>
-      <div class="acoes-form span-2"><button type="button" class="btn btn-sec" data-cancelar>Cancelar</button><button class="btn" type="submit">Salvar</button></div>
+      <div class="acoes-form span-2"><button type="button" class="btn btn-sec" data-cancelar>Cancelar</button><button class="btn" type="submit">${rapido ? 'Cadastrar e incluir' : 'Salvar'}</button></div>
     </form>`
   });
   const f = $('#fsv', m.el);
@@ -99,17 +109,21 @@ export function formServidor(s) {
     const d = lerForm(f);
     const erro = $('#erro-sv', m.el);
     const cpf = limparCpf(d.cpf);
-    if (!d.nome || !cpf || !d.cargo_funcao || !d.grupo) return (erro.textContent = 'Preencha os campos obrigatórios (*).');
+    if (!d.nome || !cpf || !d.cargo_funcao || !d.grupo || (rapido && !d.chave_pix)) return (erro.textContent = 'Preencha os campos obrigatórios (*).');
     if (!cpfValido(cpf)) return (erro.textContent = 'CPF inválido: confira os números (dígito verificador não confere).');
     const dup = estado.servidores.find(x => x.cpf === cpf && x.id !== s?.id);
-    if (dup) return (erro.textContent = `Já existe servidor com este CPF: ${dup.nome}${dup.ativo === false ? ' (inativo — reative o cadastro existente)' : ''}.`);
-    const dados = { nome: d.nome.replace(/\s+/g, ' '), cpf, chave_pix: d.chave_pix, cargo_funcao: d.cargo_funcao, grupo: d.grupo, secretaria_id: d.secretaria_id || null, ativo: d.ativo === '1' };
+    if (dup) {
+      if (rapido && aoSalvar && dup.ativo !== false) { toast(`${dup.nome} já estava cadastrado — incluído na solicitação.`, 'aviso'); m.fechar(); aoSalvar(dup.id); return; }
+      return (erro.textContent = `Já existe servidor com este CPF: ${dup.nome}${dup.ativo === false ? ' (inativo — peça à Contabilidade para reativar)' : ''}.`);
+    }
+    const dados = { nome: d.nome.replace(/\s+/g, ' ').trim(), cpf, chave_pix: d.chave_pix, cargo_funcao: d.cargo_funcao, grupo: d.grupo, secretaria_id: d.secretaria_id || null, ativo: d.ativo === '1' };
     try {
       const id = await db.salvar('servidores', s?.id || null, dados);
       await db.registrarLog(s ? 'servidor.editar' : 'servidor.criar', { nome: dados.nome, ...(s && s.grupo !== dados.grupo ? { categoria_anterior: s.grupo, categoria_nova: dados.grupo } : {}) });
       toast(s ? 'Servidor atualizado.' : 'Servidor cadastrado.');
       m.fechar();
-      if (!s) location.hash = '#/servidores/' + id;
+      if (aoSalvar) aoSalvar(id);
+      else if (!s) location.hash = '#/servidores/' + id;
     } catch (err) { erro.textContent = mensagemErro(err); }
   };
 }

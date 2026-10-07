@@ -31,11 +31,13 @@ export function telaSecretarias(el) {
 
 function formSecretaria(s) {
   const m = modal({
-    titulo: s ? 'Editar secretaria' : 'Nova secretaria', largura: 480,
+    titulo: s ? 'Editar secretaria' : 'Nova secretaria', largura: 560,
     corpo: `<form id="fsec" novalidate>
       <label class="campo"><span>Nome</span><input name="nome" value="${esc(s?.nome || '')}" required maxlength="120"></label>
       <label class="campo"><span>Dotação prevista para diárias em ${new Date().getFullYear()} (R$, opcional)</span>
         <input type="number" step="0.01" min="0" name="dotacao" value="${esc(s?.dotacao?.[new Date().getFullYear()] ?? '')}"></label>
+      <label class="campo"><span>Contas para pagamento desta secretaria (uma por linha)</span><textarea name="contas" rows="3">${esc((s?.contas_pagamento || []).join('\n'))}</textarea></label>
+      <label class="campo"><span>Fontes de recurso desta secretaria (uma por linha)</span><textarea name="fontes" rows="3">${esc((s?.fontes_recursos || []).join('\n'))}</textarea></label>
       ${s ? `<label class="campo"><span>Situação</span><select name="ativo"><option value="1" ${s.ativo === false ? '' : 'selected'}>Ativa</option><option value="0" ${s.ativo === false ? 'selected' : ''}>Inativa</option></select></label>` : ''}
       <p class="erro-form" id="erro-sec"></p>
       <div class="acoes-form"><button type="button" class="btn btn-sec" data-cancelar>Cancelar</button><button class="btn" type="submit">Salvar</button></div>
@@ -52,7 +54,8 @@ function formSecretaria(s) {
     if (dup) return (erro.textContent = `Já existe a secretaria "${dup.nome}"${dup.ativo === false ? ' (inativa — edite-a para reativar)' : ''}.`);
     try {
       const ano = String(new Date().getFullYear());
-      const dados = { nome: d.nome, ativo: s ? d.ativo === '1' : true };
+      const lista = t => String(t || '').split('\n').map(x => x.trim()).filter(Boolean);
+      const dados = { nome: d.nome, ativo: s ? d.ativo === '1' : true, contas_pagamento: lista(d.contas), fontes_recursos: lista(d.fontes) };
       if (d.dotacao !== '') dados.dotacao = { ...(s?.dotacao || {}), [ano]: Math.round(Number(d.dotacao) * 100) / 100 };
       await db.salvar('secretarias', s?.id || null, dados);
       await db.registrarLog(s ? 'secretaria.editar' : 'secretaria.criar', { nome: d.nome });
