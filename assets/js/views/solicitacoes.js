@@ -1,6 +1,7 @@
 // SISDIFI — Solicitações de diária: lista, nova, detalhe/edição, empenho e reembolsos
 import * as db from '../db.js';
 import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ETAPAS, etapaDe, ehSecretaria, separarValores, ETAPAS_EMPENHADAS, definirHistorico } from '../estado.js';
+import { exigirTermo } from './termo.js';
 import { formServidor, formPix, podeCompletar, pendencias, ehMotorista, avisoPixCpf } from './servidores.js';
 import { botoesNota, ligarBotoesNota, lerChave } from '../notas.js';
 import { temPix, cpfOk, cpfExibir, pixExibir } from '../privacidade.js';
@@ -162,6 +163,7 @@ function exportarCSV(lista) {
 // =============================================================
 export function telaNovaSolicitacao(el, { query }) {
   if (!pode.solicitar()) { el.innerHTML = '<div class="vazio">Seu perfil é somente consulta.</div>'; return { titulo: 'Nova solicitação' }; }
+  if (exigirTermo(el, () => telaNovaSolicitacao(el, { query }))) return { titulo: 'Nova solicitação' };
   if (aguardando(el, ['servidores', 'secretarias', 'solicitacoes', 'config'])) return { viva: true, titulo: 'Nova solicitação' };
   const servidorInicial = query.get('servidor');
   // "Nova a partir desta": copia tudo da viagem escolhida, menos as datas

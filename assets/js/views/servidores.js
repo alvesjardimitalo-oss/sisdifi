@@ -6,12 +6,14 @@ import { esc, $, $$, toast, modal, confirmar, dataBR, numeroBR, normalizar, lerF
 import { aguardando, cabecalho, selo, opcoesSecretarias, anosDisponiveis, MESES } from './comum.js';
 import { extrairLinhas } from '../orcamento-pdf.js';
 import { temPix, cpfOk, cpfExibir, pixExibir, cargoMotorista, pixEhCpf, codigoTipoPix } from '../privacidade.js';
+import { exigirTermo } from './termo.js';
 import { analisarFolha, cruzarFolha, cargoDaFolha } from '../folha-pdf.js';
 import { analisarRelacaoServidores, compararComCadastro, secretariaDaLotacao, grupoSugerido, nomeProprio, SITUACOES } from '../servidores-pdf.js';
 
 const filtros = { busca: '', secretaria: '', status: '1', grupo: '', pix: '', ordem: 'az', pagina: 1 };
 
 export function telaServidores(el) {
+  if (exigirTermo(el, () => telaServidores(el))) return { titulo: 'Servidores' };
   if (aguardando(el, ['servidores', 'secretarias'])) return { viva: true, titulo: 'Servidores' };
   const t = normalizar(filtros.busca), dig = limparCpf(filtros.busca);
   let lista = estado.servidores.filter(s =>

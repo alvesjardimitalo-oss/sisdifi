@@ -30,7 +30,8 @@ export async function criarPrimeiroAdmin({ nome, email, senha }) {
   garantir('usuarios').set('u-admin', { nome, email, perfil: 'admin', ativo: true });
   usuarioAtual = { uid: 'u-admin', email }; cbSessao(usuarioAtual);
 }
-export async function obterPerfil(uid) { const u = usuarios.get(uid); return u && u.perfil ? { uid, tutorial_visto: window.__tutorial ? undefined : 'teste', ...u } : null; }
+export async function obterPerfil(uid) { const u = usuarios.get(uid); return u && u.perfil ? { uid, tutorial_visto: window.__tutorial ? undefined : 'teste', termo_lgpd: window.__termo ? undefined : { versao: '2026-10', aceito_em: '2026-10-01T00:00:00Z' }, ...u } : null; }
+export async function aceitarTermo(aceite) { const u = usuarios.get(usuarioAtual?.uid); if (u) u.termo_lgpd = aceite; }
 export async function marcarTutorialVisto() { const u = usuarios.get(usuarioAtual?.uid); if (u) u.tutorial_visto = new Date().toISOString(); }
 export async function criarUsuario({ nome, email, senha, perfil }) {
   const uid = 'u' + (contador++);

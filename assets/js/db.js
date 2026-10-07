@@ -96,6 +96,11 @@ export async function marcarTutorialVisto() {
   const u = auth.currentUser;
   if (u) await updateDoc(doc(fs, 'usuarios', u.uid), { tutorial_visto: new Date().toISOString() });
 }
+/** O próprio usuário registra o aceite do termo de responsabilidade sobre dados pessoais. */
+export async function aceitarTermo(aceite) {
+  const u = auth.currentUser;
+  if (u) await updateDoc(doc(fs, 'usuarios', u.uid), { termo_lgpd: aceite });
+}
 export async function obterPerfil(uid) {
   const s = await getDoc(doc(fs, 'usuarios', uid));
   return s.exists() ? { uid, ...s.data() } : null;

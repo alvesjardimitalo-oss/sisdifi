@@ -6,6 +6,7 @@ import { esc, $, $$, toast, modal, confirmar, lerForm, mensagemErro, dataBR, bai
 import { aguardando, cabecalho, opcoesSecretarias } from './comum.js';
 import { mapearBancoAntigo } from '../importador.js';
 import { importarRelacao, importarFolha } from './servidores.js';
+import { blocoTermoConta } from './termo.js';
 
 // =============================================================
 // PARÂMETROS
@@ -347,7 +348,8 @@ export function telaConta(el) {
         <p class="erro-form" id="erro-senha"></p>
         <div class="acoes-form"><button class="btn" type="submit">Alterar senha</button></div>
       </form>
-    </section>`;
+    </section>
+    ${blocoTermoConta()}`;
   $('#rever-tutorial', el).onclick = () => document.getElementById('abrir-tutorial')?.click();
   const f = $('#fsenha', el);
   f.onsubmit = async e => {
