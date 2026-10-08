@@ -5,7 +5,7 @@ import { GRUPOS, formatarCpf, limparCpf, cpfValido, moeda, analisarPix } from '.
 import { esc, $, $$, toast, modal, confirmar, dataBR, numeroBR, normalizar, lerForm, mensagemErro, baixarArquivo, csv, hojeISO } from '../ui.js';
 import { aguardando, cabecalho, selo, opcoesSecretarias, anosDisponiveis, MESES } from './comum.js';
 import { extrairLinhas } from '../orcamento-pdf.js';
-import { temPix, cpfOk, cpfExibir, pixExibir, cargoMotorista, pixEhCpf, codigoTipoPix } from '../privacidade.js';
+import { temPix, cpfOk, cpfExibir, pixExibir, cargoMotorista, pixEhCpf, codigoTipoPix, mascararCpf } from '../privacidade.js';
 import { exigirTermo } from './termo.js';
 import { analisarFolha, cruzarFolha, cargoDaFolha } from '../folha-pdf.js';
 import { analisarRelacaoServidores, compararComCadastro, secretariaDaLotacao, grupoSugerido, nomeProprio, SITUACOES } from '../servidores-pdf.js';
@@ -58,7 +58,7 @@ export function telaServidores(el) {
       <thead><tr><th>Nome</th><th>CPF</th><th>Chave Pix</th><th>Cargo/Função</th><th>Categoria</th><th>Secretaria</th><th></th></tr></thead>
       <tbody>${pagina.map(s => `<tr class="clicavel" data-id="${esc(s.id)}">
         <td class="col-nome"><strong>${esc(s.nome)}</strong>${s.ativo === false ? '<span class="selo selo-cancelada bloco-selo">Inativo</span>' : ''}</td>
-        <td><span class="nowrap">${esc(cpfExibir(s))}</span>${cpfOk(s) ? '' : '<span class="selo selo-cancelada bloco-selo" title="Dígito verificador inválido">CPF inválido</span>'}</td>
+        <td>${s.cpf ? `<span class="nowrap cpf-oculto" data-cpf="${esc(cpfExibir(s))}">${esc(mascararCpf(s.cpf))}</span><button type="button" class="btn-olho" data-parar data-ver-cpf title="Mostrar o CPF" aria-label="Mostrar o CPF">👁</button>` : `<span class="nowrap">${esc(cpfExibir(s))}</span>`}${cpfOk(s) ? '' : '<span class="selo selo-cancelada bloco-selo" title="Dígito verificador inválido">CPF inválido</span>'}</td>
         <td>${temPix(s) ? esc(pixExibir(s)) : `<span class="selo selo-pendente">sem Pix</span>`}</td>
         <td>${s.cargo_funcao ? esc(s.cargo_funcao) : '<span class="selo selo-pendente">a informar</span>'}${s.vinculo ? `<small class="muted bloco">${esc(nomeProprio(s.vinculo))}</small>` : ''}</td><td>${esc(GRUPOS[s.grupo] || '')}</td><td>${esc(secretariaNome(s.secretaria_id) || '—')}</td>
         <td class="acoes-linha">${podeCompletar(s) && (pendencias(s).length || !pode.editar()) ? `<button class="btn ${pendencias(s).length ? '' : 'btn-sec'} btn-peq" data-parar data-pix="${esc(s.id)}" title="Chave Pix e cargo">${pendencias(s).length ? '＋ ' + pendencias(s).join(' e ') : '✎ Pix/cargo'}</button>` : ''}${pode.solicitar() && s.ativo !== false ? `<a class="btn btn-peq" data-parar href="#/solicitacoes/nova?servidor=${esc(s.id)}">＋ Diária</a>` : ''}${pode.editar() ? `<button class="btn btn-sec btn-peq" data-parar data-editar-sv="${esc(s.id)}" title="Editar servidor" aria-label="Editar ${esc(s.nome)}">✎</button><button class="btn btn-sec btn-peq btn-excluir" data-parar data-excluir-sv="${esc(s.id)}" title="Excluir servidor" aria-label="Excluir ${esc(s.nome)}">🗑</button>` : ''}</td>
@@ -94,6 +94,12 @@ export function telaServidores(el) {
   $('#inativar-sem-cargo', el)?.addEventListener('click', () => inativarSemCargo());
   $('#pix-cpf-lote', el)?.addEventListener('click', () => pixCpfEmLote());
   $$('[data-pix]', el).forEach(b => b.onclick = ev => { ev.stopPropagation(); formPix(porId('servidores', b.dataset.pix)); });
+  $$('[data-ver-cpf]', el).forEach(b => b.onclick = ev => {
+    ev.stopPropagation();
+    const span = b.previousElementSibling, aberto = span.dataset.aberto === '1';
+    if (!aberto) { span.dataset.mascara = span.textContent; span.textContent = span.dataset.cpf; } else span.textContent = span.dataset.mascara;
+    span.dataset.aberto = aberto ? '' : '1'; b.title = aberto ? 'Mostrar o CPF' : 'Esconder o CPF'; b.classList.toggle('ativo', !aberto);
+  });
   $$('[data-editar-sv]', el).forEach(b => b.onclick = ev => { ev.stopPropagation(); formServidor(porId('servidores', b.dataset.editarSv), { aoSalvar: () => {} }); });
   $$('[data-excluir-sv]', el).forEach(b => b.onclick = ev => { ev.stopPropagation(); excluirServidor(porId('servidores', b.dataset.excluirSv)); });
   if ($('#exp-sv', el)) $('#exp-sv', el).onclick = () => baixarArquivo(`servidores-${hojeISO()}.csv`, csv([
