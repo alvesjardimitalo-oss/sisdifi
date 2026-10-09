@@ -1265,7 +1265,7 @@ export function telaDetalheSolicitacao(el, { args, query }) {
       </table></div>
     </section>${pode.verValores() ? '' : '-->'}`;
 
-  montarPainelAnexos($('#painel-anexos-solicitacao', el), sol, ehSecretaria() && sol.secretaria_id === estado.sessao.secretaria_id && !sol.interna);
+  montarPainelAnexos($('#painel-anexos-solicitacao', el), sol, ehSecretaria() && sol.secretaria_id === estado.sessao.secretaria_id && sol.visivel_secretaria === true && sol.interna === false && ['analise', 'reprovada'].includes(sol.etapa));
   ligarTramitacao(el, sol);
   ligarPrestacao(el, sol);
   ligarBotoesNota(el);
