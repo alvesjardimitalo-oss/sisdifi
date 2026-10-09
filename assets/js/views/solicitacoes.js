@@ -1,6 +1,7 @@
 // SISDIFI — Solicitações de diária: lista, nova, detalhe/edição, empenho e reembolsos
 import * as db from '../db.js';
-import { montarPainelAnexos } from '../painel-anexos.js';
+// ANEXOS TEMPORARIAMENTE DESATIVADOS — ver docs/anexos-handoff-claude.md
+// import { montarPainelAnexos } from '../painel-anexos.js';
 import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ETAPAS, etapaDe, ehSecretaria, separarValores, ETAPAS_EMPENHADAS, definirHistorico } from '../estado.js';
 import { exigirTermo } from './termo.js';
 import { formServidor, formPix, podeCompletar, pendencias, ehMotorista, avisoPixCpf } from './servidores.js';
@@ -1265,7 +1266,8 @@ export function telaDetalheSolicitacao(el, { args, query }) {
       </table></div>
     </section>${pode.verValores() ? '' : '-->'}`;
 
-  montarPainelAnexos($('#painel-anexos-solicitacao', el), sol, ehSecretaria() && sol.secretaria_id === estado.sessao.secretaria_id && sol.visivel_secretaria === true && sol.interna === false && ['analise', 'reprovada'].includes(sol.etapa));
+  // ANEXOS TEMPORARIAMENTE DESATIVADOS: não renderizar iframe nem chamar Apps Script.
+  //   montarPainelAnexos($('#painel-anexos-solicitacao', el), sol, ehSecretaria() && sol.secretaria_id === estado.sessao.secretaria_id && sol.visivel_secretaria === true && sol.interna === false && ['analise', 'reprovada'].includes(sol.etapa));
   ligarTramitacao(el, sol);
   ligarPrestacao(el, sol);
   ligarBotoesNota(el);
