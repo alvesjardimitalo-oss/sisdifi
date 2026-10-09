@@ -177,6 +177,12 @@ service cloud.firestore {
       allow delete: if admin();
     }
 
+    // Metadados dos anexos: somente o backend autenticado (Admin SDK) grava.
+    // A leitura também passa pelo backend para não expor IDs internos do Drive.
+    match /solicitacoes/{solicitacaoId}/anexos/{anexoId} {
+      allow read, write: if false;
+    }
+
     // Valores das diárias: só Contabilidade, administrador e consulta leem. Secretaria e Controle Interno não.
     match /valores/{id} {
       // Controle Interno e RH: só os valores liberados (após o empenho). Secretaria: só os liberados da própria pasta.
