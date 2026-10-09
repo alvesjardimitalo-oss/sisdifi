@@ -22,7 +22,7 @@ export function montarPainelAnexos(el, sol, podeEnviar) {
   }
   // Apenas identificador de solicitação; o Apps Script precisa autenticar
   // e validar a autorização no servidor, independentemente deste valor.
-  url.searchParams.set('solicitacaoId', sol.id);
+  url.searchParams.set('solicitacao', sol.id);
   el.innerHTML = `<section class="cartao">
     <h3>Anexos da solicitação</h3>
     <p class="muted">Convites, comprovantes e documentos (PDF, JPG ou PNG).
