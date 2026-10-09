@@ -39,6 +39,11 @@ function autor() { return sessao ? { uid: sessao.uid, nome: sessao.nome || sessa
 export function aoMudarSessao(cb) { return onAuthStateChanged(auth, u => cb(u ? { uid: u.uid, email: u.email } : null)); }
 export const entrar = (email, senha) => signInWithEmailAndPassword(auth, email.trim(), senha);
 export const sair = () => signOut(auth);
+// Reutiliza a sessão existente para chamadas autenticadas ao módulo de anexos.
+export async function tokenAnexos() {
+  if (!auth.currentUser) throw Error('Sessão encerrada. Entre novamente no SISDIFI.');
+  return auth.currentUser.getIdToken();
+}
 export const redefinirSenha = email => sendPasswordResetEmail(auth, email.trim());
 
 export async function alterarMinhaSenha(atual, nova) {
