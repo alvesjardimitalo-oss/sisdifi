@@ -41,10 +41,13 @@ export function montarPainelAnexos(el, sol, podeEnviar) {
   let ativo = true, aberto = false, carregado = false, iframe = null;
 
   const receber = async event => {
-    if (!ativo || !iframe || event.source !== iframe.contentWindow ||
+    if (!ativo || !iframe || !aberto ||
         !origemAppsScript(event.origin) ||
         event.data?.tipo !== 'sisdifi-anexos-pronto' || event.data?.canal !== canal) return;
     try {
+      // Apps Script renders HTML in an internal googleusercontent iframe; its
+      // message source differs from the outer iframe element. Nonce + origin
+      // authenticate the handshake instead of comparing window references.
       const token = await tokenAnexos();
       if (!ativo || !aberto) return;
       event.source.postMessage({tipo:'sisdifi-anexos-sessao',canal,token},event.origin);
