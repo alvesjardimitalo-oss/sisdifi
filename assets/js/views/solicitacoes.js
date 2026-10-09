@@ -1,5 +1,6 @@
 // SISDIFI — Solicitações de diária: lista, nova, detalhe/edição, empenho e reembolsos
 import * as db from '../db.js';
+import { montarPainelAnexos } from '../painel-anexos.js';
 import { estado, pode, porId, secretariaNome, totalReembolsos, ativas, ETAPAS, etapaDe, ehSecretaria, separarValores, ETAPAS_EMPENHADAS, definirHistorico } from '../estado.js';
 import { exigirTermo } from './termo.js';
 import { formServidor, formPix, podeCompletar, pendencias, ehMotorista, avisoPixCpf } from './servidores.js';
@@ -1199,6 +1200,7 @@ export function telaDetalheSolicitacao(el, { args, query }) {
     ${sol.status === 'cancelada' ? `<div class="alerta">Solicitação cancelada${sol.motivo_cancelamento ? ': ' + esc(sol.motivo_cancelamento) : ''}.</div>` : ''}
     ${blocoTramitacao(sol)}
     ${blocoPrestacao(sol)}
+    <div id="painel-anexos-solicitacao"></div>
     <div class="grade-detalhe">
       <section class="cartao">
         <h3>Servidor</h3>
@@ -1263,6 +1265,7 @@ export function telaDetalheSolicitacao(el, { args, query }) {
       </table></div>
     </section>${pode.verValores() ? '' : '-->'}`;
 
+  montarPainelAnexos($('#painel-anexos-solicitacao', el), sol, ehSecretaria() && sol.secretaria_id === estado.sessao.secretaria_id && sol.visivel_secretaria === true && sol.interna === false && ['analise', 'reprovada'].includes(sol.etapa));
   ligarTramitacao(el, sol);
   ligarPrestacao(el, sol);
   ligarBotoesNota(el);
