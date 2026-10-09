@@ -1,0 +1,21 @@
+name: Anexos — validação
+on:
+  push:
+    branches: [feature/anexos-drive-sisdifi]
+  pull_request:
+    paths:
+      - 'assets/js/painel-anexos.js'
+      - 'assets/js/views/solicitacoes.js'
+      - 'tests/anexos-integracao.test.mjs'
+      - '.github/workflows/anexos-check.yml'
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check assets/js/painel-anexos.js
+      - run: node --check assets/js/views/solicitacoes.js
+      - run: node --test tests/anexos-integracao.test.mjs
