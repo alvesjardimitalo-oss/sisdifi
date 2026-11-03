@@ -245,6 +245,11 @@ function desenharForm(el) {
         ${ehServico || !d.documento ? `<label class="campo"><span>Retenção do ISSQN na nota *</span><select name="issRetidoNota">
           ${[['', 'Não informado'], ['sim', 'Retido pelo tomador'], ['nao', 'Não retido']].map(([v, n]) => `<option value="${v}" ${(d.issRetidoNota === true && v === 'sim') || (d.issRetidoNota === false && v === 'nao') || (d.issRetidoNota == null && v === '') ? 'selected' : ''}>${n}</option>`).join('')}</select></label>` : '<span></span>'}
       </div>
+      ${ehServico || !d.documento ? `<label class="campo"><span>Município de incidência do ISSQN (na nota) *</span><select name="incidencia">
+        ${[['', 'Não informado — conferir no documento'], [MUNICIPIO.ibge, `${MUNICIPIO.nome}/${MUNICIPIO.uf}`],
+          ...(d.municipioEmissor && d.municipioEmissor !== MUNICIPIO.ibge ? [[String(d.municipioEmissor), nomeMunicipio(d.municipioEmissor) + ' (onde a nota foi emitida)']] : []),
+          ['outro', 'Outro município']].map(([v, n]) => `<option value="${esc(v)}" ${sel(v, d.incidencia ? (d.incidencia === MUNICIPIO.ibge || d.incidencia === String(d.municipioEmissor) ? String(d.incidencia) : 'outro') : '')}>${esc(n)}</option>`).join('')}</select>
+        <small class="dica">No DANFSe: "Município de incidência do ISSQN". A nota pode ser emitida no município do prestador, mas a incidência deve ser onde o serviço é prestado.</small></label>` : ''}
       <div class="grade-3">
         ${ehServico || !d.documento ? `<label class="campo"><span>Alíquota do ISS (%)</span><input type="number" step="0.01" min="0" name="issAliquota" value="${esc(numCampo(d.issAliquota))}" placeholder="5"></label>
         <label class="campo"><span>Valor do ISS (R$)</span><input type="number" step="0.01" min="0" name="issValor" value="${esc(numCampo(d.issValor))}"></label>` : '<span></span><span></span>'}
@@ -279,6 +284,7 @@ function desenharForm(el) {
       localPrestacao: 'localPrestacao' in v ? (v.localPrestacao === 'outro' ? (s.doc.localPrestacao && s.doc.localPrestacao !== MUNICIPIO.ibge ? s.doc.localPrestacao : 'outro') : MUNICIPIO.ibge) : s.doc.localPrestacao,
       regimeNota: v.regimeNota, irrfDestacado: n(v.irrfDestacado), issAliquota: n(v.issAliquota), issValor: n(v.issValor),
       issRetidoNota: v.issRetidoNota === 'sim' ? true : v.issRetidoNota === 'nao' ? false : null,
+      incidencia: 'incidencia' in v ? (v.incidencia === 'outro' ? (s.doc.incidencia && s.doc.incidencia !== MUNICIPIO.ibge && s.doc.incidencia !== String(s.doc.municipioEmissor) ? s.doc.incidencia : 'outro') : v.incidencia) : s.doc.incidencia,
       coopServicosPessoais: 'coopServicosPessoais' in v ? n(v.coopServicosPessoais) : s.doc.coopServicosPessoais,
       coopTransporte: 'coopTransporte' in v ? v.coopTransporte : s.doc.coopTransporte,
       modelo: ({ 'NF-e': '55', 'NFC-e': '65', 'CT-e': '57', 'CT-e OS': '67', 'NFS-e Nacional': 'nfse', 'NFS-e': 'nfse', 'NF3-e (energia elétrica)': '66', 'NFCom (telecomunicação)': '62', 'BP-e (passagem)': '63' })[v.documento] || s.doc.modelo || '',
@@ -297,6 +303,7 @@ function desenharForm(el) {
 function recalcular(el) {
   const temDados = s.doc.cnpj || s.doc.valor;
   if (s.doc.municipioEmissor) s.doc.municipioEmissorNome = nomeMunicipio(s.doc.municipioEmissor);
+  s.doc.incidenciaNome = s.doc.incidencia ? nomeMunicipio(s.doc.incidencia) : '';
   s.resultado = temDados ? conferir({ doc: s.doc, cadastro: s.consulta?.cadastro || null, naturezaId: s.natureza, simplesManual: s.simplesManual, hoje: hojeISO(), chave: s.leitura?.tipo === 'chave' ? s.leitura : null }) : null;
   if (s.resultado && s.doc.valor) {
     const id = idNota();

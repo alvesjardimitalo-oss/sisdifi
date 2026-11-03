@@ -199,7 +199,7 @@ function lerNFSeNacional(x) {
     numero: tag(inf, 'nNFSe'), emissao: dataDe(tag(dps, 'dhEmi') || tag(inf, 'dhProc')),
     cnpj: tag(emit, 'CNPJ') || tag(prest, 'CNPJ'), nome: tag(emit, 'xNome') || tag(prest, 'xNome'),
     municipioEmissor: tag(dps, 'cLocEmi') || tag(bloco(emit, 'enderNac'), 'cMun') || tag(inf, 'cLocIncid'),
-    municipioIncidencia: tag(inf, 'cLocIncid'),
+    municipioIncidencia: tag(inf, 'cLocIncid'), incidencia: tag(inf, 'cLocIncid'),
     localPrestacao: tag(bloco(dps, 'locPrest'), 'cLocPrestacao') || tag(dps, 'cLocPrestacao') || tag(inf, 'cLocIncid'),
     valor: num(tag(bloco(dps, 'vServPrest'), 'vServ') || tag(dps, 'vServ')),
     regimeNota: op === '1' ? 'normal' : op === '2' ? 'mei' : op === '3' ? 'simples' : '',
@@ -511,7 +511,11 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
       iss.valor = r2(valor * iss.aliquota / 100);
       iss.reter = ISS.retemOrgao;
       if (doc.issValor != null && doc.issValor > 0 && difere(doc.issValor, iss.valor) && !problemas.some(p => p.titulo.startsWith('Alíquota de ISS'))) add('erro', `Valor do ISS na nota (${moeda(doc.issValor)}) diferente do calculado (${moeda(iss.valor)})`, 'Confira a base de cálculo (deduções) na nota. Se não houver dedução legal, peça a nota substituta.');
-      if (iss.reter && emitidaFora && !simples) add('alerta', `Nota emitida em outro município (${doc.municipioEmissorNome || doc.municipioEmissor}) para serviço prestado em ${MUNICIPIO.nome}`, `Retenha o ISS de ${pctTxtF(ISS.aliquota)} para ${MUNICIPIO.nome}. Peça ao fornecedor que informe ${MUNICIPIO.nome} como local da prestação/incidência e que não recolha o ISS no município dele, para não haver cobrança em dobro.`);
+      // Nota emitida no município do prestador é normal; o que importa é o MUNICÍPIO DE INCIDÊNCIA do ISS informado na nota.
+      const incid = doc.incidencia ? String(doc.incidencia) : '';
+      const nomeEmissor = doc.municipioEmissorNome || doc.municipioEmissor;
+      if (iss.reter && incid && incid !== MUNICIPIO.ibge) add('erro', `A nota indica o ISS devido em outro município${doc.incidenciaNome ? ' (' + doc.incidenciaNome + ')' : ''}, mas o serviço é prestado em ${MUNICIPIO.nome}`, `Peça ao fornecedor a substituição da NFS-e com "Local da prestação" e "Município de incidência do ISSQN" = ${MUNICIPIO.nome}, alíquota de ${pctTxtF(ISS.aliquota)} e ISS retido pelo tomador. Não liquide com a nota errada: se o Município reter e o fornecedor também recolher no outro município, o ISS é pago em dobro.`);
+      else if (iss.reter && emitidaFora && !incid) add('alerta', `Nota emitida em ${nomeEmissor}: confira o município de incidência`, `É normal a NFS-e ser emitida no município do prestador. Confira no documento: "Município de incidência do ISSQN" deve ser ${MUNICIPIO.nome}. Se for, marque no formulário e a retenção de ${pctTxtF(ISS.aliquota)} está correta; se for ${nomeEmissor}, peça a substituição da nota.`);
       if (iss.reter && doc.issRetidoNota === false) add('erro', 'A nota indica ISS NÃO retido', `O Município é o responsável pela retenção: retenha ${moeda(iss.valor)} mesmo assim e peça ao fornecedor a nota substituta com "ISS retido pelo tomador", para ele não pagar o imposto em dobro.`);
     }
   }
