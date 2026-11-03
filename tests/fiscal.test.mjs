@@ -117,5 +117,8 @@ ok(q.cadastro?.fonte === 'Minha Receita' && q.cadastro.simples && q.cadastro.sit
 const ws = normalizarCadastro({ razao_social: 'Y', natureza_juridica: { id: '206-2', descricao: 'Sociedade Empresária Limitada' }, simples: { simples: 'Não', mei: 'Não' }, estabelecimento: { cnpj: '11222333000181', situacao_cadastral: 'Ativa', cidade: { nome: 'X', ibge_id: 3126901 }, estado: { sigla: 'MG' } } }, 'CNPJ.ws');
 ok(ws.situacao === 'ATIVA' && ws.simples === false && ws.naturezaCodigo === '2062', 'normaliza CNPJ.ws');
 
+ok(sugerirNatureza({ modelo: '66' }) === 'energia' && sugerirNatureza({ modelo: '62' }) === 'agua_telefone' && sugerirNatureza({ modelo: '57' }) === 'transporte_cargas', 'natureza pelo modelo (energia, telefone, frete)');
+const nf3e = comDV('31' + '2610' + '11222333000181' + '66' + '001' + '000000555' + '1' + '12345678');
+ok(lerCodigo(nf3e).documento.startsWith('NF3-e'), 'NF3-e pela chave');
 console.log(falhas ? `${falhas} falha(s)` : 'fiscal: todos os testes passaram');
 process.exit(falhas ? 1 : 0);

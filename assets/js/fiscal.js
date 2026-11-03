@@ -88,7 +88,7 @@ function dvModulo11(corpo) {
   const r = soma % 11;
   return r < 2 ? 0 : 11 - r;
 }
-const MODELOS = { '55': 'NF-e', '65': 'NFC-e', '57': 'CT-e', '67': 'CT-e OS', '59': 'CF-e SAT' };
+const MODELOS = { '55': 'NF-e', '65': 'NFC-e', '57': 'CT-e', '67': 'CT-e OS', '59': 'CF-e SAT', '66': 'NF3-e (energia elétrica)', '62': 'NFCom (telecomunicação)', '63': 'BP-e (passagem)' };
 
 /**
  * Interpreta o que foi lido pelo leitor/câmera ou digitado: chave de NF-e/NFC-e/CT-e (44), chave de NFS-e Nacional (50),
@@ -243,6 +243,8 @@ export function irNoTexto(texto) {
 export function sugerirNatureza(doc) {
   if (!doc) return 'mercadorias';
   if (doc.combustivel) return 'combustiveis';
+  const porModelo = { '66': 'energia', '62': 'agua_telefone', '57': 'transporte_cargas', '67': 'transporte_passageiros', '63': 'transporte_passageiros' }[String(doc.modelo)];
+  if (porModelo) return porModelo;
   if (!doc.servico) return 'mercadorias';
   const c = sem(doc.codigoServico).replace(/\D/g, '');
   const item = c.slice(0, 2), sub = c.slice(0, 4);

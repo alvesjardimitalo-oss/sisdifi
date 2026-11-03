@@ -28,12 +28,14 @@ function guardarHistorico(item) {
 const idNota = () => s.doc.chave || (s.doc.cnpj && s.doc.numero ? `${limparCnpj(s.doc.cnpj)}-${s.doc.numero}` : '');
 
 export function telaFiscal(el) {
+  const compacto = el.classList.contains('fiscal-compacto');
   el.innerHTML = `
-    ${cabecalho('Conferência fiscal de notas', '', `Leia o código de barras da nota, digite a chave ou o CNPJ, ou abra o XML. O sistema confere Simples Nacional, IRRF, ISSQN (${esc(MUNICIPIO.nome)}: ${pctTxt(ISS.aliquota)}), CBS e IBS e aponta o que corrigir antes da liquidação.`)}
+    ${compacto ? '' : cabecalho('Conferência fiscal de notas', '', `Leia o código de barras da nota, digite a chave ou o CNPJ, ou abra o XML. O sistema confere Simples Nacional, IRRF, ISSQN (${esc(MUNICIPIO.nome)}: ${pctTxt(ISS.aliquota)}), CBS e IBS e aponta o que corrigir antes da liquidação.`)}
     <div class="cartao fiscal-leitura">
       <label class="campo"><span>Código de barras, chave de acesso, QR Code ou CNPJ</span>
-        <div class="fiscal-linha">
-          <input id="fis-codigo" inputmode="text" autocomplete="off" spellcheck="false" placeholder="Aponte o leitor para o código de barras do DANFE ou digite a chave / CNPJ" value="${esc(s.codigo)}">
+        <div class="fiscal-linha"><div class="fiscal-campo-codigo">
+          <input id="fis-codigo" inputmode="text" autocomplete="off" spellcheck="false" placeholder="Leia o código de barras ou digite a chave / CNPJ" value="${esc(s.codigo)}">
+          <button type="button" class="fiscal-x" id="fis-x" title="Apagar o código (Esc)" aria-label="Apagar o código" ${s.codigo ? '' : 'hidden'}>✕</button></div>
           <button class="btn" type="button" id="fis-ler">Conferir</button>
         </div>
         <small class="dica" id="fis-leitura-dica">${s.leitura ? esc(descreverLeitura(s.leitura)) : 'O leitor USB funciona como teclado: é só ler com o cursor neste campo.'}</small>
@@ -41,7 +43,9 @@ export function telaFiscal(el) {
       <div class="acoes-linha">
         <button class="btn btn-sec" type="button" id="fis-camera">📷 Ler com a câmera</button>
         <label class="btn btn-sec" for="fis-xml">📄 Abrir XML da nota</label><input type="file" id="fis-xml" accept=".xml,text/xml,application/xml" hidden>
-        <button class="btn btn-sec" type="button" id="fis-limpar">Nova conferência</button>
+        <button class="btn btn-sec fiscal-limpar" type="button" id="fis-limpar" title="Apaga a nota, a consulta e o resultado para conferir outra nota" ${temConsulta() ? '' : 'disabled'}>
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+          Limpar consulta</button>
       </div>
     </div>
     <div class="grade-form fiscal-grade">
@@ -57,11 +61,26 @@ export function telaFiscal(el) {
   inp.oninput = () => { const d = inp.value.replace(/\D/g, ''); if ((d.length === 44 || d.length === 50) && d === inp.value.trim()) ler(); };
   $('#fis-camera', el).onclick = () => abrirCamera(el);
   $('#fis-xml', el).onchange = e => abrirXML(el, e.target.files?.[0]);
-  $('#fis-limpar', el).onclick = () => { Object.assign(s, { codigo: '', leitura: null, doc: {}, consulta: null, natureza: '', naturezaAuto: true, simplesManual: '', resultado: null }); telaFiscal(el); $('#fis-codigo', el)?.focus(); };
+  $('#fis-limpar', el).onclick = () => limparConsulta(el);
+  $('#fis-x', el).onclick = () => { inp.value = ''; $('#fis-x', el).hidden = true; inp.focus(); };
+  inp.addEventListener('input', () => { $('#fis-x', el).hidden = !inp.value; });
+  inp.addEventListener('keydown', e => { if (e.key === 'Escape' && inp.value) { e.preventDefault(); e.stopPropagation(); inp.value = ''; $('#fis-x', el).hidden = true; } });
   desenharForm(el);
   desenharResultado(el);
   if (!s.codigo) setTimeout(() => inp.focus(), 50);
   return { titulo: 'Conferência fiscal' };
+}
+
+const temConsulta = () => !!(s.codigo || s.doc.cnpj || s.doc.valor || s.resultado);
+
+/** Apaga a nota, a consulta do CNPJ e o resultado, e deixa o leitor pronto para a próxima nota. */
+function limparConsulta(el) {
+  Object.assign(s, { codigo: '', leitura: null, doc: {}, consulta: null, consultando: false, natureza: '', naturezaAuto: true, simplesManual: '', resultado: null, repetida: null, conf: 0 });
+  ultimaConferencia.r = null; ultimaConferencia.s = null;
+  ultimaLeitura = { texto: '', quando: 0 };
+  telaFiscal(el);
+  const i = $('#fis-codigo', el); i?.focus();
+  toast('Consulta limpa. Pronto para a próxima nota.');
 }
 
 function descreverLeitura(l) {
@@ -132,7 +151,7 @@ function desenharForm(el) {
     <div class="grade-2">
       <label class="campo"><span>CNPJ do fornecedor</span><input name="cnpj" value="${esc(d.cnpj ? formatarCnpj(d.cnpj) : '')}" placeholder="00.000.000/0000-00"></label>
       <label class="campo"><span>Documento</span><select name="documento">
-        ${['', 'NF-e', 'NFC-e', 'NFS-e Nacional', 'NFS-e', 'CT-e', 'Recibo/Fatura'].map(o => `<option ${d.documento === o ? 'selected' : ''} value="${esc(o)}">${esc(o || 'Selecione')}</option>`).join('')}</select></label>
+        ${['', 'NF-e', 'NFC-e', 'NFS-e Nacional', 'NFS-e', 'CT-e', 'CT-e OS', 'NF3-e (energia elétrica)', 'NFCom (telecomunicação)', 'BP-e (passagem)', 'Recibo/Fatura'].map(o => `<option ${d.documento === o ? 'selected' : ''} value="${esc(o)}">${esc(o || 'Selecione')}</option>`).join('')}</select></label>
     </div>
     <div class="grade-3">
       <label class="campo"><span>Número</span><input name="numero" value="${esc(d.numero || '')}"></label>
@@ -203,6 +222,7 @@ function recalcular(el) {
       guardarHistorico({ id, conf: s.conf, quando: Date.now(), por: estado.sessao?.nome || '', fornecedor: s.consulta?.cadastro?.nome || s.doc.nome || '', valor: s.doc.valor, numero: s.doc.numero || '', situacao: s.resultado.situacao });
     }
   }
+  const bl = $('#fis-limpar', el); if (bl) bl.disabled = !temConsulta();
   ultimaConferencia.r = s.resultado; ultimaConferencia.s = structuredClone({ doc: s.doc, consulta: s.consulta, leitura: s.leitura }); ultimaConferencia.quando = new Date();
   desenharResultado(el);
 }
@@ -266,7 +286,9 @@ ${blocoFornecedor(cad)}
       ${r.problemas.length ? `<ul class="fiscal-problemas">${r.problemas.map(p => `<li class="fiscal-${p.nivel}">
         <span class="selo ${NIVEL[p.nivel][1]}">${NIVEL[p.nivel][0]}</span> <strong>${esc(p.titulo)}</strong>${p.detalhe ? ` <span class="muted">(${esc(p.detalhe)})</span>` : ''}
         <p><b>Como resolver:</b> ${esc(p.solucao)}</p></li>`).join('')}</ul>` : '<p class="ok-txt">Nenhuma divergência encontrada.</p>'}
-    </div>`;
+    </div>
+    <div class="fiscal-proxima"><button type="button" class="btn btn-sec fiscal-limpar" data-limpar>Limpar consulta e conferir outra nota</button></div>`;
+  box.querySelector('[data-limpar]').onclick = () => limparConsulta(el);
 }
 
 
@@ -359,4 +381,43 @@ export function telaImprimirFiscal(el) {
       <table class="doc-ass"><tr><td><div class="doc-linha-ass">${esc(estado.sessao?.nome || 'Contabilidade')}<br>Contabilidade</div></td><td><div class="doc-linha-ass">Ordenador da despesa</div></td></tr></table>
     </div></div>`;
   return { titulo: 'Ficha de conferência fiscal' };
+}
+
+// ---------------- Widget: botão flutuante + painel lateral (F2), em qualquer tela ----------------
+/** Coloca o botão "Conferir nota" e o painel lateral dentro do layout (some no logout junto com o layout). */
+export function iniciarWidgetFiscal(container) {
+  if (!container || container.querySelector('.fiscal-fab')) return;
+  const botao = document.createElement('button');
+  botao.type = 'button'; botao.className = 'fiscal-fab'; botao.title = 'Conferir nota fiscal (F2)';
+  botao.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7V5.5A1.5 1.5 0 0 1 5.5 4H7M17 4h1.5A1.5 1.5 0 0 1 20 5.5V7M20 17v1.5a1.5 1.5 0 0 1-1.5 1.5H17M7 20H5.5A1.5 1.5 0 0 1 4 18.5V17M8 8v8M11 8v8M14 8v8M16.5 8v8"/></svg><span>Conferir nota</span>';
+  const painel = document.createElement('aside');
+  painel.className = 'fiscal-gaveta'; painel.hidden = true; painel.setAttribute('aria-label', 'Conferência fiscal');
+  painel.innerHTML = `<div class="fiscal-gaveta-topo"><strong>Conferência fiscal</strong>
+      <a class="btn btn-sec btn-peq" href="#/fiscal" title="Abrir em tela cheia">Tela cheia</a>
+      <button type="button" class="btn-icone" data-fechar aria-label="Fechar (Esc)">✕</button></div>
+    <div class="fiscal-compacto"></div>`;
+  container.append(botao, painel);
+  const conteudo = painel.querySelector('.fiscal-compacto');
+  const naTelaFiscal = () => /^#\/(fiscal|imprimir\/fiscal)/.test(location.hash);
+  const abrir = () => {
+    if (naTelaFiscal()) { document.querySelector('#conteudo #fis-codigo')?.focus(); return; }
+    painel.hidden = false; botao.hidden = true;
+    telaFiscal(conteudo);
+    setTimeout(() => { const i = conteudo.querySelector('#fis-codigo'); i?.focus(); i?.select(); }, 30);
+  };
+  const fechar = () => { painel.hidden = true; botao.hidden = naTelaFiscal(); conteudo.innerHTML = ''; };
+  botao.onclick = abrir;
+  painel.querySelector('[data-fechar]').onclick = fechar;
+  const teclas = e => {
+    if (!document.contains(painel)) { document.removeEventListener('keydown', teclas); return; }
+    if (e.key === 'F2') { e.preventDefault(); painel.hidden ? abrir() : conteudo.querySelector('#fis-codigo')?.focus(); }
+    else if (e.key === 'Escape' && !painel.hidden && !document.querySelector('.modal-fundo')) fechar();
+  };
+  document.addEventListener('keydown', teclas);
+  const aoNavegar = () => {
+    if (!document.contains(painel)) { window.removeEventListener('hashchange', aoNavegar); return; }
+    if (!painel.hidden) fechar(); else botao.hidden = naTelaFiscal();
+  };
+  window.addEventListener('hashchange', aoNavegar);
+  botao.hidden = naTelaFiscal();
 }
