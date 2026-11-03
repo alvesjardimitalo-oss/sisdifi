@@ -92,9 +92,19 @@ ok(!r.ir.reter && r.iss.aliquota === 2 && r.iss.valor === 40 && r.liquido === 19
 // MEI
 r = conferir({ doc: { valor: 800, emissao: '2026-10-01', servico: true, municipioEmissor: '3126901' }, simplesManual: 'mei', naturezaId: 'demais_servicos', hoje: '2026-11-03' });
 ok(r.mei && !r.iss.reter && r.liquido === 800, 'MEI sem retenções');
-// outro município
-r = conferir({ doc: { valor: 1000, emissao: '2026-10-01', servico: true, municipioEmissor: '3131703' }, cadastro: cadNormal, naturezaId: 'demais_servicos', hoje: '2026-11-03' });
-ok(!r.iss.reter && tem(r, 'outro município'), 'ISS de outro município');
+// nota emitida em outro município, serviço prestado em Frei Inocêncio, não optante → retém 5% e reflete no líquido
+r = conferir({ doc: { valor: 1000, emissao: '2026-10-01', servico: true, municipioEmissor: '3113404' }, cadastro: cadNormal, naturezaId: 'demais_servicos', hoje: '2026-11-03' });
+ok(r.iss.reter && r.iss.valor === 50 && r.liquido === 1000 - 48 - 50 && tem(r, 'Nota emitida em outro município'), 'emitida fora, prestada aqui: retém ISS 5%');
+// serviço prestado fora
+r = conferir({ doc: { valor: 1000, emissao: '2026-10-01', servico: true, municipioEmissor: '3113404', localPrestacao: '3113404' }, cadastro: cadNormal, naturezaId: 'demais_servicos', hoje: '2026-11-03' });
+ok(!r.iss.reter && r.liquido === 952 && tem(r, 'prestado em outro município'), 'prestado fora: não retém ISS');
+// nota com "ISS retido pelo tomador", mesmo com local diferente → retém 5%
+r = conferir({ doc: { valor: 1000, emissao: '2026-10-01', servico: true, municipioEmissor: '3113404', localPrestacao: '3113404', issRetidoNota: true }, cadastro: cadNormal, naturezaId: 'demais_servicos', hoje: '2026-11-03' });
+ok(r.iss.reter && r.iss.valor === 50 && r.liquido === 902, 'ISS retido pelo tomador na nota: retém 5%');
+// tipo escolhido
+ok(lerCodigo('3113404124641829100013300000000000902610889436854', 'nfse').tipo === 'incompleto', 'NFS-e incompleta com tipo escolhido');
+ok(lerCodigo('31134041246418291000133000000000009026108894368549', 'nfse').tipo === 'chave', 'NFS-e completa com tipo escolhido');
+ok(lerCodigo('31134041246418291000133000000000009026108894368549', 'nfe').tipo === 'outroTipo', 'tipo errado');
 
 // --- ABRASF ---
 const abrasf = `<CompNfse><Nfse><InfNfse><Numero>15</Numero><DataEmissao>2026-10-02T08:00:00</DataEmissao><Servico><Valores><ValorServicos>1000.00</ValorServicos><ValorIr>48.00</ValorIr><ValorIss>50.00</ValorIss><Aliquota>0.05</Aliquota></Valores><IssRetido>1</IssRetido><ItemListaServico>17.01</ItemListaServico><CodigoMunicipio>3126901</CodigoMunicipio></Servico>

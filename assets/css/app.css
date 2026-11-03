@@ -620,3 +620,10 @@ progress { width: 260px; vertical-align: middle; }
 .fiscal-limpar:disabled { opacity: .45; cursor: default; }
 .fiscal-proxima { display: flex; justify-content: center; margin-top: 4px; }
 .fiscal-proxima .fiscal-limpar { width: 100%; justify-content: center; }
+.fiscal-tipo { flex: 0 0 auto; width: auto; max-width: 210px; }
+.fiscal-dica { display: flex; justify-content: space-between; gap: 10px; }
+.fiscal-contador { flex: 0 0 auto; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--muted); }
+.fiscal-contador.completo { color: var(--verde); }
+@media (max-width: 700px) { .fiscal-leitura .fiscal-linha { flex-wrap: wrap; } .fiscal-tipo { max-width: none; flex: 1 1 100%; } }
+.fiscal-compacto .fiscal-leitura .fiscal-linha { flex-wrap: wrap; }
+.fiscal-compacto .fiscal-tipo { max-width: none; flex: 1 1 100%; }

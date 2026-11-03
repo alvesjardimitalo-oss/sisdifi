@@ -94,8 +94,17 @@ const MODELOS = { '55': 'NF-e', '65': 'NFC-e', '57': 'CT-e', '67': 'CT-e OS', '5
  * Interpreta o que foi lido pelo leitor/câmera ou digitado: chave de NF-e/NFC-e/CT-e (44), chave de NFS-e Nacional (50),
  * QR Code (endereço com a chave), CNPJ (14) ou linha de boleto (47/48, sem CNPJ).
  */
-export function lerCodigo(texto) {
+export function lerCodigo(texto, tipo = '') {
   const bruto = String(texto || '').trim();
+  if (tipo) {
+    const r = lerCodigo(texto);
+    const esperado = { nfe: 44, nfse: 50, cnpj: 14 }[tipo];
+    const so = bruto.toUpperCase().replace(/[^0-9A-Z]/g, '');
+    const okTipo = tipo === 'cnpj' ? r.tipo === 'cnpj' : r.tipo === 'chave' && r.chave.length === esperado;
+    if (okTipo) return r;
+    if (tipo !== 'cnpj' && r.tipo === 'chave') return { tipo: 'outroTipo', documento: r.documento, esperado };
+    return { tipo: 'incompleto', esperado, tamanho: so.length };
+  }
   if (!bruto) return { tipo: 'vazio' };
   const so = bruto.toUpperCase().replace(/[^0-9A-Z]/g, '');
   // QR Code da NFC-e / NFS-e: endereço com a chave dentro
@@ -189,8 +198,9 @@ function lerNFSeNacional(x) {
     chave: (x.match(/Id="NFS(\w{50})"/i) || [])[1] || '',
     numero: tag(inf, 'nNFSe'), emissao: dataDe(tag(dps, 'dhEmi') || tag(inf, 'dhProc')),
     cnpj: tag(emit, 'CNPJ') || tag(prest, 'CNPJ'), nome: tag(emit, 'xNome') || tag(prest, 'xNome'),
-    municipioEmissor: tag(inf, 'cLocIncid') || tag(dps, 'cLocEmi') || tag(bloco(emit, 'enderNac'), 'cMun'),
+    municipioEmissor: tag(dps, 'cLocEmi') || tag(bloco(emit, 'enderNac'), 'cMun') || tag(inf, 'cLocIncid'),
     municipioIncidencia: tag(inf, 'cLocIncid'),
+    localPrestacao: tag(bloco(dps, 'locPrest'), 'cLocPrestacao') || tag(dps, 'cLocPrestacao') || tag(inf, 'cLocIncid'),
     valor: num(tag(bloco(dps, 'vServPrest'), 'vServ') || tag(dps, 'vServ')),
     regimeNota: op === '1' ? 'normal' : op === '2' ? 'mei' : op === '3' ? 'simples' : '',
     regimeNotaTexto: ({ 1: 'Não optante pelo Simples Nacional', 2: 'MEI', 3: 'ME/EPP do Simples Nacional' })[op] || '',
@@ -214,7 +224,8 @@ function lerNFSeAbrasf(x) {
     origem: 'xml', documento: 'NFS-e', modelo: 'nfse',
     numero: tag(x, 'Numero'), emissao: dataDe(tag(x, 'DataEmissao') || tag(x, 'Competencia')),
     cnpj: tag(prest, 'Cnpj') || tag(x, 'Cnpj'), nome: tag(prest, 'RazaoSocial') || tag(x, 'RazaoSocial'),
-    municipioEmissor: tag(x, 'CodigoMunicipio') || tag(x, 'MunicipioIncidencia'),
+    municipioEmissor: tag(bloco(x, 'Endereco'), 'CodigoMunicipio') || tag(x, 'CodigoMunicipio'),
+    localPrestacao: tag(x, 'MunicipioPrestacaoServico') || tag(bloco(x, 'Servico'), 'CodigoMunicipio') || tag(x, 'MunicipioIncidencia'),
     valor: num(tag(v, 'ValorServicos')),
     regimeNota: op === '1' ? 'simples' : op === '2' ? 'normal' : '',
     regimeNotaTexto: op === '1' ? 'Optante pelo Simples Nacional' : op === '2' ? 'Não optante pelo Simples Nacional' : '',
@@ -331,6 +342,7 @@ export function optanteNaData(inicio, fim, marcado, data) {
 const r2 = v => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
 export const moeda = v => (v == null || !Number.isFinite(Number(v)) ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
 const pct = v => `${String(r2(v)).replace('.', ',')}%`;
+const pctTxtF = pct;
 const difere = (a, b, tol = 0.05) => a != null && b != null && Math.abs(Number(a) - Number(b)) > tol;
 
 /**
@@ -408,12 +420,18 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
   // 5. ISSQN
   const iss = { aplica: false, aliquota: null, valor: 0, reter: false, motivo: '' };
   const servico = !!(nat.servico || doc.servico);
-  const doMunicipio = !doc.municipioEmissor || String(doc.municipioEmissor) === MUNICIPIO.ibge;
+  // O que decide a retenção é o LOCAL DA PRESTAÇÃO do serviço (padrão: Frei Inocêncio, onde a prefeitura contrata).
+  const local = String(doc.localPrestacao || MUNICIPIO.ibge);
+  // A nota normalmente vem com "ISS retido pelo tomador": aí a retenção é feita aqui, mesmo com local diferente.
+  const retidoPelaNota = doc.issRetidoNota === true;
+  const prestadoAqui = local === MUNICIPIO.ibge || retidoPelaNota;
+  if (servico && retidoPelaNota && local !== MUNICIPIO.ibge) add('info', 'A nota indica ISS retido pelo tomador', `O ISS será retido pelo Município. Confira se o local da prestação/incidência na nota é ${MUNICIPIO.nome}; se não for, peça a correção ao fornecedor.`);
+  const emitidaFora = doc.municipioEmissor && String(doc.municipioEmissor) !== MUNICIPIO.ibge;
   if (servico) {
-    if (!doMunicipio) {
-      iss.motivo = `Nota de outro município (${doc.municipioEmissor}): em regra o ISS é devido no município do prestador (LC 116/2003, art. 3º)`;
-      add('info', 'ISS de nota de outro município', 'Não retenha o ISS de Frei Inocêncio, exceto nos serviços em que o imposto é devido no local da prestação (obras, limpeza, vigilância, etc. — LC 116/2003, art. 3º). Confira se a nota está no município correto.');
-    } else if (mei) {
+    if (!prestadoAqui) {
+      iss.motivo = 'Serviço prestado fora de Frei Inocêncio: em regra o ISS é devido no município do prestador (LC 116/2003, art. 3º)';
+      add('info', 'Serviço prestado em outro município — ISS não retido por Frei Inocêncio', 'Confirme o local da prestação. Se o serviço foi executado em Frei Inocêncio, mude "Local da prestação" para Frei Inocêncio e o ISS de 5% passa a ser retido.');
+    } else if (mei) {    } else if (mei) {
       iss.aplica = true; iss.motivo = 'MEI recolhe o ISS em valor fixo no DAS — não há retenção';
       if (doc.issValor > 0 || doc.issRetidoNota) add('alerta', 'MEI com ISS destacado/retido na nota', 'Não retenha ISS de MEI (LC 123/2006, art. 18-A). Peça ao fornecedor a correção da nota.');
     } else {
@@ -426,12 +444,13 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
         iss.motivo = `ME/EPP do Simples: retenção pela alíquota informada na nota (LC 123/2006, art. 21, § 4º)`;
       } else {
         iss.aliquota = ISS.aliquota;
-        iss.motivo = `Serviço com nota emitida em ${MUNICIPIO.nome}: ISS de ${pct(ISS.aliquota)}`;
+        iss.motivo = `Não optante, serviço prestado em ${MUNICIPIO.nome}: ISS de ${pct(ISS.aliquota)} retido pelo Município (tomador)`;
         if (doc.issAliquota != null && doc.issAliquota !== 0 && difere(doc.issAliquota, ISS.aliquota, 0.001)) add('erro', `Alíquota de ISS na nota (${pct(doc.issAliquota)}) diferente da do município (${pct(ISS.aliquota)})`, `O fornecedor não é do Simples: o ISS em ${MUNICIPIO.nome} é de ${pct(ISS.aliquota)}. Retenha ${pct(ISS.aliquota)} e peça a nota substituta com a alíquota correta.`);
       }
       iss.valor = r2(valor * iss.aliquota / 100);
       iss.reter = ISS.retemOrgao;
       if (doc.issValor != null && doc.issValor > 0 && difere(doc.issValor, iss.valor) && !problemas.some(p => p.titulo.startsWith('Alíquota de ISS'))) add('erro', `Valor do ISS na nota (${moeda(doc.issValor)}) diferente do calculado (${moeda(iss.valor)})`, 'Confira a base de cálculo (deduções) na nota. Se não houver dedução legal, peça a nota substituta.');
+      if (iss.reter && emitidaFora && !simples) add('alerta', `Nota emitida em outro município (${doc.municipioEmissorNome || doc.municipioEmissor}) para serviço prestado em ${MUNICIPIO.nome}`, `Retenha o ISS de ${pctTxtF(ISS.aliquota)} para ${MUNICIPIO.nome}. Peça ao fornecedor que informe ${MUNICIPIO.nome} como local da prestação/incidência e que não recolha o ISS no município dele, para não haver cobrança em dobro.`);
       if (iss.reter && doc.issRetidoNota === false) add('erro', 'A nota indica ISS NÃO retido', `O Município é o responsável pela retenção: retenha ${moeda(iss.valor)} mesmo assim e peça ao fornecedor a nota substituta com "ISS retido pelo tomador", para ele não pagar o imposto em dobro.`);
     }
   }

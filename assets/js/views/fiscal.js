@@ -14,9 +14,20 @@ const CHAVE_HIST = 'sisdifi.fiscal.historico';
 // Estado da tela (fica entre as navegações)
 const s = {
   codigo: '', leitura: null, doc: {}, consulta: null, consultando: false, natureza: '', naturezaAuto: true,
-  simplesManual: '', resultado: null, conf: 0
+  simplesManual: '', resultado: null, conf: 0, tipo: lerTipoSalvo()
 };
+function lerTipoSalvo() { try { return localStorage.getItem('sisdifi.fiscal.tipo') || ''; } catch { return ''; } }
+const TIPOS = [['', 'Automático'], ['nfe', 'NF-e / NFC-e / CT-e (44)'], ['nfse', 'NFS-e Nacional (50)'], ['cnpj', 'CNPJ (14)']];
+const TAMANHO = { nfe: 44, nfse: 50, cnpj: 14 };
 export const ultimaConferencia = { r: null, s: null, quando: null };
+
+// Nome do município pelo código IBGE (lista local do sistema)
+let mapaMunicipios = null;
+fetch('assets/data/municipios.json').then(r => r.json()).then(b => {
+  mapaMunicipios = {};
+  for (const [uf, lista] of Object.entries(b.municipios || {})) for (const m of lista) mapaMunicipios[String(m[3])] = `${m[0]}/${uf}`;
+}).catch(() => {});
+function nomeMunicipio(cod) { const c = String(cod || ''); return (mapaMunicipios && mapaMunicipios[c]) || (c === 'outro' ? 'outro município' : c); }
 
 const pctTxt = v => (v == null ? '—' : String(Math.round(v * 100) / 100).replace('.', ',') + '%');
 const numCampo = v => (v == null || v === '' ? '' : String(v));
@@ -33,12 +44,15 @@ export function telaFiscal(el) {
     ${compacto ? '' : cabecalho('Conferência fiscal de notas', '', `Leia o código de barras da nota, digite a chave ou o CNPJ, ou abra o XML. O sistema confere Simples Nacional, IRRF, ISSQN (${esc(MUNICIPIO.nome)}: ${pctTxt(ISS.aliquota)}), CBS e IBS e aponta o que corrigir antes da liquidação.`)}
     <div class="cartao fiscal-leitura">
       <label class="campo"><span>Código de barras, chave de acesso, QR Code ou CNPJ</span>
-        <div class="fiscal-linha"><div class="fiscal-campo-codigo">
+        <div class="fiscal-linha">
+          <select id="fis-tipo" class="fiscal-tipo" title="Tipo de nota: com o tipo escolhido, a conferência só começa quando a chave estiver completa">
+            ${TIPOS.map(([v, n]) => `<option value="${v}" ${s.tipo === v ? 'selected' : ''}>${n}</option>`).join('')}</select>
+          <div class="fiscal-campo-codigo">
           <input id="fis-codigo" inputmode="text" autocomplete="off" spellcheck="false" placeholder="Leia o código de barras ou digite a chave / CNPJ" value="${esc(s.codigo)}">
           <button type="button" class="fiscal-x" id="fis-x" title="Apagar o código (Esc)" aria-label="Apagar o código" ${s.codigo ? '' : 'hidden'}>✕</button></div>
           <button class="btn" type="button" id="fis-ler">Conferir</button>
         </div>
-        <small class="dica" id="fis-leitura-dica">${s.leitura ? esc(descreverLeitura(s.leitura)) : 'O leitor USB funciona como teclado: é só ler com o cursor neste campo.'}</small>
+        <small class="dica fiscal-dica"><span id="fis-leitura-dica">${s.leitura ? esc(descreverLeitura(s.leitura)) : 'O leitor USB funciona como teclado: é só ler com o cursor neste campo. Digitando, tecle Enter no final.'}</span><span id="fis-contador" class="fiscal-contador"></span></small>
       </label>
       <div class="acoes-linha">
         <button class="btn btn-sec" type="button" id="fis-camera">📷 Ler com a câmera</button>
@@ -56,15 +70,41 @@ export function telaFiscal(el) {
   const inp = $('#fis-codigo', el);
   const ler = () => processarCodigo(el, inp.value);
   $('#fis-ler', el).onclick = ler;
+  // Quando conferir sozinho, sem Enter:
+  //  • tipo escolhido → assim que a chave tiver o tamanho certo daquele tipo (44, 50 ou 14);
+  //  • automático → só quando a chave chega de uma vez (leitor USB ou colar); digitando à mão, espera o Enter.
+  let espera = null, inicio = 0;
+  const selTipo = $('#fis-tipo', el), contador = $('#fis-contador', el);
+  const atualizarContador = () => {
+    const n = inp.value.toUpperCase().replace(/[^0-9A-Z]/g, '').length;
+    const alvo = TAMANHO[s.tipo];
+    contador.textContent = n ? (alvo ? `${n} de ${alvo}` : `${n} caracteres`) : '';
+    contador.classList.toggle('completo', !!alvo && n === alvo);
+  };
+  inp.maxLength = s.tipo === 'cnpj' ? 18 : s.tipo ? 60 : 600;
   inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(espera); ler(); } };
-  // Leitor USB / digitação: confere sozinho quando a chave completa (44 ou 50 dígitos) PARA de chegar.
-  // Esperar a pausa evita parar no 44º dígito de uma NFS-e (50 dígitos) achando que é uma NF-e.
-  let espera = null;
   inp.oninput = () => {
     clearTimeout(espera);
-    const v = inp.value.trim(), d = v.replace(/\D/g, '');
-    if ((d.length === 44 || d.length === 50) && d === v) espera = setTimeout(() => { if (inp.isConnected && inp.value.trim() === v) ler(); }, 600);
+    const v = inp.value.trim();
+    if (v.length <= 1) inicio = Date.now();
+    atualizarContador();
+    if (s.tipo) {
+      const l = lerCodigo(v, s.tipo);
+      if (l.tipo === 'chave' || l.tipo === 'cnpj') espera = setTimeout(() => { if (inp.isConnected && inp.value.trim() === v) ler(); }, 150);
+      return;
+    }
+    const d = v.replace(/\D/g, '');
+    const rapido = Date.now() - inicio < 1500; // leitor USB ou colar: a chave inteira chega em menos de 1,5 s
+    if ((d.length === 44 || d.length === 50) && d === v && rapido) espera = setTimeout(() => { if (inp.isConnected && inp.value.trim() === v) ler(); }, 400);
   };
+  inp.onpaste = () => { inicio = Date.now(); };
+  selTipo.onchange = () => {
+    s.tipo = selTipo.value;
+    try { localStorage.setItem('sisdifi.fiscal.tipo', s.tipo); } catch { /* sem armazenamento */ }
+    inp.maxLength = s.tipo === 'cnpj' ? 18 : s.tipo ? 60 : 600;
+    atualizarContador(); inp.focus();
+  };
+  atualizarContador();
   $('#fis-camera', el).onclick = () => abrirCamera(el);
   $('#fis-xml', el).onchange = e => abrirXML(el, e.target.files?.[0]);
   $('#fis-limpar', el).onclick = () => limparConsulta(el);
@@ -100,7 +140,9 @@ async function processarCodigo(el, texto) {
   // o leitor USB "digita" e manda Enter: evita processar a mesma leitura duas vezes
   if (texto === ultimaLeitura.texto && Date.now() - ultimaLeitura.quando < 2000) return;
   ultimaLeitura = { texto, quando: Date.now() };
-  const l = lerCodigo(texto);
+  const l = lerCodigo(texto, s.tipo);
+  if (l.tipo === 'incompleto') { ultimaLeitura = { texto: '', quando: 0 }; toast(`Chave incompleta: ${l.tamanho} de ${l.esperado} caracteres. Confira os dígitos.`, 'aviso'); return; }
+  if (l.tipo === 'outroTipo') { ultimaLeitura = { texto: '', quando: 0 }; toast(`Esse código é de ${l.documento}, não do tipo escolhido. Troque o tipo de nota ou use "Automático".`, 'aviso'); return; }
   if (l.tipo === 'vazio') { toast('Leia ou digite a chave, o QR Code ou o CNPJ.', 'aviso'); return; }
   if (l.tipo === 'boleto') { toast('Isso é a linha de um boleto: ele não traz o CNPJ do fornecedor. Leia o código de barras do DANFE/NFS-e ou digite o CNPJ.', 'aviso'); return; }
   if (l.tipo === 'desconhecido') { toast(`Não reconheci o código (${l.tamanho} caracteres). A chave da NF-e tem 44 dígitos, a da NFS-e Nacional 50 e o CNPJ 14.`, 'erro'); return; }
@@ -168,9 +210,10 @@ function desenharForm(el) {
       ${grupos.map(g => `<optgroup label="${esc(g)}">${NATUREZAS.filter(n => n.grupo === g).map(n => `<option value="${n.id}" ${s.natureza === n.id ? 'selected' : ''}>${esc(n.texto)} — IR ${pctTxt(n.ir)}</option>`).join('')}</optgroup>`).join('')}
     </select><small class="dica">${s.naturezaAuto ? 'Sugerida pela nota — confirme.' : 'Escolhida pela Contabilidade.'}${d.descricaoServico ? ' Serviço: ' + esc(d.descricaoServico.slice(0, 120)) : ''}</small></label>
     <div class="grade-2">
-      <label class="campo"><span>Município de emissão / incidência</span><select name="municipio">
-        <option value="${MUNICIPIO.ibge}" ${!d.municipioEmissor || d.municipioEmissor === MUNICIPIO.ibge ? 'selected' : ''}>${esc(MUNICIPIO.nome)}/${MUNICIPIO.uf}</option>
-        <option value="outro" ${d.municipioEmissor && d.municipioEmissor !== MUNICIPIO.ibge ? 'selected' : ''}>Outro município${d.municipioEmissor && d.municipioEmissor !== MUNICIPIO.ibge ? ' (' + esc(d.municipioEmissor) + ')' : ''}</option></select></label>
+      <label class="campo"><span>Local da prestação do serviço</span><select name="localPrestacao">
+        <option value="${MUNICIPIO.ibge}" ${!d.localPrestacao || d.localPrestacao === MUNICIPIO.ibge ? 'selected' : ''}>${esc(MUNICIPIO.nome)}/${MUNICIPIO.uf}</option>
+        <option value="outro" ${d.localPrestacao && d.localPrestacao !== MUNICIPIO.ibge ? 'selected' : ''}>Outro município${d.localPrestacao && d.localPrestacao !== MUNICIPIO.ibge ? ' (' + esc(nomeMunicipio(d.localPrestacao)) + ')' : ''}</option></select>
+        <small class="dica">Nota emitida em: <strong id="fis-emissor">${esc(d.municipioEmissor ? nomeMunicipio(d.municipioEmissor) : 'não informado')}</strong></small></label>
       <label class="campo"><span>Regime declarado na nota</span><select name="regimeNota">
         ${[['', 'Não informado'], ['normal', 'Regime normal / não optante'], ['simples', 'Simples Nacional (ME/EPP)'], ['mei', 'MEI']].map(([v, t]) => `<option value="${v}" ${d.regimeNota === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
         ${d.regimeNotaTexto ? `<small class="dica">${esc(d.regimeNotaTexto)}</small>` : ''}</label>
@@ -182,7 +225,7 @@ function desenharForm(el) {
         <label class="campo"><span>Valor do ISS (R$)</span><input type="number" step="0.01" min="0" name="issValor" value="${esc(numCampo(d.issValor))}"></label>
       </div>
       <div class="grade-3">
-        <label class="campo"><span>ISS retido pelo tomador?</span><select name="issRetidoNota">
+        <label class="campo"><span>ISS retido pelo tomador (na nota)?</span><select name="issRetidoNota">
           ${[['', 'Não informado'], ['sim', 'Sim'], ['nao', 'Não']].map(([v, t]) => `<option value="${v}" ${(d.issRetidoNota === true && v === 'sim') || (d.issRetidoNota === false && v === 'nao') || (d.issRetidoNota == null && v === '') ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
         <label class="campo"><span>CBS destacada (R$)</span><input type="number" step="0.01" min="0" name="vCBS" value="${esc(numCampo(ibs.vCBS))}"></label>
         <label class="campo"><span>IBS destacado (R$)</span><input type="number" step="0.01" min="0" name="vIBS" value="${esc(numCampo(ibs.vIBS))}"></label>
@@ -204,7 +247,7 @@ function desenharForm(el) {
     const vCBS = n(v.vCBS), vIBS = n(v.vIBS);
     Object.assign(s.doc, {
       cnpj: cnpjNovo, documento: v.documento, numero: v.numero, emissao: v.emissao, valor: n(v.valor),
-      municipioEmissor: v.municipio === 'outro' ? (s.doc.municipioEmissor && s.doc.municipioEmissor !== MUNICIPIO.ibge ? s.doc.municipioEmissor : 'outro') : MUNICIPIO.ibge,
+      localPrestacao: v.localPrestacao === 'outro' ? (s.doc.localPrestacao && s.doc.localPrestacao !== MUNICIPIO.ibge ? s.doc.localPrestacao : 'outro') : MUNICIPIO.ibge,
       regimeNota: v.regimeNota, irrfDestacado: n(v.irrfDestacado), issAliquota: n(v.issAliquota), issValor: n(v.issValor),
       issRetidoNota: v.issRetidoNota === 'sim' ? true : v.issRetidoNota === 'nao' ? false : null,
       modelo: s.doc.modelo || ({ 'NF-e': '55', 'NFC-e': '65', 'CT-e': '57', 'NFS-e Nacional': 'nfse', 'NFS-e': 'nfse' })[v.documento] || '',
@@ -219,6 +262,7 @@ function desenharForm(el) {
 
 function recalcular(el) {
   const temDados = s.doc.cnpj || s.doc.valor;
+  if (s.doc.municipioEmissor) s.doc.municipioEmissorNome = nomeMunicipio(s.doc.municipioEmissor);
   s.resultado = temDados ? conferir({ doc: s.doc, cadastro: s.consulta?.cadastro || null, naturezaId: s.natureza, simplesManual: s.simplesManual, hoje: hojeISO(), chave: s.leitura?.tipo === 'chave' ? s.leitura : null }) : null;
   if (s.resultado && s.doc.valor) {
     const id = idNota();
