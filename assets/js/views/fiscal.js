@@ -56,9 +56,15 @@ export function telaFiscal(el) {
   const inp = $('#fis-codigo', el);
   const ler = () => processarCodigo(el, inp.value);
   $('#fis-ler', el).onclick = ler;
-  inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); ler(); } };
-  // leitor USB costuma "digitar" a chave inteira rapidamente: confere sozinho ao completar 44/50 dígitos
-  inp.oninput = () => { const d = inp.value.replace(/\D/g, ''); if ((d.length === 44 || d.length === 50) && d === inp.value.trim()) ler(); };
+  inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(espera); ler(); } };
+  // Leitor USB / digitação: confere sozinho quando a chave completa (44 ou 50 dígitos) PARA de chegar.
+  // Esperar a pausa evita parar no 44º dígito de uma NFS-e (50 dígitos) achando que é uma NF-e.
+  let espera = null;
+  inp.oninput = () => {
+    clearTimeout(espera);
+    const v = inp.value.trim(), d = v.replace(/\D/g, '');
+    if ((d.length === 44 || d.length === 50) && d === v) espera = setTimeout(() => { if (inp.isConnected && inp.value.trim() === v) ler(); }, 600);
+  };
   $('#fis-camera', el).onclick = () => abrirCamera(el);
   $('#fis-xml', el).onchange = e => abrirXML(el, e.target.files?.[0]);
   $('#fis-limpar', el).onclick = () => limparConsulta(el);

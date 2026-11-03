@@ -120,5 +120,9 @@ ok(ws.situacao === 'ATIVA' && ws.simples === false && ws.naturezaCodigo === '206
 ok(sugerirNatureza({ modelo: '66' }) === 'energia' && sugerirNatureza({ modelo: '62' }) === 'agua_telefone' && sugerirNatureza({ modelo: '57' }) === 'transporte_cargas', 'natureza pelo modelo (energia, telefone, frete)');
 const nf3e = comDV('31' + '2610' + '11222333000181' + '66' + '001' + '000000555' + '1' + '12345678');
 ok(lerCodigo(nf3e).documento.startsWith('NF3-e'), 'NF3-e pela chave');
+// chave real informada (NFS-e Nacional de Caratinga) e o pedaço de 44 dígitos não pode virar NF-e
+c = lerCodigo('31134041246418291000133000000000009026108894368549');
+ok(c.documento === 'NFS-e Nacional' && c.valida && c.cnpj === '46418291000133' && c.municipio === '3113404' && c.numero === '90' && c.anoMes === '2026-10', 'NFS-e de Caratinga');
+ok(lerCodigo('31134041246418291000133000000000009026108894').tipo !== 'chave', '44 primeiros dígitos da NFS-e não são NF-e (mês 40)');
 console.log(falhas ? `${falhas} falha(s)` : 'fiscal: todos os testes passaram');
 process.exit(falhas ? 1 : 0);

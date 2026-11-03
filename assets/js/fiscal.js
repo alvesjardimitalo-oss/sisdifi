@@ -102,13 +102,13 @@ export function lerCodigo(texto) {
   const candidatos = [so, ...(bruto.toUpperCase().match(/[0-9A-Z]{44,53}/g) || [])];
   for (const c0 of candidatos) {
     const c = c0.startsWith('NFS') && c0.length === 53 ? c0.slice(3) : c0.startsWith('NFE') && c0.length === 47 ? c0.slice(3) : c0;
-    if (c.length === 44 && /^\d{6}[0-9A-Z]{12}\d{26}$/.test(c)) {
+    if (c.length === 44 && /^\d{6}[0-9A-Z]{12}\d{26}$/.test(c) && Number(c.slice(4, 6)) >= 1 && Number(c.slice(4, 6)) <= 12) {
       const modelo = c.slice(20, 22);
       return { tipo: 'chave', documento: MODELOS[modelo] || 'Documento modelo ' + modelo, modelo, chave: c,
         valida: dvModulo11(c.slice(0, 43)) === Number(c[43]), cnpj: c.slice(6, 20),
         anoMes: `20${c.slice(2, 4)}-${c.slice(4, 6)}`, serie: String(Number(c.slice(22, 25))), numero: String(Number(c.slice(25, 34))), ufIbge: c.slice(0, 2) };
     }
-    if (c.length === 50 && /^\d{9}[0-9A-Z]{14}\d{27}$/.test(c)) {
+    if (c.length === 50 && /^\d{9}[0-9A-Z]{14}\d{27}$/.test(c) && Number(c.slice(38, 40)) >= 1 && Number(c.slice(38, 40)) <= 12) {
       const tipoInsc = c[8];
       return { tipo: 'chave', documento: 'NFS-e Nacional', modelo: 'nfse', chave: c,
         valida: dvModulo11(c.slice(0, 49)) === Number(c[49]), municipio: c.slice(0, 7),
