@@ -559,3 +559,35 @@ progress { width: 260px; vertical-align: middle; }
 .sim-nao { display: flex; gap: 18px; flex-wrap: wrap; }
 .sim-nao .check { margin: 4px 0; }
 .abertura .alerta { margin: 8px 0 0; }
+
+/* ---------- Conferência fiscal ---------- */
+.fiscal-leitura .fiscal-linha { display: flex; gap: 8px; }
+.fiscal-leitura .fiscal-linha input { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 15px; letter-spacing: .02em; }
+.fiscal-leitura .acoes-linha { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.fiscal-grade { margin-top: var(--gap, 16px); }
+@media (min-width: 1000px) { .grade-form.fiscal-grade { grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); align-items: start; } }
+.fiscal-situacao { display: flex; flex-direction: column; gap: 2px; border-left: 5px solid var(--borda); }
+.fiscal-situacao strong { font-size: 16px; }
+.fiscal-situacao span { color: var(--muted); font-size: 13px; }
+.fiscal-ok { border-left-color: var(--verde); background: var(--verde-claro); }
+.fiscal-ok strong { color: var(--verde); }
+.fiscal-alerta { border-left-color: #d9a521; background: var(--ambar-claro); }
+.fiscal-alerta strong { color: var(--ambar); }
+.fiscal-erro { border-left-color: var(--vermelho); background: var(--vermelho-claro); }
+.fiscal-erro strong { color: var(--vermelho); }
+.fiscal-cartoes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.fiscal-item { border: 1px solid var(--borda); border-radius: var(--raio-p); padding: 9px 11px; display: flex; flex-direction: column; gap: 2px; }
+.fiscal-item span { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+.fiscal-item strong { font-size: 15.5px; color: var(--tinta); }
+.fiscal-item small { color: var(--texto-2); font-size: 12.5px; line-height: 1.35; }
+.fiscal-liq td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fiscal-liq .fiscal-total td { font-weight: 700; font-size: 15px; border-top: 2px solid var(--tinta); }
+.fiscal-problemas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.fiscal-problemas li { border: 1px solid var(--borda); border-left-width: 4px; border-radius: var(--raio-p); padding: 9px 11px; }
+.fiscal-problemas li.fiscal-erro { background: #fff; border-left-color: var(--vermelho); }
+.fiscal-problemas li.fiscal-alerta { background: #fff; border-left-color: #d9a521; }
+.fiscal-problemas li.fiscal-info { border-left-color: var(--azul); }
+.fiscal-problemas p { margin: 5px 0 0; color: var(--texto-2); }
+.fiscal-camera { max-width: 560px; }
+.fiscal-camera video { width: 100%; border-radius: var(--raio-p); background: #000; aspect-ratio: 4 / 3; object-fit: cover; }
+@media (max-width: 700px) { .fiscal-cartoes { grid-template-columns: minmax(0, 1fr); } }
