@@ -190,7 +190,12 @@ async function consultar(el) {
 function desenharForm(el) {
   const f = $('#fis-form', el);
   const d = s.doc;
-  if (s.naturezaAuto) s.natureza = sugerirNatureza(d);
+  const ehCooperativa = s.consulta?.cadastro?.naturezaCodigo === '2143';
+  if (s.naturezaAuto) s.natureza = ehCooperativa ? 'cooperativas' : sugerirNatureza(d);
+  if (s.natureza === 'cooperativas' && d.coopTransporte == null) {
+    const sub = String(d.codigoServico || '').replace(/\D/g, '').slice(0, 4);
+    d.coopTransporte = sub === '1601' || (sub === '1602' && /passag|escolar|pessoas|alunos/i.test(d.descricaoServico || '')) ? 'passageiros' : '';
+  }
   const grupos = [...new Set(NATUREZAS.map(n => n.grupo))];
   const cad = s.consulta?.cadastro;
   const ibs = d.ibscbs || {};
@@ -220,7 +225,17 @@ function desenharForm(el) {
     </div>` : ''}
     <label class="campo"><span>Natureza do bem ou serviço — IRRF (Anexo I da IN RFB 1.234/2012) *</span><select name="natureza">
       ${grupos.map(g => `<optgroup label="${esc(g)}">${NATUREZAS.filter(n => n.grupo === g).map(n => `<option value="${n.id}" ${sel(n.id, s.natureza)}>${esc(n.texto)} — IR ${pctTxt(n.ir)}</option>`).join('')}</optgroup>`).join('')}
-    </select><small class="dica">${s.naturezaAuto ? (trib?.valido ? `Sugerida pelo código ${esc(trib.codigo)} — confirme.` : 'Sugerida pela nota — confirme.') : 'Escolhida pela Contabilidade.'}${trib?.dica ? ' ' + esc(trib.dica) : ''}</small></label>
+    </select><small class="dica">${s.naturezaAuto ? (ehCooperativa ? 'Sugerida porque o CNPJ é de cooperativa (natureza jurídica 214-3) — confirme.' : trib?.valido ? `Sugerida pelo código ${esc(trib.codigo)} — confirme.` : 'Sugerida pela nota — confirme.') : 'Escolhida pela Contabilidade.'}${trib?.dica && !ehCooperativa ? ' ' + esc(trib.dica) : ''}</small></label>
+    ${s.natureza === 'cooperativas' ? `<div class="fiscal-bloco fiscal-bloco-coop">
+      <div class="fiscal-bloco-titulo">Cooperativa — base do IR (1,5%)${ehCooperativa ? ' · CNPJ de cooperativa' : ''}</div>
+      <div class="grade-2">
+        <label class="campo"><span>Serviços pessoais dos cooperados (R$)</span><input type="number" step="0.01" min="0" name="coopServicosPessoais" value="${esc(numCampo(d.coopServicosPessoais))}" placeholder="se a nota discriminar">
+          <small class="dica">Parcela da nota que remunera o trabalho dos cooperados. Em branco = valor total.</small></label>
+        <label class="campo"><span>Tipo de serviço da cooperativa</span><select name="coopTransporte">
+          ${[['passageiros', 'Transporte de passageiros — base 60%'], ['cargas', 'Transporte de cargas — base 10%'], ['', 'Outros serviços — base 100%']].map(([v, n]) => `<option value="${v}" ${sel(v, d.coopTransporte || '')}>${n}</option>`).join('')}</select>
+          <small class="dica">Lei 7.713/1988, art. 9º; ADN Cosit 1/1993.</small></label>
+      </div>
+    </div>` : ''}
     <div class="fiscal-bloco">
       <div class="fiscal-bloco-titulo">O que está na nota</div>
       <div class="grade-2">
@@ -264,12 +279,15 @@ function desenharForm(el) {
       localPrestacao: 'localPrestacao' in v ? (v.localPrestacao === 'outro' ? (s.doc.localPrestacao && s.doc.localPrestacao !== MUNICIPIO.ibge ? s.doc.localPrestacao : 'outro') : MUNICIPIO.ibge) : s.doc.localPrestacao,
       regimeNota: v.regimeNota, irrfDestacado: n(v.irrfDestacado), issAliquota: n(v.issAliquota), issValor: n(v.issValor),
       issRetidoNota: v.issRetidoNota === 'sim' ? true : v.issRetidoNota === 'nao' ? false : null,
+      coopServicosPessoais: 'coopServicosPessoais' in v ? n(v.coopServicosPessoais) : s.doc.coopServicosPessoais,
+      coopTransporte: 'coopTransporte' in v ? v.coopTransporte : s.doc.coopTransporte,
       modelo: ({ 'NF-e': '55', 'NFC-e': '65', 'CT-e': '57', 'CT-e OS': '67', 'NFS-e Nacional': 'nfse', 'NFS-e': 'nfse', 'NF3-e (energia elétrica)': '66', 'NFCom (telecomunicação)': '62', 'BP-e (passagem)': '63' })[v.documento] || s.doc.modelo || '',
       servico: s.doc.origem === 'xml' ? s.doc.servico : (/NFS/.test(v.documento) || !!descreverTributacao(v.codigoServico)?.valido),
       ibscbs: vCBS != null || vIBS != null || ibsAnt.pCBS != null ? { ...ibsAnt, vCBS, vIBS } : null
     });
+    if (mudouCodigo) s.doc.coopTransporte = null; // recalcula o tipo da cooperativa pelo novo código
     // campos que mudam o próprio formulário (código, documento, natureza sugerida) → redesenha mantendo o foco
-    const redesenhar = mudouCodigo || e?.target?.name === 'documento';
+    const redesenhar = mudouCodigo || ['documento', 'natureza'].includes(e?.target?.name);
     if (mudouCnpj) consultar(el); else { if (redesenhar) { const nome = e?.target?.name; desenharForm(el); if (nome) f.querySelector(`[name="${nome}"]`)?.focus(); } recalcular(el); }
   };
   f.onchange = ler;

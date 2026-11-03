@@ -37,7 +37,7 @@ export const NATUREZAS = [
   { id: 'transporte_cargas', grupo: 'Serviços', texto: 'Transporte de cargas', ir: 1.2, codigo: '6147', servico: true },
   { id: 'transporte_passageiros', grupo: 'Serviços', texto: 'Passagens e transporte de passageiros (aéreo, rodoviário etc.)', ir: 2.4, codigo: '6175', servico: true },
   { id: 'bancos', grupo: 'Serviços', texto: 'Serviços de bancos, financeiras, seguradoras e seguro-saúde', ir: 2.4, codigo: '6188', servico: true },
-  { id: 'cooperativas', grupo: 'Serviços', texto: 'Serviços de associações profissionais ou assemelhadas e cooperativas', ir: 0, codigo: '8863', servico: true },
+  { id: 'cooperativas', grupo: 'Serviços', texto: 'Cooperativa de trabalho/transporte ou associação profissional — serviços pessoais dos cooperados', ir: 1.5, codigo: '3280', servico: true, cooperativa: true },
   { id: 'limpeza', grupo: 'Serviços', texto: 'Limpeza, conservação, manutenção, vigilância e segurança', ir: 4.8, codigo: '6190', servico: true, inss: true },
   { id: 'mao_de_obra', grupo: 'Serviços', texto: 'Locação ou cessão de mão de obra', ir: 4.8, codigo: '6190', servico: true, inss: true },
   { id: 'locacao', grupo: 'Serviços', texto: 'Locação ou administração de bens móveis e imóveis', ir: 4.8, codigo: '6190', servico: true },
@@ -319,7 +319,7 @@ export function sugerirNatureza(doc) {
 
 // ---------------- Consulta do CNPJ (Receita Federal, dados abertos) ----------------
 const NATUREZAS_DISPENSA = {
-  '3220': 'organização religiosa (art. 4º, I)', '2143': 'cooperativa (verifique o código 8863 ou 3280)',
+  '3220': 'organização religiosa (art. 4º, I)', '2143': 'cooperativa',
   '3999': 'associação privada — pode ser instituição de educação/assistência social ou filantrópica (art. 4º, III e IV)',
   '3069': 'fundação privada (art. 4º, VIII)', '3131': 'serviço social autônomo (art. 4º, VI)',
   '3077': 'serviço notarial e registral', '3301': 'organização social (OS)', '3328': 'condomínio (art. 4º, IX)',
@@ -449,13 +449,24 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
   const dispensaNatureza = cadastro?.naturezaCodigo && NATUREZAS_DISPENSA[cadastro.naturezaCodigo];
   if (simples) ir.motivo = mei ? 'MEI — optante pelo Simples Nacional (IN RFB 1.234/2012, art. 4º, XI)' : 'Optante pelo Simples Nacional (IN RFB 1.234/2012, art. 4º, XI)';
   else if (simples == null) ir.motivo = 'Situação no Simples não confirmada — cálculo considerando NÃO optante';
+  // Cooperativa (IN RFB 1.234/2012, art. 26; Lei 8.541/1992, art. 45): 1,5% sobre os serviços pessoais dos cooperados.
+  // Transporte rodoviário: só a parcela tributável — 60% (passageiros) ou 10% (cargas) — Lei 7.713/1988, art. 9º; ADN Cosit 1/1993.
+  if (nat.cooperativa) {
+    const pessoais = doc.coopServicosPessoais != null && doc.coopServicosPessoais > 0 ? Math.min(doc.coopServicosPessoais, valor) : valor;
+    const fator = { passageiros: 0.6, cargas: 0.1 }[doc.coopTransporte] ?? 1;
+    ir.base = r2(pessoais * fator);
+    ir.baseTexto = `${fator < 1 ? `${fator * 100}% de ` : ''}${moeda(pessoais)} de serviços pessoais${fator < 1 ? ` (${doc.coopTransporte === 'passageiros' ? 'transporte de passageiros' : 'transporte de cargas'})` : ''}`;
+    if (doc.coopServicosPessoais == null || doc.coopServicosPessoais <= 0) add('alerta', 'Nota da cooperativa sem a parcela de serviços pessoais dos cooperados', `Informe o valor dos serviços pessoais dos cooperados, se a nota discriminar. Sem a discriminação, o IR de 1,5% foi calculado sobre o valor total. Peça à cooperativa que separe na nota os serviços pessoais dos demais custos (IN RFB 1.234/2012, art. 26; ADN Cosit 1/1993).`);
+    if (!doc.coopTransporte) add('info', 'Cooperativa de transporte?', 'Se for transporte rodoviário de passageiros, a base do IR é 60% dos serviços pessoais; de cargas, 10%. Marque o tipo no formulário.');
+  }
   if (!simples) {
-    const calc = r2(valor * nat.ir / 100);
+    const calc = r2(ir.base * nat.ir / 100);
     if (nat.ir === 0) ir.motivo = 'Natureza sem retenção de IR no Anexo I';
     else if (calc < MINIMO_RETENCAO_IR) { ir.valor = calc; ir.motivo = `IR calculado inferior a R$ 10,00 — retenção dispensada (art. 3º, § 6º)`; }
-    else { ir.valor = calc; ir.reter = true; ir.motivo = ir.motivo || `${nat.texto}: ${pct(nat.ir)} sobre o valor bruto (Anexo I da IN RFB 1.234/2012; IN RFB 2.145/2023)`; }
+    else { ir.valor = calc; ir.reter = true; ir.motivo = ir.motivo || (nat.cooperativa ? `Cooperativa: ${pct(nat.ir)} sobre ${ir.baseTexto} (IN RFB 1.234/2012, art. 26; código 3280)` : `${nat.texto}: ${pct(nat.ir)} sobre o valor bruto (Anexo I da IN RFB 1.234/2012; IN RFB 2.145/2023)`); }
   }
-  if (dispensaNatureza && !simples) add('alerta', `Natureza jurídica: ${cadastro.naturezaTexto}`, `Pode haver dispensa de retenção (${dispensaNatureza}). Só deixe de reter com a declaração do Anexo II/III da IN RFB 1.234/2012 (e o Cebas, quando exigido). Sem ela, retenha normalmente.`);
+  if (cadastro?.naturezaCodigo === '2143' && !nat.cooperativa) add('erro', 'O fornecedor é uma COOPERATIVA', 'Escolha a natureza "Cooperativa de trabalho/transporte" (IR 1,5% sobre os serviços pessoais dos cooperados, código 3280), e não a do serviço em si.');
+  if (dispensaNatureza && !simples && cadastro?.naturezaCodigo !== '2143') add('alerta', `Natureza jurídica: ${cadastro.naturezaTexto}`, `Pode haver dispensa de retenção (${dispensaNatureza}). Só deixe de reter com a declaração do Anexo II/III da IN RFB 1.234/2012 (e o Cebas, quando exigido). Sem ela, retenha normalmente.`);
   const irNota = doc.irrfDestacado;
   if (ir.reter) {
     if (irNota == null || irNota === 0) add('alerta', 'IRRF não destacado na nota', `Retenha mesmo assim ${moeda(ir.valor)} (${pct(ir.aliquota)}): a responsabilidade pela retenção é do Município. Oriente o fornecedor a informar a retenção nas próximas notas (NF-e: carta de correção nas informações complementares; NFS-e: campo de retenção do IRRF).`);

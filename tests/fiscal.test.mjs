@@ -143,5 +143,13 @@ ok(sugerirNatureza({ codigoServico: '17.01' }) === 'demais_servicos' && sugerirN
 ok(!descreverTributacao('99.01').valido, 'código inexistente');
 r = conferir({ doc: { valor: 10000, emissao: '2026-10-01', servico: true, codigoServico: '16.01.01', municipioEmissor: '3113404' }, cadastro: cadNormal, hoje: '2026-11-03' });
 ok(r.ir.aliquota === 2.4 && r.ir.valor === 240 && r.iss.valor === 500 && r.liquido === 9260 && /art\. 3º/.test(r.iss.motivo), '16.01.01 completo: IR 2,4% + ISS 5%');
+// cooperativa de transporte de passageiros: 1,5% sobre 60% dos serviços pessoais
+const coop = { ...cadNormal, naturezaCodigo: '2143', naturezaTexto: 'Cooperativa' };
+r = conferir({ doc: { valor: 12000, emissao: '2026-10-01', servico: true, codigoServico: '16.01.01', coopServicosPessoais: 10000, coopTransporte: 'passageiros' }, cadastro: coop, naturezaId: 'cooperativas', hoje: '2026-11-03' });
+ok(r.ir.base === 6000 && r.ir.valor === 90 && r.iss.valor === 600 && r.liquido === 11310, 'cooperativa passageiros: IR 1,5% s/ 60% dos serviços pessoais');
+r = conferir({ doc: { valor: 12000, emissao: '2026-10-01', servico: true, coopTransporte: 'passageiros' }, cadastro: coop, naturezaId: 'cooperativas', hoje: '2026-11-03' });
+ok(r.ir.valor === 108 && tem(r, 'sem a parcela de serviços pessoais'), 'cooperativa sem discriminação: base no total');
+r = conferir({ doc: { valor: 12000, emissao: '2026-10-01', servico: true, codigoServico: '16.01.01' }, cadastro: coop, naturezaId: 'transporte_passageiros', hoje: '2026-11-03' });
+ok(r.situacao === 'erro' && tem(r, 'COOPERATIVA'), 'cooperativa com natureza errada');
 console.log(falhas ? `${falhas} falha(s)` : 'fiscal: todos os testes passaram');
 process.exit(falhas ? 1 : 0);

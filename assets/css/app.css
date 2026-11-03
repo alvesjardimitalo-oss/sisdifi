@@ -632,3 +632,5 @@ progress { width: 260px; vertical-align: middle; }
 .fiscal-bloco-titulo { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--azul-esc); margin-bottom: 6px; }
 .fiscal-bloco details { margin: 2px 0 8px; }
 .fiscal-bloco summary { cursor: pointer; color: var(--azul); font-weight: 500; font-size: 13.5px; }
+.fiscal-bloco-coop { border-color: #e7cf8f; background: var(--ouro-claro); margin-bottom: 8px; }
+.fiscal-bloco-coop .fiscal-bloco-titulo { color: #7a5a12; }
