@@ -1,5 +1,5 @@
 // Testes da conferência fiscal: node tests/fiscal.test.mjs
-import { lerCodigo, cnpjValido, lerXML, conferir, irNoTexto, consultarCnpj, normalizarCadastro, sugerirNatureza, optanteNaData } from '../assets/js/fiscal.js';
+import { descreverTributacao, lerCodigo, cnpjValido, lerXML, conferir, irNoTexto, consultarCnpj, normalizarCadastro, sugerirNatureza, optanteNaData } from '../assets/js/fiscal.js';
 let falhas = 0;
 const ok = (cond, msg) => { if (!cond) { falhas++; console.log('FALHA:', msg); } };
 const tem = (r, trecho) => r.problemas.some(p => p.titulo.includes(trecho));
@@ -134,5 +134,14 @@ ok(lerCodigo(nf3e).documento.startsWith('NF3-e'), 'NF3-e pela chave');
 c = lerCodigo('31134041246418291000133000000000009026108894368549');
 ok(c.documento === 'NFS-e Nacional' && c.valida && c.cnpj === '46418291000133' && c.municipio === '3113404' && c.numero === '90' && c.anoMes === '2026-10', 'NFS-e de Caratinga');
 ok(lerCodigo('31134041246418291000133000000000009026108894').tipo !== 'chave', '44 primeiros dígitos da NFS-e não são NF-e (mês 40)');
+// código de tributação 16.01.01 → passageiros 2,4%
+let tb = descreverTributacao('16.01.01');
+ok(tb.valido && tb.codigo === '16.01.01' && tb.natureza === 'transporte_passageiros' && tb.issNoLocal, '16.01.01');
+ok(sugerirNatureza({ servico: true, codigoServico: '160101' }) === 'transporte_passageiros', 'natureza 16.01.01');
+ok(sugerirNatureza({ servico: true, codigoServico: '16.02.01', descricaoServico: 'Transporte escolar' }) === 'transporte_passageiros', '16.02 escolar');
+ok(sugerirNatureza({ codigoServico: '17.01' }) === 'demais_servicos' && sugerirNatureza({ codigoServico: '07.10.01' }) === 'limpeza', 'outros códigos');
+ok(!descreverTributacao('99.01').valido, 'código inexistente');
+r = conferir({ doc: { valor: 10000, emissao: '2026-10-01', servico: true, codigoServico: '16.01.01', municipioEmissor: '3113404' }, cadastro: cadNormal, hoje: '2026-11-03' });
+ok(r.ir.aliquota === 2.4 && r.ir.valor === 240 && r.iss.valor === 500 && r.liquido === 9260 && /art\. 3º/.test(r.iss.motivo), '16.01.01 completo: IR 2,4% + ISS 5%');
 console.log(falhas ? `${falhas} falha(s)` : 'fiscal: todos os testes passaram');
 process.exit(falhas ? 1 : 0);

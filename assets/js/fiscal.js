@@ -250,23 +250,71 @@ export function irNoTexto(texto) {
   return null;
 }
 
+// ---------------- Código de tributação (lista da LC 116/2003 / código de tributação nacional da NFS-e) ----------------
+const ITENS_LC116 = {
+  '01': 'Informática', '02': 'Pesquisa e desenvolvimento', '03': 'Cessão de direito de uso e locação de espaços', '04': 'Saúde e assistência médica',
+  '05': 'Medicina veterinária', '06': 'Cuidados pessoais, estética e atividades físicas', '07': 'Engenharia, construção civil, obras e limpeza urbana',
+  '08': 'Educação, ensino e treinamento', '09': 'Hospedagem, turismo e viagens', '10': 'Intermediação e agenciamento', '11': 'Guarda, estacionamento e vigilância',
+  '12': 'Diversões, lazer e entretenimento', '13': 'Fonografia, fotografia, cinematografia e reprografia', '14': 'Manutenção e conserto de bens',
+  '15': 'Serviços bancários e financeiros', '16': 'Transporte de natureza municipal', '17': 'Apoio técnico, administrativo, jurídico, contábil e comercial',
+  '18': 'Regulação de sinistros e seguros', '19': 'Loterias e apostas', '20': 'Portos, aeroportos e terminais', '21': 'Registros públicos e cartórios',
+  '22': 'Exploração de rodovia', '23': 'Programação e comunicação visual', '24': 'Chaveiros, carimbos e placas', '25': 'Serviços funerários',
+  '26': 'Coleta e entrega de correspondências (courier)', '27': 'Assistência social', '28': 'Avaliação de bens', '29': 'Biblioteconomia',
+  '30': 'Biologia, biotecnologia e química', '31': 'Serviços técnicos em edificações, eletrônica e telecomunicações', '32': 'Desenhos técnicos',
+  '33': 'Desembaraço aduaneiro', '34': 'Investigações particulares', '35': 'Reportagem, jornalismo e relações públicas', '36': 'Meteorologia',
+  '37': 'Artistas, atletas e modelos', '38': 'Museologia', '39': 'Ourivesaria e lapidação', '40': 'Obras de arte sob encomenda'
+};
+// Subitens com natureza própria no Anexo I da IN 1.234 ou ISS devido no local da prestação (LC 116/2003, art. 3º)
+const SUBITENS = {
+  '0402': { texto: 'Análises clínicas, patologia, imagem, radiologia e diagnóstico', natureza: 'diagnostico' },
+  '0403': { texto: 'Hospitais, clínicas, laboratórios e prontos-socorros', natureza: 'hospitalares' },
+  '0702': { texto: 'Execução de obras de construção civil', natureza: 'construcao_materiais', local: true, dica: 'Se a obra for só mão de obra, sem materiais, escolha "Demais serviços" (4,8%).' },
+  '0704': { texto: 'Demolição', local: true },
+  '0705': { texto: 'Reparação, conservação e reforma de edifícios, estradas e pontes', natureza: 'construcao_materiais', local: true, dica: 'Sem fornecimento de materiais, escolha "Demais serviços" (4,8%).' },
+  '0709': { texto: 'Varrição, coleta, remoção e destinação de lixo', natureza: 'limpeza', local: true },
+  '0710': { texto: 'Limpeza, manutenção e conservação de vias, imóveis e piscinas', natureza: 'limpeza', local: true },
+  '0711': { texto: 'Decoração, jardinagem, corte e poda de árvores', local: true },
+  '0712': { texto: 'Controle e tratamento de efluentes', local: true },
+  '0716': { texto: 'Florestamento e reflorestamento', local: true },
+  '0717': { texto: 'Escoramento e contenção de encostas', local: true },
+  '0719': { texto: 'Acompanhamento e fiscalização de obras', local: true },
+  '1102': { texto: 'Vigilância, segurança ou monitoramento', natureza: 'limpeza', local: true },
+  '1104': { texto: 'Armazenamento, depósito, carga e descarga', local: true },
+  '1401': { texto: 'Lubrificação, limpeza, conserto e manutenção de máquinas e veículos', dica: 'Se a nota incluir peças/materiais discriminados, escolha "Serviços prestados com emprego de materiais" (1,2%).' },
+  '1601': { texto: 'Transporte coletivo municipal de passageiros (rodoviário, metroviário, ferroviário, aquaviário)', natureza: 'transporte_passageiros', local: true,
+    dica: 'ISS devido no município onde o transporte é executado (LC 116/2003, art. 3º, XIX).' },
+  '1602': { texto: 'Outros serviços de transporte de natureza municipal', natureza: 'transporte_cargas', local: true,
+    dica: 'Transporte de pessoas (ex.: transporte escolar) é "Passagens e transporte de passageiros" (2,4%); de cargas, 1,2%.' },
+  '1705': { texto: 'Fornecimento de mão de obra', natureza: 'mao_de_obra', local: true },
+  '1710': { texto: 'Planejamento e organização de eventos', local: true }
+};
+
+/** Descreve o código de tributação (16.01.01, 1601, 160101…) e sugere a natureza do IRRF. */
+export function descreverTributacao(codigo) {
+  const c = sem(codigo).replace(/\D/g, '');
+  if (c.length < 2) return null;
+  const item = c.slice(0, 2), sub = c.slice(0, 4);
+  const nomeItem = ITENS_LC116[item];
+  if (!nomeItem) return { codigo: c, valido: false, texto: 'Código não encontrado na lista da LC 116/2003' };
+  const s = c.length >= 4 ? SUBITENS[sub] : null;
+  const fmt = [c.slice(0, 2), c.slice(2, 4), c.slice(4, 6)].filter(Boolean).join('.');
+  const porItem = { '15': 'bancos', '03': 'locacao' }[item];
+  return { codigo: fmt, valido: true, item, subitem: sub, texto: s?.texto || nomeItem, grupo: nomeItem, natureza: s?.natureza || porItem || 'demais_servicos', dica: s?.dica || '', issNoLocal: !!s?.local };
+}
+
 /** Sugere a natureza (Anexo I) a partir da nota. A Contabilidade confirma. */
 export function sugerirNatureza(doc) {
   if (!doc) return 'mercadorias';
   if (doc.combustivel) return 'combustiveis';
   const porModelo = { '66': 'energia', '62': 'agua_telefone', '57': 'transporte_cargas', '67': 'transporte_passageiros', '63': 'transporte_passageiros' }[String(doc.modelo)];
   if (porModelo) return porModelo;
-  if (!doc.servico) return 'mercadorias';
-  const c = sem(doc.codigoServico).replace(/\D/g, '');
-  const item = c.slice(0, 2), sub = c.slice(0, 4);
-  if (sub === '0402' || sub === '0403') return sub === '0403' ? 'hospitalares' : 'diagnostico';
-  if (item === '07' && /^070[25]/.test(sub)) return 'construcao_materiais';
-  if (item === '16') return /passag|passageir/i.test(doc.descricaoServico || '') ? 'transporte_passageiros' : 'transporte_cargas';
-  if (sub === '0710' || sub === '1109' || sub === '1102') return 'limpeza';
-  if (item === '17' && sub === '1705') return 'mao_de_obra';
-  if (item === '15') return 'bancos';
-  if (item === '03') return 'locacao';
-  return 'demais_servicos';
+  const trib = descreverTributacao(doc.codigoServico);
+  if (!doc.servico && !trib?.valido) return 'mercadorias';
+  if (!trib?.valido) return 'demais_servicos';
+  const desc = sem(doc.descricaoServico);
+  if (trib.subitem === '1602' && /passag|passageir|escolar|pessoas|alunos/i.test(desc)) return 'transporte_passageiros';
+  if (trib.subitem === '1401' && /pe[cç]as|materia/i.test(desc)) return 'servicos_materiais';
+  return trib.natureza;
 }
 
 // ---------------- Consulta do CNPJ (Receita Federal, dados abertos) ----------------
@@ -445,6 +493,8 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
       } else {
         iss.aliquota = ISS.aliquota;
         iss.motivo = `Não optante, serviço prestado em ${MUNICIPIO.nome}: ISS de ${pct(ISS.aliquota)} retido pelo Município (tomador)`;
+        const trib = descreverTributacao(doc.codigoServico);
+        if (trib?.issNoLocal) iss.motivo += ` — subitem ${trib.subitem.slice(0, 2)}.${trib.subitem.slice(2)}: ISS devido no local da prestação (LC 116/2003, art. 3º)`;
         if (doc.issAliquota != null && doc.issAliquota !== 0 && difere(doc.issAliquota, ISS.aliquota, 0.001)) add('erro', `Alíquota de ISS na nota (${pct(doc.issAliquota)}) diferente da do município (${pct(ISS.aliquota)})`, `O fornecedor não é do Simples: o ISS em ${MUNICIPIO.nome} é de ${pct(ISS.aliquota)}. Retenha ${pct(ISS.aliquota)} e peça a nota substituta com a alíquota correta.`);
       }
       iss.valor = r2(valor * iss.aliquota / 100);

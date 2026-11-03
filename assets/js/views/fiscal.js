@@ -4,7 +4,7 @@ import { estado } from '../estado.js';
 import { esc, $, toast, dataBR, hojeISO } from '../ui.js';
 import { cabecalho } from './comum.js';
 import {
-  lerCodigo, lerXML, consultarCnpj, conferir, sugerirNatureza, NATUREZAS, MUNICIPIO, ISS, MINIMO_RETENCAO_IR,
+  lerCodigo, lerXML, consultarCnpj, conferir, sugerirNatureza, descreverTributacao, NATUREZAS, MUNICIPIO, ISS, MINIMO_RETENCAO_IR,
   formatarCnpj, limparCnpj, cnpjValido, moeda
 } from '../fiscal.js';
 
@@ -41,7 +41,7 @@ const idNota = () => s.doc.chave || (s.doc.cnpj && s.doc.numero ? `${limparCnpj(
 export function telaFiscal(el) {
   const compacto = el.classList.contains('fiscal-compacto');
   el.innerHTML = `
-    ${compacto ? '' : cabecalho('Conferência fiscal de notas', '', `Leia o código de barras da nota, digite a chave ou o CNPJ, ou abra o XML. O sistema confere Simples Nacional, IRRF, ISSQN (${esc(MUNICIPIO.nome)}: ${pctTxt(ISS.aliquota)}), CBS e IBS e aponta o que corrigir antes da liquidação.`)}
+    ${compacto ? '' : cabecalho('Conferência fiscal de notas', '', `Leia o código de barras da nota (ou digite a chave / CNPJ) e preencha o que está impresso nela. O sistema confere Simples Nacional, IRRF, ISSQN (${esc(MUNICIPIO.nome)}: ${pctTxt(ISS.aliquota)}), CBS e IBS e aponta o que corrigir antes da liquidação.`)}
     <div class="cartao fiscal-leitura">
       <label class="campo"><span>Código de barras, chave de acesso, QR Code ou CNPJ</span>
         <div class="fiscal-linha">
@@ -56,7 +56,7 @@ export function telaFiscal(el) {
       </label>
       <div class="acoes-linha">
         <button class="btn btn-sec" type="button" id="fis-camera">📷 Ler com a câmera</button>
-        <label class="btn btn-sec" for="fis-xml">📄 Abrir XML da nota</label><input type="file" id="fis-xml" accept=".xml,text/xml,application/xml" hidden>
+        <label class="btn btn-sec" for="fis-xml" title="Se tiver o arquivo XML, os campos se preenchem sozinhos">📄 XML (se tiver)</label><input type="file" id="fis-xml" accept=".xml,text/xml,application/xml" hidden>
         <button class="btn btn-sec fiscal-limpar" type="button" id="fis-limpar" title="Apaga a nota, a consulta e o resultado para conferir outra nota" ${temConsulta() ? '' : 'disabled'}>
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
           Limpar consulta</button>
@@ -157,7 +157,7 @@ async function processarCodigo(el, texto) {
   if (l.tipo === 'cnpj' && !l.valida) { toast('CNPJ com dígito verificador inválido.', 'erro'); }
   telaFiscal(el);
   await consultar(el);
-  if (s.doc.origem === 'leitura' && l.tipo === 'chave') toast('Confira a data de emissão e informe o valor da nota — ou abra o XML para conferir tudo.', 'aviso');
+  if (s.doc.origem === 'leitura' && l.tipo === 'chave') { toast(`${l.documento} nº ${l.numero} lida. Agora preencha valor, código de tributação e o que está na nota.`); setTimeout(() => $('#fis-form [name=valor]', el)?.focus(), 50); }
 }
 
 async function abrirXML(el, arquivo) {
@@ -194,70 +194,86 @@ function desenharForm(el) {
   const grupos = [...new Set(NATUREZAS.map(n => n.grupo))];
   const cad = s.consulta?.cadastro;
   const ibs = d.ibscbs || {};
+  const trib = descreverTributacao(d.codigoServico);
+  const ehServico = d.servico || /NFS/.test(d.documento || '') || !!trib?.valido;
+  const sel = (v, atual) => (v === atual ? 'selected' : '');
   f.innerHTML = `
     <h3>Dados da nota ${d.origem === 'xml' ? '<span class="selo selo-info">lidos do XML</span>' : ''}</h3>
+    <p class="dica fiscal-passo">Preencha com o que está impresso na nota. Os campos com <b>*</b> são os que mudam as retenções.</p>
     <div class="grade-2">
-      <label class="campo"><span>CNPJ do fornecedor</span><input name="cnpj" value="${esc(d.cnpj ? formatarCnpj(d.cnpj) : '')}" placeholder="00.000.000/0000-00"></label>
+      <label class="campo"><span>CNPJ do fornecedor *</span><input name="cnpj" value="${esc(d.cnpj ? formatarCnpj(d.cnpj) : '')}" placeholder="00.000.000/0000-00"></label>
       <label class="campo"><span>Documento</span><select name="documento">
-        ${['', 'NF-e', 'NFC-e', 'NFS-e Nacional', 'NFS-e', 'CT-e', 'CT-e OS', 'NF3-e (energia elétrica)', 'NFCom (telecomunicação)', 'BP-e (passagem)', 'Recibo/Fatura'].map(o => `<option ${d.documento === o ? 'selected' : ''} value="${esc(o)}">${esc(o || 'Selecione')}</option>`).join('')}</select></label>
+        ${['', 'NFS-e Nacional', 'NFS-e', 'NF-e', 'NFC-e', 'CT-e', 'CT-e OS', 'NF3-e (energia elétrica)', 'NFCom (telecomunicação)', 'BP-e (passagem)', 'Recibo/Fatura'].map(o => `<option ${sel(o, d.documento || '')} value="${esc(o)}">${esc(o || 'Selecione')}</option>`).join('')}</select></label>
     </div>
     <div class="grade-3">
       <label class="campo"><span>Número</span><input name="numero" value="${esc(d.numero || '')}"></label>
-      <label class="campo"><span>Data de emissão</span><input type="date" name="emissao" value="${esc(d.emissao || '')}"></label>
-      <label class="campo"><span>Valor bruto (R$)</span><input type="number" name="valor" step="0.01" min="0" value="${esc(numCampo(d.valor))}"></label>
+      <label class="campo"><span>Data de emissão *</span><input type="date" name="emissao" value="${esc(d.emissao || '')}"></label>
+      <label class="campo"><span>Valor bruto (R$) *</span><input type="number" name="valor" step="0.01" min="0" value="${esc(numCampo(d.valor))}" placeholder="0,00"></label>
     </div>
-    <label class="campo"><span>Natureza do bem ou serviço (Anexo I da IN RFB 1.234/2012)</span><select name="natureza">
-      ${grupos.map(g => `<optgroup label="${esc(g)}">${NATUREZAS.filter(n => n.grupo === g).map(n => `<option value="${n.id}" ${s.natureza === n.id ? 'selected' : ''}>${esc(n.texto)} — IR ${pctTxt(n.ir)}</option>`).join('')}</optgroup>`).join('')}
-    </select><small class="dica">${s.naturezaAuto ? 'Sugerida pela nota — confirme.' : 'Escolhida pela Contabilidade.'}${d.descricaoServico ? ' Serviço: ' + esc(d.descricaoServico.slice(0, 120)) : ''}</small></label>
-    <div class="grade-2">
-      <label class="campo"><span>Local da prestação do serviço</span><select name="localPrestacao">
+    ${ehServico || !d.documento ? `<div class="grade-2">
+      <label class="campo"><span>Código de tributação (serviço) *</span><input name="codigoServico" value="${esc(trib?.codigo || d.codigoServico || '')}" placeholder="ex.: 16.01.01" inputmode="numeric">
+        <small class="dica ${trib && !trib.valido ? 'erro-txt' : ''}">${trib ? esc(trib.valido ? `${trib.texto} (item ${trib.item} — ${trib.grupo})` : trib.texto) : 'Item da lista de serviços (LC 116), como aparece na NFS-e.'}</small></label>
+      <label class="campo"><span>Local da prestação do serviço *</span><select name="localPrestacao">
         <option value="${MUNICIPIO.ibge}" ${!d.localPrestacao || d.localPrestacao === MUNICIPIO.ibge ? 'selected' : ''}>${esc(MUNICIPIO.nome)}/${MUNICIPIO.uf}</option>
         <option value="outro" ${d.localPrestacao && d.localPrestacao !== MUNICIPIO.ibge ? 'selected' : ''}>Outro município${d.localPrestacao && d.localPrestacao !== MUNICIPIO.ibge ? ' (' + esc(nomeMunicipio(d.localPrestacao)) + ')' : ''}</option></select>
-        <small class="dica">Nota emitida em: <strong id="fis-emissor">${esc(d.municipioEmissor ? nomeMunicipio(d.municipioEmissor) : 'não informado')}</strong></small></label>
-      <label class="campo"><span>Regime declarado na nota</span><select name="regimeNota">
-        ${[['', 'Não informado'], ['normal', 'Regime normal / não optante'], ['simples', 'Simples Nacional (ME/EPP)'], ['mei', 'MEI']].map(([v, t]) => `<option value="${v}" ${d.regimeNota === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
-        ${d.regimeNotaTexto ? `<small class="dica">${esc(d.regimeNotaTexto)}</small>` : ''}</label>
-    </div>
-    <details class="mt" ${d.origem === 'xml' || d.irrfDestacado != null || d.issAliquota != null ? 'open' : ''}><summary>Valores destacados na nota (para conferir)</summary>
-      <div class="grade-3 mt">
-        <label class="campo"><span>IRRF destacado (R$)</span><input type="number" step="0.01" min="0" name="irrfDestacado" value="${esc(numCampo(d.irrfDestacado))}"></label>
-        <label class="campo"><span>Alíquota do ISS (%)</span><input type="number" step="0.01" min="0" name="issAliquota" value="${esc(numCampo(d.issAliquota))}"></label>
-        <label class="campo"><span>Valor do ISS (R$)</span><input type="number" step="0.01" min="0" name="issValor" value="${esc(numCampo(d.issValor))}"></label>
+        <small class="dica">Nota emitida em: <strong>${esc(d.municipioEmissor ? nomeMunicipio(d.municipioEmissor) : 'não informado')}</strong></small></label>
+    </div>` : ''}
+    <label class="campo"><span>Natureza do bem ou serviço — IRRF (Anexo I da IN RFB 1.234/2012) *</span><select name="natureza">
+      ${grupos.map(g => `<optgroup label="${esc(g)}">${NATUREZAS.filter(n => n.grupo === g).map(n => `<option value="${n.id}" ${sel(n.id, s.natureza)}>${esc(n.texto)} — IR ${pctTxt(n.ir)}</option>`).join('')}</optgroup>`).join('')}
+    </select><small class="dica">${s.naturezaAuto ? (trib?.valido ? `Sugerida pelo código ${esc(trib.codigo)} — confirme.` : 'Sugerida pela nota — confirme.') : 'Escolhida pela Contabilidade.'}${trib?.dica ? ' ' + esc(trib.dica) : ''}</small></label>
+    <div class="fiscal-bloco">
+      <div class="fiscal-bloco-titulo">O que está na nota</div>
+      <div class="grade-2">
+        <label class="campo"><span>Regime / Simples Nacional na nota *</span><select name="regimeNota">
+          ${[['', 'Não informado'], ['normal', 'Não optante / regime normal'], ['simples', 'Optante — ME/EPP do Simples'], ['mei', 'MEI']].map(([v, n]) => `<option value="${v}" ${sel(v, d.regimeNota || '')}>${n}</option>`).join('')}</select>
+          ${d.regimeNotaTexto ? `<small class="dica">${esc(d.regimeNotaTexto)}</small>` : ''}</label>
+        ${ehServico || !d.documento ? `<label class="campo"><span>Retenção do ISSQN na nota *</span><select name="issRetidoNota">
+          ${[['', 'Não informado'], ['sim', 'Retido pelo tomador'], ['nao', 'Não retido']].map(([v, n]) => `<option value="${v}" ${(d.issRetidoNota === true && v === 'sim') || (d.issRetidoNota === false && v === 'nao') || (d.issRetidoNota == null && v === '') ? 'selected' : ''}>${n}</option>`).join('')}</select></label>` : '<span></span>'}
       </div>
       <div class="grade-3">
-        <label class="campo"><span>ISS retido pelo tomador (na nota)?</span><select name="issRetidoNota">
-          ${[['', 'Não informado'], ['sim', 'Sim'], ['nao', 'Não']].map(([v, t]) => `<option value="${v}" ${(d.issRetidoNota === true && v === 'sim') || (d.issRetidoNota === false && v === 'nao') || (d.issRetidoNota == null && v === '') ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
-        <label class="campo"><span>CBS destacada (R$)</span><input type="number" step="0.01" min="0" name="vCBS" value="${esc(numCampo(ibs.vCBS))}"></label>
-        <label class="campo"><span>IBS destacado (R$)</span><input type="number" step="0.01" min="0" name="vIBS" value="${esc(numCampo(ibs.vIBS))}"></label>
+        ${ehServico || !d.documento ? `<label class="campo"><span>Alíquota do ISS (%)</span><input type="number" step="0.01" min="0" name="issAliquota" value="${esc(numCampo(d.issAliquota))}" placeholder="5"></label>
+        <label class="campo"><span>Valor do ISS (R$)</span><input type="number" step="0.01" min="0" name="issValor" value="${esc(numCampo(d.issValor))}"></label>` : '<span></span><span></span>'}
+        <label class="campo"><span>IRRF destacado (R$)</span><input type="number" step="0.01" min="0" name="irrfDestacado" value="${esc(numCampo(d.irrfDestacado))}" placeholder="0,00"></label>
       </div>
-      ${ibs.pCBS != null || ibs.cst ? `<p class="dica">No XML: CST ${esc(ibs.cst || '—')}${ibs.classTrib ? ' · cClassTrib ' + esc(ibs.classTrib) : ''} · CBS ${pctTxt(ibs.pCBS)} · IBS UF ${pctTxt(ibs.pIBSUF)} · IBS Mun ${pctTxt(ibs.pIBSMun)}</p>` : ''}
-    </details>
-    <label class="campo mt"><span>Simples Nacional na data da nota</span><select name="simplesManual">
-      ${[['', cad ? 'Conforme a consulta à Receita' : 'Consultar automaticamente'], ['sim', 'Optante (ME/EPP) — conferido no Portal'], ['mei', 'MEI — conferido no Portal'], ['nao', 'Não optante — conferido no Portal']].map(([v, t]) => `<option value="${v}" ${s.simplesManual === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+      <details ${ibs.vCBS != null || ibs.vIBS != null ? 'open' : ''}><summary>CBS e IBS destacados na nota</summary>
+        <div class="grade-2 mt">
+          <label class="campo"><span>CBS (R$)</span><input type="number" step="0.01" min="0" name="vCBS" value="${esc(numCampo(ibs.vCBS))}"></label>
+          <label class="campo"><span>IBS (R$)</span><input type="number" step="0.01" min="0" name="vIBS" value="${esc(numCampo(ibs.vIBS))}"></label>
+        </div>
+        ${ibs.pCBS != null || ibs.cst ? `<p class="dica">CST ${esc(ibs.cst || '—')}${ibs.classTrib ? ' · cClassTrib ' + esc(ibs.classTrib) : ''} · CBS ${pctTxt(ibs.pCBS)} · IBS UF ${pctTxt(ibs.pIBSUF)} · IBS Mun ${pctTxt(ibs.pIBSMun)}</p>` : ''}
+      </details>
+    </div>
+    <label class="campo mt"><span>Simples Nacional na data da nota (Receita Federal)</span><select name="simplesManual">
+      ${[['', cad ? 'Conforme a consulta à Receita' : 'Consultar automaticamente'], ['sim', 'Optante (ME/EPP) — conferido no Portal'], ['mei', 'MEI — conferido no Portal'], ['nao', 'Não optante — conferido no Portal']].map(([v, n]) => `<option value="${v}" ${sel(v, s.simplesManual)}>${n}</option>`).join('')}</select>
       <small class="dica"><a href="${PORTAL_SIMPLES}" target="_blank" rel="noopener noreferrer">Abrir o Portal do Simples Nacional</a> para confirmar e anexar a consulta ao processo.</small></label>`;
-  const ler = () => {
+  const ler = e => {
     const v = Object.fromEntries(new FormData(f));
     const n = x => (x === '' || x == null ? null : Number(x));
     const cnpjNovo = limparCnpj(v.cnpj);
     const mudouCnpj = cnpjNovo !== limparCnpj(s.doc.cnpj);
-    if (v.natureza !== s.natureza) s.naturezaAuto = false;
+    const mudouCodigo = 'codigoServico' in v && v.codigoServico.replace(/\D/g, '') !== String(s.doc.codigoServico || '').replace(/\D/g, '');
+    if (e?.target?.name === 'natureza' && v.natureza !== s.natureza) s.naturezaAuto = false;
+    if (mudouCodigo || e?.target?.name === 'documento') s.naturezaAuto = e?.target?.name === 'natureza' ? false : true;
     s.natureza = v.natureza;
     s.simplesManual = v.simplesManual;
     const ibsAnt = s.doc.ibscbs || {};
     const vCBS = n(v.vCBS), vIBS = n(v.vIBS);
     Object.assign(s.doc, {
       cnpj: cnpjNovo, documento: v.documento, numero: v.numero, emissao: v.emissao, valor: n(v.valor),
-      localPrestacao: v.localPrestacao === 'outro' ? (s.doc.localPrestacao && s.doc.localPrestacao !== MUNICIPIO.ibge ? s.doc.localPrestacao : 'outro') : MUNICIPIO.ibge,
+      codigoServico: 'codigoServico' in v ? v.codigoServico : s.doc.codigoServico,
+      localPrestacao: 'localPrestacao' in v ? (v.localPrestacao === 'outro' ? (s.doc.localPrestacao && s.doc.localPrestacao !== MUNICIPIO.ibge ? s.doc.localPrestacao : 'outro') : MUNICIPIO.ibge) : s.doc.localPrestacao,
       regimeNota: v.regimeNota, irrfDestacado: n(v.irrfDestacado), issAliquota: n(v.issAliquota), issValor: n(v.issValor),
       issRetidoNota: v.issRetidoNota === 'sim' ? true : v.issRetidoNota === 'nao' ? false : null,
-      modelo: s.doc.modelo || ({ 'NF-e': '55', 'NFC-e': '65', 'CT-e': '57', 'NFS-e Nacional': 'nfse', 'NFS-e': 'nfse' })[v.documento] || '',
-      servico: s.doc.origem === 'xml' ? s.doc.servico : /NFS/.test(v.documento),
+      modelo: ({ 'NF-e': '55', 'NFC-e': '65', 'CT-e': '57', 'CT-e OS': '67', 'NFS-e Nacional': 'nfse', 'NFS-e': 'nfse', 'NF3-e (energia elétrica)': '66', 'NFCom (telecomunicação)': '62', 'BP-e (passagem)': '63' })[v.documento] || s.doc.modelo || '',
+      servico: s.doc.origem === 'xml' ? s.doc.servico : (/NFS/.test(v.documento) || !!descreverTributacao(v.codigoServico)?.valido),
       ibscbs: vCBS != null || vIBS != null || ibsAnt.pCBS != null ? { ...ibsAnt, vCBS, vIBS } : null
     });
-    if (mudouCnpj) consultar(el); else recalcular(el);
+    // campos que mudam o próprio formulário (código, documento, natureza sugerida) → redesenha mantendo o foco
+    const redesenhar = mudouCodigo || e?.target?.name === 'documento';
+    if (mudouCnpj) consultar(el); else { if (redesenhar) { const nome = e?.target?.name; desenharForm(el); if (nome) f.querySelector(`[name="${nome}"]`)?.focus(); } recalcular(el); }
   };
   f.onchange = ler;
-  f.onsubmit = e => { e.preventDefault(); ler(); };
+  f.onsubmit = ev => { ev.preventDefault(); ler(ev); };
 }
 
 function recalcular(el) {
@@ -295,12 +311,12 @@ function desenharResultado(el) {
     box.innerHTML = `<div class="cartao">${blocoFornecedor(cad)}
       <div class="fiscal-cartoes"><div class="fiscal-item"><span>Simples Nacional na data</span><strong>${r.simples == null ? 'Não confirmado' : r.mei ? 'MEI' : r.simples ? 'Optante' : 'Não optante'}</strong><small>${r.simples == null ? 'confira no Portal' : esc(r.fonteSimples)}</small></div>
       <div class="fiscal-item"><span>IRRF</span><strong>${r.simples ? 'Não reter' : 'Reter ' + pctTxt(r.natureza.ir)}</strong><small>${esc(r.simples ? r.ir.motivo : r.natureza.texto)}</small></div></div>
-      <p class="alerta alerta-info mt">Informe o <strong>valor bruto</strong> e confira a <strong>data de emissão</strong> para calcular as retenções e conferir a nota. Com o XML, tudo é preenchido sozinho.</p></div>`;
+      <p class="alerta alerta-info mt">Informe o <strong>valor bruto</strong>, confira a <strong>data de emissão</strong> e o <strong>código de tributação</strong> para calcular as retenções e conferir a nota.</p></div>`;
     return;
   }
   if (!r) { box.innerHTML = `<div class="cartao"><h3>Como usar</h3><ol class="passos">
-    <li>Leia o código de barras do DANFE (leitor USB ou câmera), cole o QR Code, digite a chave ou o CNPJ — ou abra o XML da nota.</li>
-    <li>Confira a natureza do bem/serviço e o valor bruto.</li>
+    <li>Leia o código de barras ou o QR Code da nota (leitor USB ou câmera), ou digite a chave ou o CNPJ.</li>
+    <li>Preencha o valor, o código de tributação e o que está impresso na nota (regime, ISS retido, IRRF).</li>
     <li>Veja aqui o que reter, o valor líquido e cada erro da nota com a solução.</li>
     <li>Imprima a ficha de conferência e junte ao processo de liquidação.</li></ol></div>`; return; }
   const [cls, txt] = SIT[r.situacao];

@@ -627,3 +627,8 @@ progress { width: 260px; vertical-align: middle; }
 @media (max-width: 700px) { .fiscal-leitura .fiscal-linha { flex-wrap: wrap; } .fiscal-tipo { max-width: none; flex: 1 1 100%; } }
 .fiscal-compacto .fiscal-leitura .fiscal-linha { flex-wrap: wrap; }
 .fiscal-compacto .fiscal-tipo { max-width: none; flex: 1 1 100%; }
+.fiscal-passo { margin: -4px 0 10px; }
+.fiscal-bloco { border: 1px solid var(--azul-linha); background: var(--azul-claro); border-radius: var(--raio-p); padding: 10px 12px 4px; margin-top: 6px; }
+.fiscal-bloco-titulo { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--azul-esc); margin-bottom: 6px; }
+.fiscal-bloco details { margin: 2px 0 8px; }
+.fiscal-bloco summary { cursor: pointer; color: var(--azul); font-weight: 500; font-size: 13.5px; }
