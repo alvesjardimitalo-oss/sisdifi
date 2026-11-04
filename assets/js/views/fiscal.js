@@ -9,7 +9,20 @@ import {
   formatarCnpj, limparCnpj, cnpjValido, moeda, aliquotaIss, mensagemFornecedor
 } from '../fiscal.js';
 
-const PORTAL_SIMPLES = 'https://www8.receita.fazenda.gov.br/SimplesNacional/aplicacoes.aspx?id=21';
+const PORTAL_SIMPLES = 'https://consopt.www8.receita.fazenda.gov.br/consultaoptantes';
+/** Link do Portal do Simples: o portal não aceita o CNPJ no endereço (tem captcha), então o CNPJ vai copiado para colar. */
+const linkPortal = (texto, classe = '') => {
+  const c = limparCnpj(s.doc.cnpj || s.consulta?.cadastro?.cnpj);
+  return `<a class="${classe}" href="${PORTAL_SIMPLES}" target="_blank" rel="noopener noreferrer" data-portal="${esc(c)}" title="${c ? 'Copia o CNPJ ' + esc(formatarCnpj(c)) + ' e abre a Consulta Optantes — cole (Ctrl+V) no campo CNPJ' : 'Abre a Consulta Optantes do Simples Nacional'}">${texto}${c && !classe ? ' <small>(o CNPJ é copiado ao abrir)</small>' : ''}</a>`;
+};
+// Ao clicar em qualquer link do Portal, copia o CNPJ (só números) para colar no campo da consulta
+document.addEventListener('click', e => {
+  const a = e.target.closest?.('[data-portal]');
+  if (!a || !a.dataset.portal) return;
+  const c = a.dataset.portal;
+  navigator.clipboard?.writeText(c).then(() => toast(`CNPJ ${formatarCnpj(c)} copiado. No Portal: cole (Ctrl+V) no campo CNPJ, marque o captcha e clique em Consultar.`),
+    () => toast(`Digite no Portal o CNPJ ${c}.`, 'aviso'));
+});
 const CHAVE_HIST = 'sisdifi.fiscal.historico';
 
 // Estado da tela (fica entre as navegações)
@@ -301,7 +314,7 @@ function desenharForm(el) {
     </div>
     <label class="campo mt"><span>Simples Nacional na data da nota (Receita Federal)</span><select name="simplesManual">
       ${[['', cad ? 'Conforme a consulta à Receita' : 'Consultar automaticamente'], ['sim', 'Optante (ME/EPP) — conferido no Portal'], ['mei', 'MEI — conferido no Portal'], ['nao', 'Não optante — conferido no Portal']].map(([v, n]) => `<option value="${v}" ${sel(v, s.simplesManual)}>${n}</option>`).join('')}</select>
-      <small class="dica"><a href="${PORTAL_SIMPLES}" target="_blank" rel="noopener noreferrer">Abrir o Portal do Simples Nacional</a> para confirmar e anexar a consulta ao processo.</small></label>`;
+      <small class="dica">${linkPortal('Abrir a Consulta Optantes do Simples Nacional')} — confirme e anexe a consulta ao processo.</small></label>`;
   const ler = e => {
     const v = Object.fromEntries(new FormData(f));
     const n = x => (x === '' || x == null ? null : Number(x));
@@ -415,7 +428,7 @@ ${blocoFornecedor(cad)}
       ${r.cbsibs.esperado && r.cbsibs.parametros?.teste ? `<p class="dica">CBS (${moeda(r.cbsibs.esperado.vCBS)}) e IBS (${moeda(r.cbsibs.esperado.vIBS)}) de 2026 são informativos: não entram no total nem são retidos.</p>` : ''}
       <div class="acoes-form"><a class="btn" href="#/imprimir/fiscal">🖨 Imprimir ficha de conferência</a>
         <button type="button" class="btn btn-sec" data-mensagem>✉ Mensagem ao fornecedor</button>
-        <a class="btn btn-sec" href="${PORTAL_SIMPLES}" target="_blank" rel="noopener noreferrer">Portal do Simples</a></div>
+        ${linkPortal('Consultar no Portal do Simples', 'btn btn-sec')}</div>
     </div>
     <div class="cartao">
       <h3>Erros e soluções</h3>
