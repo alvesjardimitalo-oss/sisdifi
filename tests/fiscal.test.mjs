@@ -1,5 +1,5 @@
 // Testes da conferência fiscal: node tests/fiscal.test.mjs
-import { aliquotaIss, mensagemFornecedor, descreverTributacao, lerCodigo, cnpjValido, lerXML, conferir, irNoTexto, consultarCnpj, normalizarCadastro, sugerirNatureza, optanteNaData } from '../assets/js/fiscal.js';
+import { verificarNatureza, itensDoCnae, aliquotaIss, mensagemFornecedor, descreverTributacao, lerCodigo, cnpjValido, lerXML, conferir, irNoTexto, consultarCnpj, normalizarCadastro, sugerirNatureza, optanteNaData } from '../assets/js/fiscal.js';
 let falhas = 0;
 const ok = (cond, msg) => { if (!cond) { falhas++; console.log('FALHA:', msg); } };
 const tem = (r, trecho) => r.problemas.some(p => p.titulo.includes(trecho));
@@ -177,5 +177,18 @@ r = conferir({ doc: docT, cadastro: cadLtda, hoje: '2026-11-03', parametros: { i
 ok(r.iss.valor === 485.67 && !tem(r, 'Alíquota de ISS na nota') && r.liquido === 18475, 'exceção 2,5% para 16.01');
 const msg = mensagemFornecedor(r, docT, cadLtda).replace(/\s/g, ' ');
 ok(msg.includes('IRRF: R$ 466,25') && msg.includes('Valor líquido a pagar: R$ 18.475,00') && msg.includes('substituição'), 'mensagem ao fornecedor');
+// verificador da natureza do serviço
+ok(itensDoCnae('4924800').itens.includes('16') && itensDoCnae('7711000').itens.length === 0, 'CNAE → itens');
+const locadora = { ...cadNormal, cnae: '7711000', cnaeTexto: 'Locação de automóveis sem condutor', cnaesSecundarios: [{ codigo: '8211300', texto: 'Serviços combinados de escritório' }] };
+let vn = verificarNatureza({ doc: { codigoServico: '16.01.01', descricaoServico: 'PRESTAÇÃO DE SERVIÇO DE TRANSPORTE ESCOLAR, ROTA 06' }, cadastro: locadora });
+ok(vn.problemas.some(p => p.titulo.includes('não corresponde à descrição') && p.solucao.includes('16.02')), 'escolar com 16.01 → sugere 16.02');
+ok(vn.problemas.some(p => p.titulo.includes('não aparece entre as atividades') && p.solucao.includes('locação de bens')), 'locadora sem CNAE de transporte');
+vn = verificarNatureza({ doc: { codigoServico: '16.02.01', descricaoServico: 'Transporte escolar rota 06' }, cadastro: { ...locadora, cnaesSecundarios: [{ codigo: '4924800', texto: 'Transporte escolar' }] } });
+ok(!vn.problemas.length && vn.linhas.filter(l => l.ok).length === 2, '16.02 com CNAE de transporte escolar: tudo certo');
+vn = verificarNatureza({ doc: { codigoServico: '17.01', descricaoServico: 'Locação de veículo tipo pick-up sem motorista' }, cadastro: locadora, natureza: { id: 'demais_servicos', texto: 'x', ir: 4.8 } });
+ok(vn.problemas.some(p => p.titulo.includes('locação de bem móvel')) && vn.problemas.some(p => p.titulo.includes('natureza do IRRF diferente de locação')), 'locação sem motorista');
+ok(verificarNatureza({ doc: { codigoServico: '99.99' } }).problemas[0].nivel === 'erro', 'código inexistente é erro');
+r = conferir({ doc: { ...docT, descricaoServico: 'TRANSPORTE ESCOLAR ROTA 06' }, cadastro: locadora, hoje: '2026-11-03' });
+ok(r.verificacao.linhas.length >= 2 && tem(r, 'não corresponde à descrição'), 'verificação dentro da conferência');
 console.log(falhas ? `${falhas} falha(s)` : 'fiscal: todos os testes passaram');
 process.exit(falhas ? 1 : 0);

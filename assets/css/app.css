@@ -639,3 +639,11 @@ progress { width: 260px; vertical-align: middle; }
 .fiscal-comp tr.fiscal-difere td:last-child { color: var(--vermelho); font-weight: 700; }
 .fiscal-comp tr.fiscal-difere td:nth-child(2) { color: var(--vermelho); text-decoration: line-through; text-decoration-thickness: 1px; }
 .fiscal-comp td:last-child { color: var(--verde); }
+.fiscal-verif { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.fiscal-verif li { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--borda); border-radius: var(--raio-p); padding: 8px 10px; }
+.fiscal-verif li > span { flex: 0 0 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px; background: var(--cinza-claro); color: var(--muted); }
+.fiscal-verif li.v-ok > span { background: var(--verde-claro); color: var(--verde); }
+.fiscal-verif li.v-erro { border-color: #f1c4bf; }
+.fiscal-verif li.v-erro > span { background: var(--vermelho-claro); color: var(--vermelho); }
+.fiscal-verif strong { display: block; font-size: 14px; }
+.fiscal-verif small { display: block; color: var(--texto-2); font-size: 12.5px; line-height: 1.4; }

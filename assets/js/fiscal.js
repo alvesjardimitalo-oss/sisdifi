@@ -333,6 +333,95 @@ export function sugerirNatureza(doc) {
   return trib.natureza;
 }
 
+// ---------------- Verificação da natureza do serviço ----------------
+// CNAE (classe/divisão) → itens da lista da LC 116 compatíveis. Aproximação para apontar divergências, não para enquadrar.
+const CNAE_ITENS = [
+  [/^49(21|22|23|24|29)/, ['16'], 'transporte de passageiros'], [/^4930/, ['16'], 'transporte de cargas'], [/^50|^51/, ['16', '20'], 'transporte aquaviário/aéreo'],
+  [/^52/, ['11', '20', '16'], 'armazenagem e apoio ao transporte'], [/^53/, ['26'], 'correio e entregas'],
+  [/^77/, [], 'locação de bens móveis (veículos, máquinas, equipamentos)'],
+  [/^4[123]/, ['07'], 'construção'], [/^711/, ['07', '17', '28', '30', '32'], 'arquitetura e engenharia'], [/^712/, ['17', '28', '30'], 'ensaios e análises técnicas'],
+  [/^81/, ['07', '11'], 'limpeza, conservação e paisagismo'], [/^38|^39/, ['07'], 'coleta e tratamento de resíduos'], [/^37/, ['07'], 'esgoto'],
+  [/^6[23]/, ['01'], 'tecnologia da informação'], [/^85/, ['08'], 'educação'], [/^8[678]/, ['04', '27'], 'saúde e assistência social'], [/^75/, ['05'], 'veterinária'],
+  [/^69|^70/, ['17'], 'contabilidade, jurídico e consultoria'], [/^73/, ['17', '23', '10'], 'publicidade e pesquisa de mercado'], [/^74/, ['17', '13', '23', '39'], 'design, fotografia e serviços técnicos'],
+  [/^78/, ['17'], 'agenciamento e locação de mão de obra'], [/^80/, ['11'], 'vigilância e segurança'], [/^82/, ['17', '11', '10'], 'serviços administrativos e de escritório'],
+  [/^33|^452|^4543|^95/, ['14'], 'manutenção e reparação'], [/^55/, ['09'], 'hospedagem'], [/^56/, ['17', '09'], 'alimentação'], [/^79/, ['09', '10'], 'agências de viagens'],
+  [/^59|^60/, ['13', '12', '17'], 'audiovisual e rádio'], [/^18/, ['13', '24'], 'impressão e reprodução'], [/^90|^91|^93/, ['12', '37', '38', '06'], 'cultura, esporte e lazer'],
+  [/^6[456]/, ['15', '18', '10'], 'serviços financeiros e seguros'], [/^68/, ['10', '03'], 'atividades imobiliárias'], [/^72/, ['02'], 'pesquisa e desenvolvimento'],
+  [/^96/, ['06', '25', '14'], 'serviços pessoais'], [/^4[5-7]/, [], 'comércio (venda de mercadorias)']
+];
+export function itensDoCnae(cnae) {
+  const c = sem(cnae).replace(/\D/g, '');
+  const r = CNAE_ITENS.find(([re]) => re.test(c));
+  return r ? { itens: r[1], grupo: r[2] } : null;
+}
+const formatarCnae = c => { const d = sem(c).replace(/\D/g, '').padStart(7, '0'); return `${d.slice(0, 4)}-${d[4]}/${d.slice(5)}`; };
+
+// Palavras da descrição → subitem/itens esperados
+const PALAVRAS_SERVICO = [
+  { re: /transporte escolar|fretamento|frete de (?:onibus|van|veiculo)|veiculo com (?:motorista|condutor)|com motorista|locacao de (?:onibus|van|micro-?onibus|veiculo)s? com/, esperado: ['1602'], texto: 'transporte escolar, fretamento ou veículo com motorista à disposição',
+    nota: 'O 16.01 é o transporte coletivo municipal (linhas regulares, concessão/permissão). Transporte escolar, fretamento e veículo com motorista são 16.02 — "outros serviços de transporte de natureza municipal". A alíquota cadastrada pelo Município pode ser diferente entre os dois códigos.' },
+  { re: /locacao de (?:veiculo|automovel|carro|maquina|equipamento|caminhao)(?![^.]*\bcom (?:motorista|condutor|operador))/, esperado: [], texto: 'locação de bem móvel sem motorista/operador',
+    nota: 'Locação de bem móvel pura não é serviço sujeito ao ISS (Súmula Vinculante 31 do STF); para o IRRF, use a natureza "Locação de bens móveis" (4,8%). Se houver motorista ou operador, é serviço (transporte 16.02 ou outro).' },
+  { re: /\b(?:obra|construcao|pavimentacao|reforma|edificacao|drenagem)\b/, esperado: ['07'], texto: 'obra ou reforma' },
+  { re: /\b(?:limpeza|higienizacao|conservacao predial|jardinagem|rocada|capina|poda)\b/, esperado: ['07', '11'], texto: 'limpeza, conservação ou jardinagem' },
+  { re: /\b(?:manutencao|conserto|reparo|revisao) (?:de |do |da |dos |das |em )?(?:veiculo|maquina|equipamento|ar condicionado|impressora|computador|motor)/, esperado: ['14'], texto: 'manutenção ou conserto de bens' },
+  { re: /\b(?:software|sistema de gestao|licenca de uso|hospedagem de site|suporte tecnico em (?:sistema|software|informatica))/, esperado: ['01'], texto: 'informática / software' },
+  { re: /\b(?:curso|treinamento|capacitacao|palestra|oficina pedagogica)\b/, esperado: ['08', '17', '12'], texto: 'curso, treinamento ou palestra' },
+  { re: /\b(?:consulta medica|exame|plantao medico|atendimento medico|fisioterapia|odontolog|psicolog|laboratorio)/, esperado: ['04'], texto: 'saúde' },
+  { re: /\b(?:vigilancia|seguranca patrimonial|monitoramento de alarme)/, esperado: ['11'], texto: 'vigilância ou segurança' },
+  { re: /\b(?:consultoria|assessoria|auditoria|contabil)/, esperado: ['17'], texto: 'consultoria ou assessoria' },
+  { re: /\b(?:publicidade|propaganda|divulgacao|marketing)/, esperado: ['17', '23', '10'], texto: 'publicidade e divulgação' },
+  { re: /\b(?:hospedagem|diaria de hotel|hotel|pousada)\b/, esperado: ['09'], texto: 'hospedagem' },
+  { re: /\b(?:show|apresentacao artistica|banda|cantor)\b/, esperado: ['12', '37'], texto: 'apresentação artística' }
+];
+const semAcentos = t => sem(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+/**
+ * Confere se o código de tributação, a descrição do serviço, as atividades (CNAE) do CNPJ e a natureza do IRRF combinam.
+ * Devolve { linhas: [{ ok, titulo, detalhe }], problemas: [{ nivel, titulo, solucao }] }.
+ */
+export function verificarNatureza({ doc = {}, cadastro = null, natureza: nat = null } = {}) {
+  const linhas = [], problemas = [];
+  const trib = descreverTributacao(doc.codigoServico);
+  const desc = semAcentos(doc.descricaoServico);
+  const sub = trib?.valido ? trib.subitem : '', item = trib?.valido ? trib.item : '';
+  if (doc.codigoServico && trib && !trib.valido) problemas.push({ nivel: 'erro', titulo: `Código de tributação ${doc.codigoServico} não existe na lista da LC 116/2003`, solucao: 'Peça ao fornecedor a nota substituta com o código correto do serviço.' });
+
+  // 1) descrição × código
+  if (desc && item) {
+    const achou = PALAVRAS_SERVICO.find(p => p.re.test(desc));
+    if (achou) {
+      const casa = achou.esperado.length === 0 ? false : achou.esperado.some(e => (e.length === 4 ? sub === e : item === e));
+      linhas.push({ ok: casa, titulo: `Descrição × código: ${casa ? 'compatíveis' : 'divergentes'}`, detalhe: `A descrição indica ${achou.texto}; o código informado é ${trib.codigo} (${trib.texto}).` });
+      if (!casa) problemas.push({ nivel: 'alerta', titulo: `Código ${trib.codigo} não corresponde à descrição do serviço (${achou.texto})`,
+        solucao: `${achou.nota || `O código esperado é do item ${achou.esperado.join(' ou ')}.`} Peça ao fornecedor a nota substituta com o código correto${achou.esperado.length ? ` (${achou.esperado.map(e => e.length === 4 ? e.slice(0, 2) + '.' + e.slice(2) : 'item ' + e).join(' ou ')})` : ''}.` });
+    } else linhas.push({ ok: null, titulo: 'Descrição × código', detalhe: `Código ${trib.codigo} — ${trib.texto}. Confira com a descrição do serviço.` });
+  } else if (item && !desc) linhas.push({ ok: null, titulo: 'Descrição do serviço não informada', detalhe: 'Digite ou cole a descrição da nota para conferir com o código.' });
+
+  // 2) código × atividades do CNPJ
+  if (cadastro?.cnae && item) {
+    const cnaes = [{ codigo: cadastro.cnae, texto: cadastro.cnaeTexto, principal: true }, ...(cadastro.cnaesSecundarios || [])];
+    const comp = cnaes.filter(c => itensDoCnae(c.codigo)?.itens.includes(item));
+    const conhecidos = cnaes.filter(c => itensDoCnae(c.codigo));
+    if (comp.length) linhas.push({ ok: true, titulo: 'Atividade do CNPJ compatível', detalhe: comp.slice(0, 3).map(c => `${formatarCnae(c.codigo)} ${c.texto}${c.principal ? ' (principal)' : ''}`).join('; ') });
+    else if (conhecidos.length) {
+      linhas.push({ ok: false, titulo: 'Serviço fora das atividades do CNPJ', detalhe: `Atividades: ${conhecidos.slice(0, 4).map(c => `${formatarCnae(c.codigo)} ${c.texto}`).join('; ')}${cnaes.length > 4 ? '…' : ''}` });
+      const locadora = itensDoCnae(cadastro.cnae)?.grupo.startsWith('locação');
+      problemas.push({ nivel: 'alerta', titulo: `O serviço (${trib.codigo} — item ${trib.grupo}) não aparece entre as atividades (CNAE) do fornecedor`,
+        solucao: `${locadora ? 'A atividade principal é locação de bens. Se a prefeitura contratou veículo com motorista, é serviço de transporte (16.02) e a empresa deveria ter CNAE de transporte (ex.: 4924-8/00 transporte escolar, 4929-9 fretamento). ' : ''}Confira o objeto do contrato com o cadastro do fornecedor (CNAE na Receita) e se a nota está com o código correto. Atividade não cadastrada pode indicar nota com código errado ou empresa sem habilitação para o serviço contratado.` });
+    } else linhas.push({ ok: null, titulo: 'Atividades do CNPJ', detalhe: `${formatarCnae(cadastro.cnae)} ${cadastro.cnaeTexto || ''} — sem correspondência automática; confira manualmente.` });
+  }
+
+  // 3) natureza do IRRF × descrição
+  if (nat && desc) {
+    if (/transporte escolar|passageir|alunos|fretamento/.test(desc) && nat.id === 'transporte_cargas') problemas.push({ nivel: 'erro', titulo: 'Natureza do IRRF é transporte de cargas, mas o serviço é de passageiros', solucao: 'Escolha "Passagens e transporte de passageiros" (2,4%).' });
+    if (/\b(?:com fornecimento de materia|materiais|pecas)\b/.test(desc) && nat.id === 'demais_servicos') problemas.push({ nivel: 'info', titulo: 'A descrição menciona materiais/peças', solucao: 'Se a nota discriminar os materiais aplicados, a natureza do IRRF é "Serviços prestados com emprego de materiais" (1,2%); sem discriminação, mantenha 4,8%.' });
+    if (/locacao de (?:veiculo|automovel|carro|maquina|equipamento)/.test(desc) && !/\bcom (?:motorista|condutor|operador)/.test(desc) && nat.id !== 'locacao') problemas.push({ nivel: 'alerta', titulo: 'Descrição de locação de bem, natureza do IRRF diferente de locação', solucao: 'Para locação de bens móveis, a natureza é "Locação ou administração de bens" (4,8%).' });
+    linhas.push({ ok: !problemas.some(p => p.titulo.startsWith('Natureza do IRRF')), titulo: 'Natureza do IRRF', detalhe: `${nat.texto} — ${String(nat.ir).replace('.', ',')}%` });
+  }
+  return { linhas, problemas, tributacao: trib };
+}
+
 // ---------------- Consulta do CNPJ (Receita Federal, dados abertos) ----------------
 const NATUREZAS_DISPENSA = {
   '3220': 'organização religiosa (art. 4º, I)', '2143': 'cooperativa',
@@ -351,6 +440,7 @@ export function normalizarCadastro(j, fonte) {
       fonte, cnpj: limparCnpj(e.cnpj), nome: j.razao_social, fantasia: e.nome_fantasia || '',
       situacao: sem(e.situacao_cadastral).toUpperCase(), naturezaCodigo: sem(j.natureza_juridica?.id).replace(/\D/g, ''), naturezaTexto: j.natureza_juridica?.descricao || '',
       cnae: sem(e.atividade_principal?.id), cnaeTexto: e.atividade_principal?.descricao || '',
+      cnaesSecundarios: (e.atividades_secundarias || []).map(a => ({ codigo: sem(a.id).replace(/\D/g, ''), texto: a.descricao || '' })),
       municipio: e.cidade?.nome || '', uf: e.estado?.sigla || '', municipioIbge: sem(e.cidade?.ibge_id),
       simples: /sim/i.test(sem(s.simples)), simplesInicio: s.data_opcao_simples || '', simplesFim: s.data_exclusao_simples || '',
       mei: /sim/i.test(sem(s.mei)), meiInicio: s.data_opcao_mei || '', meiFim: s.data_exclusao_mei || ''
@@ -360,6 +450,7 @@ export function normalizarCadastro(j, fonte) {
     fonte, cnpj: limparCnpj(j.cnpj), nome: j.razao_social, fantasia: j.nome_fantasia || '',
     situacao: sem(j.descricao_situacao_cadastral).toUpperCase(), naturezaCodigo: sem(j.codigo_natureza_juridica).replace(/\D/g, ''), naturezaTexto: j.natureza_juridica || '',
     cnae: sem(j.cnae_fiscal), cnaeTexto: j.cnae_fiscal_descricao || '',
+    cnaesSecundarios: (j.cnaes_secundarios || []).filter(a => a && a.codigo).map(a => ({ codigo: sem(a.codigo).replace(/\D/g, ''), texto: a.descricao || '' })),
     municipio: j.municipio || '', uf: j.uf || '', municipioIbge: sem(j.codigo_municipio_ibge),
     simples: j.opcao_pelo_simples === true, simplesInicio: j.data_opcao_pelo_simples || '', simplesFim: j.data_exclusao_do_simples || '',
     mei: j.opcao_pelo_mei === true, meiInicio: j.data_opcao_pelo_mei || '', meiFim: j.data_exclusao_do_mei || ''
@@ -434,6 +525,10 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
   if (emissao && emissao > hoje) add('erro', 'Data de emissão no futuro', 'Confira a data de emissão na nota.');
   if (chave?.anoMes && emissao && emissao.slice(0, 7) !== chave.anoMes) add('alerta', 'Mês da chave diferente da data de emissão informada', `A chave indica ${chave.anoMes.split('-').reverse().join('/')}. Confira a data da nota.`);
   if (doc.cnpj && cadastro?.cnpj && limparCnpj(doc.cnpj) !== cadastro.cnpj) add('erro', 'CNPJ da nota diferente do consultado', 'Confira se a nota é mesmo deste fornecedor.');
+
+  // 1b. Natureza do serviço (código × descrição × CNAE × natureza do IRRF)
+  const verificacao = verificarNatureza({ doc, cadastro, natureza: nat });
+  for (const p of verificacao.problemas) add(p.nivel, p.titulo, p.solucao);
 
   // 2. Cadastro na Receita
   if (cadastro) {
@@ -596,7 +691,7 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
   const ordem = { erro: 0, alerta: 1, info: 2 };
   problemas.sort((a, b) => ordem[a.nivel] - ordem[b.nivel]);
   const situacao = problemas.some(p => p.nivel === 'erro') ? 'erro' : problemas.some(p => p.nivel === 'alerta') ? 'alerta' : 'ok';
-  return { natureza: nat, valor, emissao, simples, mei, fonteSimples, ir, iss, cbsibs: cb, retencoes, liquido, comparativo, temDadosNota, problemas, situacao };
+  return { natureza: nat, valor, emissao, simples, mei, fonteSimples, ir, iss, cbsibs: cb, retencoes, liquido, comparativo, temDadosNota, verificacao, problemas, situacao };
 }
 
 /** Texto pronto para pedir a correção ao fornecedor, a partir dos erros e avisos da conferência. */

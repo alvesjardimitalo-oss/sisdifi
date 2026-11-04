@@ -265,6 +265,8 @@ function desenharForm(el) {
         <option value="outro" ${d.localPrestacao && d.localPrestacao !== MUNICIPIO.ibge ? 'selected' : ''}>Outro município${d.localPrestacao && d.localPrestacao !== MUNICIPIO.ibge ? ' (' + esc(nomeMunicipio(d.localPrestacao)) + ')' : ''}</option></select>
         <small class="dica">Nota emitida em: <strong>${esc(d.municipioEmissor ? nomeMunicipio(d.municipioEmissor) : 'não informado')}</strong></small></label>
     </div>` : ''}
+    ${ehServico || !d.documento ? `<label class="campo"><span>Descrição do serviço (como está na nota)</span><textarea name="descricaoServico" rows="2" placeholder="ex.: Prestação de serviço de transporte escolar, rota 06…">${esc(d.descricaoServico || '')}</textarea>
+      <small class="dica">Usada para conferir se o código de tributação e a natureza do IRRF combinam com o serviço.</small></label>` : ''}
     <label class="campo"><span>Natureza do bem ou serviço — IRRF (Anexo I da IN RFB 1.234/2012) *</span><select name="natureza">
       ${grupos.map(g => `<optgroup label="${esc(g)}">${NATUREZAS.filter(n => n.grupo === g).map(n => `<option value="${n.id}" ${sel(n.id, s.natureza)}>${esc(n.texto)} — IR ${pctTxt(n.ir)}</option>`).join('')}</optgroup>`).join('')}
     </select><small class="dica">${s.naturezaAuto ? (ehCooperativa ? 'Sugerida porque o CNPJ é de cooperativa (natureza jurídica 214-3) — confirme.' : trib?.valido ? `Sugerida pelo código ${esc(trib.codigo)} — confirme.` : 'Sugerida pela nota — confirme.') : 'Escolhida pela Contabilidade.'}${trib?.dica && !ehCooperativa ? ' ' + esc(trib.dica) : ''}</small></label>
@@ -331,6 +333,7 @@ function desenharForm(el) {
     Object.assign(s.doc, {
       cnpj: cnpjNovo, documento: v.documento, numero: v.numero, emissao: v.emissao, valor: n(v.valor),
       codigoServico: 'codigoServico' in v ? v.codigoServico : s.doc.codigoServico,
+      descricaoServico: 'descricaoServico' in v ? v.descricaoServico : s.doc.descricaoServico,
       localPrestacao: 'localPrestacao' in v ? (v.localPrestacao === 'outro' ? (s.doc.localPrestacao && s.doc.localPrestacao !== MUNICIPIO.ibge ? s.doc.localPrestacao : 'outro') : MUNICIPIO.ibge) : s.doc.localPrestacao,
       regimeNota: v.regimeNota, irrfDestacado: n(v.irrfDestacado), issAliquota: n(v.issAliquota), issValor: n(v.issValor),
       issRetidoNota: v.issRetidoNota === 'sim' ? true : v.issRetidoNota === 'nao' ? false : null,
@@ -344,7 +347,7 @@ function desenharForm(el) {
     });
     if (mudouCodigo) s.doc.coopTransporte = null; // recalcula o tipo da cooperativa pelo novo código
     // campos que mudam o próprio formulário (código, documento, natureza sugerida) → redesenha mantendo o foco
-    const redesenhar = mudouCodigo || ['documento', 'natureza'].includes(e?.target?.name);
+    const redesenhar = mudouCodigo || ['documento', 'natureza'].includes(e?.target?.name) || (e?.target?.name === 'descricaoServico' && s.naturezaAuto);
     if (mudouCnpj) consultar(el); else { if (redesenhar) { const nome = e?.target?.name; desenharForm(el); if (nome) f.querySelector(`[name="${nome}"]`)?.focus(); } recalcular(el); }
   };
   f.onchange = ler;
@@ -411,6 +414,11 @@ ${blocoFornecedor(cad)}
         <div class="fiscal-item"><span>CBS / IBS</span><strong>${r.cbsibs.esperado ? `${pctTxt(r.cbsibs.esperado.cbs)} / ${pctTxt(r.cbsibs.esperado.ibs)}` : 'Não se aplica'}</strong><small>${esc(r.cbsibs.motivo)}</small></div>
       </div>
     </div>
+    ${r.verificacao?.linhas?.length ? `<div class="cartao">
+      <h3>Natureza do serviço</h3>
+      <ul class="fiscal-verif">${r.verificacao.linhas.map(l => `<li class="${l.ok === true ? 'v-ok' : l.ok === false ? 'v-erro' : 'v-info'}"><span aria-hidden="true">${l.ok === true ? '✓' : l.ok === false ? '✕' : '•'}</span>
+        <div><strong>${esc(l.titulo)}</strong><small>${esc(l.detalhe)}</small></div></li>`).join('')}</ul>
+    </div>` : ''}
     <div class="cartao">
       <h3>Para a liquidação</h3>
       ${r.temDadosNota ? `<table class="tabela tabela-peq fiscal-liq fiscal-comp"><thead><tr><th></th><th class="num">Na nota</th><th class="num">Conferido</th><th class="num">Diferença</th></tr></thead><tbody>
@@ -446,7 +454,7 @@ function blocoFornecedor(cad) {
   return `<h3>Fornecedor</h3>
       ${cad ? `<p><strong>${esc(cad.nome)}</strong>${cad.fantasia ? ` <span class="muted">(${esc(cad.fantasia)})</span>` : ''}<br>
         CNPJ ${esc(formatarCnpj(cad.cnpj))} · <span class="selo ${cad.situacao === 'ATIVA' ? 'selo-emitida' : 'selo-cancelada'}">${esc(cad.situacao || '—')}</span><br>
-        <span class="muted">${esc(cad.naturezaTexto || '')}${cad.cnaeTexto ? ' · CNAE ' + esc(cad.cnae) + ' ' + esc(cad.cnaeTexto) : ''}${cad.municipio ? ' · ' + esc(cad.municipio) + '/' + esc(cad.uf) : ''}</span></p>`
+        <span class="muted">${esc(cad.naturezaTexto || '')}${cad.cnaeTexto ? ' · CNAE ' + esc(String(cad.cnae).replace(/\D/g, '').padStart(7, '0').replace(/^(\d{4})(\d)(\d{2})$/, '$1-$2/$3')) + ' ' + esc(cad.cnaeTexto) : ''}${cad.municipio ? ' · ' + esc(cad.municipio) + '/' + esc(cad.uf) : ''}</span></p>`
       : `<p class="muted">${s.doc.cnpj ? 'CNPJ ' + esc(formatarCnpj(s.doc.cnpj)) + ' — ' : ''}${s.consulta?.erros?.length ? 'consulta indisponível (' + esc(s.consulta.erros.join('; ')) + ')' : 'informe o CNPJ para consultar'}.</p>`}`;
 }
 
@@ -516,6 +524,10 @@ export function telaImprimirFiscal(el) {
         ${linha('CNPJ', esc(formatarCnpj(cad?.cnpj || d.cnpj)))}
         ${linha('Situação cadastral', esc(cad?.situacao || 'não consultada'))}
         ${linha('Simples Nacional na data', esc(r.simples == null ? 'não confirmado' : r.mei ? 'MEI' : r.simples ? 'Optante' : 'Não optante') + (r.fonteSimples ? ' — ' + esc(r.fonteSimples) : ''))}</table></div>
+      ${r.verificacao?.linhas?.length ? `<div class="doc-secao"><div class="doc-secao-titulo">Natureza do serviço</div><table class="doc-tab">
+        ${d.codigoServico ? linha('Código de tributação', esc((r.verificacao.tributacao?.codigo || d.codigoServico) + (r.verificacao.tributacao?.texto ? ' — ' + r.verificacao.tributacao.texto : ''))) : ''}
+        ${d.descricaoServico ? linha('Descrição na nota', esc(d.descricaoServico)) : ''}
+        ${r.verificacao.linhas.map(l => linha((l.ok === true ? '✓ ' : l.ok === false ? '✕ ' : '') + l.titulo, esc(l.detalhe))).join('')}</table></div>` : ''}
       <div class="doc-secao"><div class="doc-secao-titulo">3 - Tributos</div><table class="doc-tab">
         ${linha('IRRF', `${r.ir.reter ? 'Reter ' + moeda(r.ir.valor) + ' (' + pctTxt(r.ir.aliquota) + ')' : 'Não reter'} — ${esc(r.ir.motivo)}`)}
         ${linha('ISSQN', `${!r.iss.aplica ? 'Não se aplica' : r.iss.reter && r.iss.valor ? 'Reter ' + moeda(r.iss.valor) + ' (' + pctTxt(r.iss.aliquota) + ')' : 'Não reter'}${r.iss.motivo ? ' — ' + esc(r.iss.motivo) : ''}`)}
