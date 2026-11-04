@@ -17,6 +17,22 @@ export const ISS = {
   maximoSimples: 5
 };
 
+/**
+ * Alíquota do ISS para o código de tributação: usa a exceção mais específica cadastrada (16.01.01 > 16.01 > 16)
+ * e, se não houver, a alíquota padrão. parametros = { issPadrao, issPorCodigo: { '16.01': 2.5, … } } (config/fiscal).
+ */
+export function aliquotaIss(codigo, parametros = null) {
+  const padrao = Number(parametros?.issPadrao) > 0 ? Number(parametros.issPadrao) : ISS.aliquota;
+  const tabela = parametros?.issPorCodigo || {};
+  const c = String(codigo || '').replace(/\D/g, '');
+  for (const tam of [6, 4, 2]) {
+    if (c.length < tam) continue;
+    const chave = Object.keys(tabela).find(k => k.replace(/\D/g, '') === c.slice(0, tam));
+    if (chave && Number(tabela[chave]) > 0) return { aliquota: Number(tabela[chave]), excecao: chave };
+  }
+  return { aliquota: padrao, excecao: null };
+}
+
 /** Dispensa de retenção de valor inferior a R$ 10,00 (IN RFB 1.234/2012, art. 3º, § 6º). */
 export const MINIMO_RETENCAO_IR = 10;
 
@@ -402,7 +418,9 @@ const difere = (a, b, tol = 0.05) => a != null && b != null && Math.abs(Number(a
  *   simplesManual — 'sim' | 'nao' | 'mei' | '' (quando a consulta automática não respondeu)
  *   hoje       — 'AAAA-MM-DD' (para testes)
  */
-export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual = '', hoje = new Date().toISOString().slice(0, 10), chave = null } = {}) {
+export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual = '', hoje = new Date().toISOString().slice(0, 10), chave = null, parametros = null } = {}) {
+  const issMun = aliquotaIss(doc.codigoServico, parametros);
+  const ISS_ALIQ = issMun.aliquota;
   const nat = natureza(naturezaId) || natureza(sugerirNatureza(doc));
   const problemas = [];
   const add = (nivel, titulo, solucao, detalhe = '') => problemas.push({ nivel, titulo, solucao, detalhe });
@@ -435,7 +453,7 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
   const regimeNota = doc.regimeNota || '';
   if (simples != null && regimeNota) {
     if (!simples && (regimeNota === 'simples' || regimeNota === 'mei')) {
-      add('erro', 'A nota se declara do Simples Nacional, mas o fornecedor não é optante na data da emissão', `Trate como NÃO optante: retenha o IRRF de ${pct(nat.ir)}${nat.servico ? ' e o ISS de ' + pct(ISS.aliquota) : ''}. Peça ao fornecedor a correção do regime na nota (NFS-e: nota substituta; NF-e: cancelamento e nova emissão, se ainda no prazo) ou uma consulta do Portal do Simples que prove a opção na data.`, doc.regimeNotaTexto);
+      add('erro', 'A nota se declara do Simples Nacional, mas o fornecedor não é optante na data da emissão', `Trate como NÃO optante: retenha o IRRF de ${pct(nat.ir)}${nat.servico ? ' e o ISS de ' + pct(ISS_ALIQ) : ''}. Peça ao fornecedor a correção do regime na nota (NFS-e: nota substituta; NF-e: cancelamento e nova emissão, se ainda no prazo) ou uma consulta do Portal do Simples que prove a opção na data.`, doc.regimeNotaTexto);
     } else if (simples && regimeNota === 'normal') {
       add('alerta', 'A Receita indica optante pelo Simples, mas a nota foi emitida como regime normal', 'Confirme no Portal do Simples Nacional. Se for optante, não retenha o IRRF e exija a declaração do Anexo IV da IN RFB 1.234/2012; peça ao fornecedor que corrija o regime nas próximas notas.', doc.regimeNotaTexto);
     } else if (mei && regimeNota === 'simples') {
@@ -497,16 +515,16 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
       iss.aplica = true;
       if (simples) {
         const informada = doc.issAliquota;
-        if (informada == null || informada === 0) { iss.aliquota = ISS.aliquota; add('alerta', 'ME/EPP do Simples sem alíquota de ISS na nota', `Retenha pela alíquota de ${pct(ISS.aliquota)} (LC 123/2006, art. 21, § 4º, IV) e oriente o fornecedor a informar a alíquota do Simples nas próximas notas.`); }
-        else if (informada < ISS.minimoSimples || informada > ISS.maximoSimples) { iss.aliquota = ISS.aliquota; add('erro', `Alíquota de ISS do Simples fora da faixa (${pct(informada)})`, `No Simples a alíquota do ISS fica entre ${pct(ISS.minimoSimples)} e ${pct(ISS.maximoSimples)}. Retenha ${pct(ISS.aliquota)} e peça nota substituta com a alíquota correta.`); }
+        if (informada == null || informada === 0) { iss.aliquota = ISS_ALIQ; add('alerta', 'ME/EPP do Simples sem alíquota de ISS na nota', `Retenha pela alíquota de ${pct(ISS_ALIQ)} (LC 123/2006, art. 21, § 4º, IV) e oriente o fornecedor a informar a alíquota do Simples nas próximas notas.`); }
+        else if (informada < ISS.minimoSimples || informada > ISS.maximoSimples) { iss.aliquota = ISS_ALIQ; add('erro', `Alíquota de ISS do Simples fora da faixa (${pct(informada)})`, `No Simples a alíquota do ISS fica entre ${pct(ISS.minimoSimples)} e ${pct(ISS.maximoSimples)}. Retenha ${pct(ISS_ALIQ)} e peça nota substituta com a alíquota correta.`); }
         else iss.aliquota = informada;
         iss.motivo = `ME/EPP do Simples: retenção pela alíquota informada na nota (LC 123/2006, art. 21, § 4º)`;
       } else {
-        iss.aliquota = ISS.aliquota;
-        iss.motivo = `Não optante, serviço prestado em ${MUNICIPIO.nome}: ISS de ${pct(ISS.aliquota)} retido pelo Município (tomador)`;
+        iss.aliquota = ISS_ALIQ;
+        iss.motivo = `Não optante, serviço prestado em ${MUNICIPIO.nome}: ISS de ${pct(ISS_ALIQ)}${issMun.excecao ? ` (alíquota cadastrada para o código ${issMun.excecao})` : ''} retido pelo Município (tomador)`;
         const trib = descreverTributacao(doc.codigoServico);
         if (trib?.issNoLocal) iss.motivo += ` — subitem ${trib.subitem.slice(0, 2)}.${trib.subitem.slice(2)}: ISS devido no local da prestação (LC 116/2003, art. 3º)`;
-        if (doc.issAliquota != null && doc.issAliquota !== 0 && difere(doc.issAliquota, ISS.aliquota, 0.001)) add('erro', `Alíquota de ISS na nota (${pct(doc.issAliquota)}) diferente da do município (${pct(ISS.aliquota)})`, `O fornecedor não é do Simples: o ISS em ${MUNICIPIO.nome} é de ${pct(ISS.aliquota)}. Retenha ${pct(ISS.aliquota)} e peça a nota substituta com a alíquota correta.`);
+        if (doc.issAliquota != null && doc.issAliquota !== 0 && difere(doc.issAliquota, ISS_ALIQ, 0.001)) add('erro', `Alíquota de ISS na nota (${pct(doc.issAliquota)}) diferente da do município (${pct(ISS_ALIQ)})`, `O fornecedor não é do Simples: o ISS em ${MUNICIPIO.nome} é de ${pct(ISS_ALIQ)}${issMun.excecao ? ' para este código' : ''}. Retenha ${pct(ISS_ALIQ)} e peça a nota substituta com a alíquota correta.${doc.modelo === 'nfse' && String(doc.incidencia || '') === MUNICIPIO.ibge ? ` Atenção: na NFS-e Nacional com incidência em ${MUNICIPIO.nome}, a alíquota é puxada do cadastro do próprio Município no Emissor Nacional — confirme com o setor de Tributos. Se a lei municipal prevê ${pct(doc.issAliquota)} para este serviço, cadastre a exceção em "Alíquotas do ISS" nesta tela; se não, Tributos deve corrigir o cadastro no Painel Municipal da NFS-e.` : ''}`);
       }
       iss.valor = r2(valor * iss.aliquota / 100);
       iss.reter = ISS.retemOrgao;
@@ -514,8 +532,8 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
       // Nota emitida no município do prestador é normal; o que importa é o MUNICÍPIO DE INCIDÊNCIA do ISS informado na nota.
       const incid = doc.incidencia ? String(doc.incidencia) : '';
       const nomeEmissor = doc.municipioEmissorNome || doc.municipioEmissor;
-      if (iss.reter && incid && incid !== MUNICIPIO.ibge) add('erro', `A nota indica o ISS devido em outro município${doc.incidenciaNome ? ' (' + doc.incidenciaNome + ')' : ''}, mas o serviço é prestado em ${MUNICIPIO.nome}`, `Peça ao fornecedor a substituição da NFS-e com "Local da prestação" e "Município de incidência do ISSQN" = ${MUNICIPIO.nome}, alíquota de ${pctTxtF(ISS.aliquota)} e ISS retido pelo tomador. Não liquide com a nota errada: se o Município reter e o fornecedor também recolher no outro município, o ISS é pago em dobro.`);
-      else if (iss.reter && emitidaFora && !incid) add('alerta', `Nota emitida em ${nomeEmissor}: confira o município de incidência`, `É normal a NFS-e ser emitida no município do prestador. Confira no documento: "Município de incidência do ISSQN" deve ser ${MUNICIPIO.nome}. Se for, marque no formulário e a retenção de ${pctTxtF(ISS.aliquota)} está correta; se for ${nomeEmissor}, peça a substituição da nota.`);
+      if (iss.reter && incid && incid !== MUNICIPIO.ibge) add('erro', `A nota indica o ISS devido em outro município${doc.incidenciaNome ? ' (' + doc.incidenciaNome + ')' : ''}, mas o serviço é prestado em ${MUNICIPIO.nome}`, `Peça ao fornecedor a substituição da NFS-e com "Local da prestação" e "Município de incidência do ISSQN" = ${MUNICIPIO.nome}, alíquota de ${pctTxtF(ISS_ALIQ)} e ISS retido pelo tomador. Não liquide com a nota errada: se o Município reter e o fornecedor também recolher no outro município, o ISS é pago em dobro.`);
+      else if (iss.reter && emitidaFora && !incid) add('alerta', `Nota emitida em ${nomeEmissor}: confira o município de incidência`, `É normal a NFS-e ser emitida no município do prestador. Confira no documento: "Município de incidência do ISSQN" deve ser ${MUNICIPIO.nome}. Se for, marque no formulário e a retenção de ${pctTxtF(ISS_ALIQ)} está correta; se for ${nomeEmissor}, peça a substituição da nota.`);
       if (iss.reter && doc.issRetidoNota === false) add('erro', 'A nota indica ISS NÃO retido', `O Município é o responsável pela retenção: retenha ${moeda(iss.valor)} mesmo assim e peça ao fornecedor a nota substituta com "ISS retido pelo tomador", para ele não pagar o imposto em dobro.`);
     }
   }
@@ -531,7 +549,8 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
     cb.aplica = true;
     const fator = 1 - (pr.redutor || 0) / 100;
     const aliqCBS = r2(pr.cbs * fator * 100) / 100, aliqIBS = r2((pr.ibsUF + pr.ibsMun) * fator * 100) / 100;
-    cb.esperado = { cbs: aliqCBS, ibs: aliqIBS, vCBS: r2(valor * aliqCBS / 100), vIBS: r2(valor * aliqIBS / 100) };
+    const baseCb = doc.ibscbs?.base > 0 ? doc.ibscbs.base : valor; // a nota informa a base já sem PIS/Cofins/ISS
+    cb.esperado = { cbs: aliqCBS, ibs: aliqIBS, base: baseCb, vCBS: r2(baseCb * aliqCBS / 100), vIBS: r2(baseCb * aliqIBS / 100) };
     cb.motivo = pr.teste
       ? `Ano-teste 2026: CBS ${pct(pr.cbs)} e IBS ${pct(pr.ibsUF)} destacados só para informação — não somam ao total da nota e o Município não retém`
       : `CBS ${pct(aliqCBS)} e IBS ${pct(aliqIBS)}${pr.redutor ? ` (com redutor de ${pct(pr.redutor)} das compras governamentais, LC 214/2025, art. 472)` : ''}`;
@@ -543,21 +562,54 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
       if (doc.origem === 'xml' && obrigatorio) add('erro', 'Nota sem o grupo de CBS/IBS', `Desde ${pr.obrigatorioNFe ? pr.obrigatorioNFe.split('-').reverse().join('/') : 'a vigência'} o destaque da CBS e do IBS é obrigatório para o regime regular. Peça ao fornecedor a regularização da nota. ${pr.teste ? 'Em 2026 isso não muda o valor a pagar.' : ''}`);
       else if (doc.origem === 'xml') add('info', 'Nota sem CBS/IBS destacados', 'Confira com o fornecedor; para NFS-e, acompanhe o calendário do emissor nacional/municipal.');
     } else {
-      const cstReduzido = n.cst && n.cst !== '000';
+      const cstReduzido = (n.cst && n.cst !== '000') || false;
       if (!cstReduzido) {
         if (n.pCBS != null && difere(n.pCBS, aliqCBS, 0.001)) add('erro', `Alíquota da CBS na nota (${pct(n.pCBS)}) diferente da esperada (${pct(aliqCBS)})`, 'Peça ao fornecedor a correção da nota (cancelamento e nova emissão no prazo, ou nota de ajuste).');
         const ibsNota = (n.pIBSUF ?? 0) + (n.pIBSMun ?? 0);
         if ((n.pIBSUF != null || n.pIBSMun != null) && difere(ibsNota, aliqIBS, 0.001)) add('erro', `Alíquota do IBS na nota (${pct(ibsNota)}) diferente da esperada (${pct(aliqIBS)})`, 'Peça ao fornecedor a correção da nota.');
         if (n.vCBS != null && difere(n.vCBS, cb.esperado.vCBS, 0.05) && n.pCBS == null) add('alerta', `Valor da CBS (${moeda(n.vCBS)}) diferente do esperado (${moeda(cb.esperado.vCBS)})`, 'Confira a base de cálculo da CBS na nota.');
+      } else if (/^4/.test(n.cst)) {
+        const transporte = String(doc.codigoServico || '').replace(/\D/g, '').startsWith('16');
+        add('alerta', `CBS/IBS isentos na nota (CST ${n.cst}${n.classTrib ? ' / cClassTrib ' + n.classTrib : ''})`,
+          `Confira se o serviço tem mesmo isenção na LC 214/2025.${transporte ? ' A isenção do transporte é para o transporte público coletivo de passageiros (concessão/permissão); transporte escolar ou fretamento contratado pela prefeitura não costuma se enquadrar.' : ''} ${pr.teste ? 'Em 2026 isso não muda o valor a pagar; oriente o fornecedor a corrigir a classificação nas próximas notas.' : 'Peça a correção da nota.'}`);
       } else add('info', `CBS/IBS com tratamento diferenciado na nota (CST ${n.cst}${n.classTrib ? ', cClassTrib ' + n.classTrib : ''})`, 'Confira se o bem/serviço tem mesmo redução, isenção ou alíquota zero na LC 214/2025.');
     }
   }
 
   // 7. Resultado para a liquidação
+  if (doc.inssRetido > 0) add('info', `A nota informa INSS retido de ${moeda(doc.inssRetido)}`, 'Esta ferramenta não calcula o INSS. Confira a retenção previdenciária (cessão de mão de obra/empreitada) e, se devida, desconte-a também no pagamento.');
   const retencoes = r2((ir.reter ? ir.valor : 0) + (iss.reter ? iss.valor : 0));
   const liquido = r2(valor - retencoes);
+  // Comparativo: o que a nota diz × o que a conferência calculou
+  const irNotaV = r2(doc.irrfDestacado || 0);
+  const issNotaV = doc.issRetidoNota === false ? 0 : r2(doc.issValor || 0);
+  const totalNota = doc.totalRetencoesNota != null ? r2(doc.totalRetencoesNota) : r2(irNotaV + issNotaV);
+  const liquidoNota = doc.liquidoNota != null ? r2(doc.liquidoNota) : r2(valor - totalNota);
+  const comparativo = [
+    { item: 'IRRF', nota: irNotaV, conferido: ir.reter ? ir.valor : 0 },
+    { item: 'ISSQN retido', nota: issNotaV, conferido: iss.reter ? iss.valor : 0, notaAliq: doc.issAliquota, conferidoAliq: iss.aplica ? iss.aliquota : null },
+    { item: 'Total das retenções', nota: totalNota, conferido: retencoes },
+    { item: 'Valor líquido a pagar', nota: liquidoNota, conferido: liquido, total: true }
+  ].map(l => ({ ...l, diferenca: r2(l.conferido - l.nota) }));
+  const temDadosNota = doc.irrfDestacado != null || doc.issValor != null || doc.liquidoNota != null;
+  if (temDadosNota && valor && Math.abs(liquidoNota - liquido) >= 0.01) add('erro', `Valor líquido da nota (${moeda(liquidoNota)}) diferente do que deve ser pago (${moeda(liquido)})`, `Pague ${moeda(liquido)}, com as retenções conferidas. A diferença de ${moeda(Math.abs(liquido - liquidoNota))} vem dos erros de retenção apontados acima; peça ao fornecedor a nota corrigida (ou registre a retenção correta e comunique o fornecedor).`);
   const ordem = { erro: 0, alerta: 1, info: 2 };
   problemas.sort((a, b) => ordem[a.nivel] - ordem[b.nivel]);
   const situacao = problemas.some(p => p.nivel === 'erro') ? 'erro' : problemas.some(p => p.nivel === 'alerta') ? 'alerta' : 'ok';
-  return { natureza: nat, valor, emissao, simples, mei, fonteSimples, ir, iss, cbsibs: cb, retencoes, liquido, problemas, situacao };
+  return { natureza: nat, valor, emissao, simples, mei, fonteSimples, ir, iss, cbsibs: cb, retencoes, liquido, comparativo, temDadosNota, problemas, situacao };
+}
+
+/** Texto pronto para pedir a correção ao fornecedor, a partir dos erros e avisos da conferência. */
+export function mensagemFornecedor(r, doc = {}, cadastro = null, orgao = 'Prefeitura Municipal de Frei Inocêncio') {
+  const nome = cadastro?.nome || doc.nome || 'fornecedor';
+  const nota = [doc.documento || 'nota fiscal', doc.numero ? 'nº ' + doc.numero : ''].filter(Boolean).join(' ');
+  const itens = r.problemas.filter(p => p.nivel !== 'info' && !/^Comprove|^Alíquotas de|^Sem parâmetros|^Não foi possível consultar/.test(p.titulo));
+  if (!itens.length) return `Prezados (${nome}),\n\nConferimos a ${nota} (${moeda(r.valor)}) e não encontramos divergências. O pagamento será liquidado pelo valor líquido de ${moeda(r.liquido)}.\n\nAtenciosamente,\nContabilidade — ${orgao}`;
+  const linhas = itens.map((p, i) => `${i + 1}. ${p.titulo}.`);
+  const corretos = [];
+  if (r.ir.reter) corretos.push(`IRRF: ${moeda(r.ir.valor)} (${pct(r.ir.aliquota)}${r.natureza.cooperativa ? '' : ' — ' + r.natureza.texto})`);
+  if (r.iss.aplica && r.iss.reter && r.iss.valor) corretos.push(`ISSQN: ${pct(r.iss.aliquota)} = ${moeda(r.iss.valor)}, retido pelo tomador, local da prestação/incidência ${MUNICIPIO.nome}/${MUNICIPIO.uf}`);
+  return `Prezados (${nome}),\n\nNa conferência da ${nota}, no valor de ${moeda(r.valor)}, encontramos:\n${linhas.join('\n')}\n\n` +
+    (corretos.length ? `Valores corretos para a liquidação:\n- ${corretos.join('\n- ')}\n- Valor líquido a pagar: ${moeda(r.liquido)}\n\n` : '') +
+    `Solicitamos a correção (substituição da nota) para darmos continuidade à liquidação. Ficamos à disposição.\n\nAtenciosamente,\nContabilidade — ${orgao}`;
 }

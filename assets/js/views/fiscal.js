@@ -3,9 +3,10 @@
 import { estado } from '../estado.js';
 import { esc, $, toast, dataBR, hojeISO } from '../ui.js';
 import { cabecalho } from './comum.js';
+import { lerDanfsePDF } from '../danfse-pdf.js';
 import {
   lerCodigo, lerXML, consultarCnpj, conferir, sugerirNatureza, descreverTributacao, NATUREZAS, MUNICIPIO, ISS, MINIMO_RETENCAO_IR,
-  formatarCnpj, limparCnpj, cnpjValido, moeda
+  formatarCnpj, limparCnpj, cnpjValido, moeda, aliquotaIss, mensagemFornecedor
 } from '../fiscal.js';
 
 const PORTAL_SIMPLES = 'https://www8.receita.fazenda.gov.br/SimplesNacional/aplicacoes.aspx?id=21';
@@ -27,6 +28,15 @@ fetch('assets/data/municipios.json').then(r => r.json()).then(b => {
   mapaMunicipios = {};
   for (const [uf, lista] of Object.entries(b.municipios || {})) for (const m of lista) mapaMunicipios[String(m[3])] = `${m[0]}/${uf}`;
 }).catch(() => {});
+let mapaPorNome = null;
+const semAcento = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+/** "Frei Inocêncio / MG" ou "Frei Inocêncio" → código IBGE (na falta de UF, procura primeiro em MG). */
+function codigoMunicipio(texto) {
+  if (!texto || !mapaMunicipios) return '';
+  if (!mapaPorNome) { mapaPorNome = {}; for (const [cod, n] of Object.entries(mapaMunicipios)) { const [nome, uf] = n.split('/'); mapaPorNome[semAcento(nome) + '|' + uf] = cod; mapaPorNome[semAcento(nome)] ??= cod; } }
+  const [nome, uf] = String(texto).split('/').map(x => x.trim());
+  return mapaPorNome[semAcento(nome) + '|' + (uf || MUNICIPIO.uf).toUpperCase().slice(0, 2)] || mapaPorNome[semAcento(nome)] || '';
+}
 function nomeMunicipio(cod) { const c = String(cod || ''); return (mapaMunicipios && mapaMunicipios[c]) || (c === 'outro' ? 'outro município' : c); }
 
 const pctTxt = v => (v == null ? '—' : String(Math.round(v * 100) / 100).replace('.', ',') + '%');
@@ -56,7 +66,8 @@ export function telaFiscal(el) {
       </label>
       <div class="acoes-linha">
         <button class="btn btn-sec" type="button" id="fis-camera">📷 Ler com a câmera</button>
-        <label class="btn btn-sec" for="fis-xml" title="Se tiver o arquivo XML, os campos se preenchem sozinhos">📄 XML (se tiver)</label><input type="file" id="fis-xml" accept=".xml,text/xml,application/xml" hidden>
+        <label class="btn btn-sec" for="fis-xml" title="Abra o PDF do DANFSe (ou o XML) e os campos se preenchem sozinhos">📄 Abrir PDF ou XML da nota</label><input type="file" id="fis-xml" accept=".pdf,application/pdf,.xml,text/xml,application/xml" hidden>
+        <button class="btn btn-sec" type="button" id="fis-aliquotas" title="Alíquota padrão do ISS e exceções por código de serviço">⚙ Alíquotas do ISS</button>
         <button class="btn btn-sec fiscal-limpar" type="button" id="fis-limpar" title="Apaga a nota, a consulta e o resultado para conferir outra nota" ${temConsulta() ? '' : 'disabled'}>
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
           Limpar consulta</button>
@@ -106,7 +117,9 @@ export function telaFiscal(el) {
   };
   atualizarContador();
   $('#fis-camera', el).onclick = () => abrirCamera(el);
-  $('#fis-xml', el).onchange = e => abrirXML(el, e.target.files?.[0]);
+  $('#fis-xml', el).onchange = e => { const a = e.target.files?.[0]; e.target.value = ''; if (a && /\.pdf$/i.test(a.name)) abrirPDF(el, a); else abrirXML(el, a); };
+  $('#fis-aliquotas', el).onclick = () => abrirAliquotas(el);
+  carregarParametros(el);
   $('#fis-limpar', el).onclick = () => limparConsulta(el);
   $('#fis-x', el).onclick = () => { inp.value = ''; $('#fis-x', el).hidden = true; inp.focus(); };
   inp.addEventListener('input', () => { $('#fis-x', el).hidden = !inp.value; });
@@ -158,6 +171,22 @@ async function processarCodigo(el, texto) {
   telaFiscal(el);
   await consultar(el);
   if (s.doc.origem === 'leitura' && l.tipo === 'chave') { toast(`${l.documento} nº ${l.numero} lida. Agora preencha valor, código de tributação e o que está na nota.`); setTimeout(() => $('#fis-form [name=valor]', el)?.focus(), 50); }
+}
+
+async function abrirPDF(el, arquivo) {
+  toast('Lendo o PDF do DANFSe…');
+  try {
+    const d = await lerDanfsePDF(arquivo);
+    d.municipioEmissor = d.municipioEmissorIbge || codigoMunicipio(d.municipioEmissorTexto);
+    d.localPrestacao = codigoMunicipio(d.localPrestacaoTexto) || (d.localPrestacaoTexto ? 'outro' : '');
+    d.incidencia = d.incidenciaIbge || codigoMunicipio(d.incidenciaTexto) || (d.incidenciaTexto ? 'outro' : '');
+    s.doc = d; s.naturezaAuto = true; s.simplesManual = ''; s.conf = Date.now();
+    s.leitura = d.chave ? lerCodigo(d.chave) : (d.cnpj ? lerCodigo(d.cnpj) : null);
+    s.codigo = d.chave || formatarCnpj(d.cnpj);
+    telaFiscal(el);
+    toast(`DANFSe nº ${d.numero || ''} lido. Confira os campos com o documento.`);
+    await consultar(el);
+  } catch (e) { toast(e.message || 'Não consegui ler o PDF.', 'erro'); }
 }
 
 async function abrirXML(el, arquivo) {
@@ -212,7 +241,7 @@ function desenharForm(el) {
     </div>
     <div class="grade-3">
       <label class="campo"><span>Número</span><input name="numero" value="${esc(d.numero || '')}"></label>
-      <label class="campo"><span>Data de emissão *</span><input type="date" name="emissao" value="${esc(d.emissao || '')}"></label>
+      <label class="campo"><span>Data de competência *</span><input type="date" name="emissao" value="${esc(d.emissao || '')}"></label>
       <label class="campo"><span>Valor bruto (R$) *</span><input type="number" name="valor" step="0.01" min="0" value="${esc(numCampo(d.valor))}" placeholder="0,00"></label>
     </div>
     ${ehServico || !d.documento ? `<div class="grade-2">
@@ -255,8 +284,15 @@ function desenharForm(el) {
         <label class="campo"><span>Valor do ISS (R$)</span><input type="number" step="0.01" min="0" name="issValor" value="${esc(numCampo(d.issValor))}"></label>` : '<span></span><span></span>'}
         <label class="campo"><span>IRRF destacado (R$)</span><input type="number" step="0.01" min="0" name="irrfDestacado" value="${esc(numCampo(d.irrfDestacado))}" placeholder="0,00"></label>
       </div>
-      <details ${ibs.vCBS != null || ibs.vIBS != null ? 'open' : ''}><summary>CBS e IBS destacados na nota</summary>
-        <div class="grade-2 mt">
+      <div class="grade-2">
+        <label class="campo"><span>Total das retenções na nota (R$)</span><input type="number" step="0.01" min="0" name="totalRetencoesNota" value="${esc(numCampo(d.totalRetencoesNota))}" placeholder="opcional"></label>
+        <label class="campo"><span>Valor líquido da nota (R$)</span><input type="number" step="0.01" min="0" name="liquidoNota" value="${esc(numCampo(d.liquidoNota))}" placeholder="para comparar"></label>
+      </div>
+      <details ${ibs.vCBS != null || ibs.vIBS != null || ibs.cst ? 'open' : ''}><summary>CBS e IBS na nota</summary>
+        <div class="grade-3 mt">
+          <label class="campo"><span>CST / cClassTrib</span><input name="cstClass" value="${esc(ibs.cst ? ibs.cst + (ibs.classTrib ? ' / ' + ibs.classTrib : '') : '')}" placeholder="ex.: 000 / 000001"></label>
+          <label class="campo"><span>Base após exclusões (R$)</span><input type="number" step="0.01" min="0" name="baseCbs" value="${esc(numCampo(ibs.base))}"></label>
+          <span></span>
           <label class="campo"><span>CBS (R$)</span><input type="number" step="0.01" min="0" name="vCBS" value="${esc(numCampo(ibs.vCBS))}"></label>
           <label class="campo"><span>IBS (R$)</span><input type="number" step="0.01" min="0" name="vIBS" value="${esc(numCampo(ibs.vIBS))}"></label>
         </div>
@@ -278,6 +314,7 @@ function desenharForm(el) {
     s.simplesManual = v.simplesManual;
     const ibsAnt = s.doc.ibscbs || {};
     const vCBS = n(v.vCBS), vIBS = n(v.vIBS);
+    const [cstV, classV] = String(v.cstClass || '').split('/').map(x => x.replace(/\D/g, ''));
     Object.assign(s.doc, {
       cnpj: cnpjNovo, documento: v.documento, numero: v.numero, emissao: v.emissao, valor: n(v.valor),
       codigoServico: 'codigoServico' in v ? v.codigoServico : s.doc.codigoServico,
@@ -289,7 +326,8 @@ function desenharForm(el) {
       coopTransporte: 'coopTransporte' in v ? v.coopTransporte : s.doc.coopTransporte,
       modelo: ({ 'NF-e': '55', 'NFC-e': '65', 'CT-e': '57', 'CT-e OS': '67', 'NFS-e Nacional': 'nfse', 'NFS-e': 'nfse', 'NF3-e (energia elétrica)': '66', 'NFCom (telecomunicação)': '62', 'BP-e (passagem)': '63' })[v.documento] || s.doc.modelo || '',
       servico: s.doc.origem === 'xml' ? s.doc.servico : (/NFS/.test(v.documento) || !!descreverTributacao(v.codigoServico)?.valido),
-      ibscbs: vCBS != null || vIBS != null || ibsAnt.pCBS != null ? { ...ibsAnt, vCBS, vIBS } : null
+      totalRetencoesNota: n(v.totalRetencoesNota), liquidoNota: n(v.liquidoNota),
+      ibscbs: vCBS != null || vIBS != null || cstV || n(v.baseCbs) != null || ibsAnt.pCBS != null ? { ...ibsAnt, vCBS, vIBS, cst: cstV || '', classTrib: classV || '', base: n(v.baseCbs) } : null
     });
     if (mudouCodigo) s.doc.coopTransporte = null; // recalcula o tipo da cooperativa pelo novo código
     // campos que mudam o próprio formulário (código, documento, natureza sugerida) → redesenha mantendo o foco
@@ -304,7 +342,7 @@ function recalcular(el) {
   const temDados = s.doc.cnpj || s.doc.valor;
   if (s.doc.municipioEmissor) s.doc.municipioEmissorNome = nomeMunicipio(s.doc.municipioEmissor);
   s.doc.incidenciaNome = s.doc.incidencia ? nomeMunicipio(s.doc.incidencia) : '';
-  s.resultado = temDados ? conferir({ doc: s.doc, cadastro: s.consulta?.cadastro || null, naturezaId: s.natureza, simplesManual: s.simplesManual, hoje: hojeISO(), chave: s.leitura?.tipo === 'chave' ? s.leitura : null }) : null;
+  s.resultado = temDados ? conferir({ doc: s.doc, cadastro: s.consulta?.cadastro || null, naturezaId: s.natureza, simplesManual: s.simplesManual, hoje: hojeISO(), chave: s.leitura?.tipo === 'chave' ? s.leitura : null, parametros: parametrosFiscais }) : null;
   if (s.resultado && s.doc.valor) {
     const id = idNota();
     if (id) {
@@ -362,14 +400,21 @@ ${blocoFornecedor(cad)}
     </div>
     <div class="cartao">
       <h3>Para a liquidação</h3>
-      <table class="tabela tabela-peq fiscal-liq"><tbody>
+      ${r.temDadosNota ? `<table class="tabela tabela-peq fiscal-liq fiscal-comp"><thead><tr><th></th><th class="num">Na nota</th><th class="num">Conferido</th><th class="num">Diferença</th></tr></thead><tbody>
+        <tr><td>Valor bruto</td><td class="num">${moeda(r.valor)}</td><td class="num">${moeda(r.valor)}</td><td></td></tr>
+        ${r.comparativo.map(l => `<tr class="${l.total ? 'fiscal-total' : ''} ${Math.abs(l.diferenca) >= 0.01 ? 'fiscal-difere' : ''}"><td>${l.total ? '' : '(−) '}${esc(l.item)}${l.notaAliq != null || l.conferidoAliq != null ? ` <span class="muted">${l.notaAliq != null ? pctTxt(l.notaAliq) : '—'} → ${l.conferidoAliq != null ? pctTxt(l.conferidoAliq) : '—'}</span>` : ''}</td>
+          <td class="num">${moeda(l.nota)}</td><td class="num"><strong>${moeda(l.conferido)}</strong></td><td class="num">${Math.abs(l.diferenca) >= 0.01 ? (l.diferenca > 0 ? '+' : '−') + moeda(Math.abs(l.diferenca)) : '✓'}</td></tr>`).join('')}
+      </tbody></table>
+      <p class="dica">Pague o valor da coluna <b>Conferido</b>.${r.ir.reter ? ` IRRF ${pctTxt(r.ir.aliquota)} — ${esc(r.natureza.texto)}.` : ''}</p>`
+      : `<table class="tabela tabela-peq fiscal-liq"><tbody>
         <tr><td>Valor bruto da nota</td><td class="num">${moeda(r.valor)}</td></tr>
         <tr><td>(−) IRRF ${r.ir.reter ? `${pctTxt(r.ir.aliquota)} · ${esc(r.natureza.texto)}` : ''}</td><td class="num">${moeda(r.ir.reter ? r.ir.valor : 0)}</td></tr>
         <tr><td>(−) ISSQN ${r.iss.reter && r.iss.valor ? pctTxt(r.iss.aliquota) : ''}</td><td class="num">${moeda(r.iss.reter ? r.iss.valor : 0)}</td></tr>
         <tr class="fiscal-total"><td>Valor líquido a pagar</td><td class="num">${moeda(r.liquido)}</td></tr>
-      </tbody></table>
+      </tbody></table>`}
       ${r.cbsibs.esperado && r.cbsibs.parametros?.teste ? `<p class="dica">CBS (${moeda(r.cbsibs.esperado.vCBS)}) e IBS (${moeda(r.cbsibs.esperado.vIBS)}) de 2026 são informativos: não entram no total nem são retidos.</p>` : ''}
       <div class="acoes-form"><a class="btn" href="#/imprimir/fiscal">🖨 Imprimir ficha de conferência</a>
+        <button type="button" class="btn btn-sec" data-mensagem>✉ Mensagem ao fornecedor</button>
         <a class="btn btn-sec" href="${PORTAL_SIMPLES}" target="_blank" rel="noopener noreferrer">Portal do Simples</a></div>
     </div>
     <div class="cartao">
@@ -380,6 +425,7 @@ ${blocoFornecedor(cad)}
     </div>
     <div class="fiscal-proxima"><button type="button" class="btn btn-sec fiscal-limpar" data-limpar>Limpar consulta e conferir outra nota</button></div>`;
   box.querySelector('[data-limpar]').onclick = () => limparConsulta(el);
+  box.querySelector('[data-mensagem]').onclick = () => abrirMensagem();
 }
 
 
@@ -449,7 +495,7 @@ export function telaImprimirFiscal(el) {
       <div class="doc-secao"><div class="doc-secao-titulo">1 - Nota fiscal</div><table class="doc-tab">
         ${linha('Documento', esc([d.documento, d.numero ? 'nº ' + d.numero : '', d.serie ? 'série ' + d.serie : ''].filter(Boolean).join(' ')))}
         ${d.chave ? linha('Chave de acesso', `<span class="quebra">${esc(d.chave)}</span>`) : ''}
-        ${linha('Data de emissão', esc(dataBR(d.emissao)))}
+        ${linha('Data de competência', esc(dataBR(d.emissao)))}
         ${linha('Valor bruto', moeda(r.valor))}
         ${linha('Natureza (IN RFB 1.234/2012)', esc(r.natureza.texto))}</table></div>
       <div class="doc-secao"><div class="doc-secao-titulo">2 - Fornecedor</div><table class="doc-tab">
@@ -461,13 +507,17 @@ export function telaImprimirFiscal(el) {
         ${linha('IRRF', `${r.ir.reter ? 'Reter ' + moeda(r.ir.valor) + ' (' + pctTxt(r.ir.aliquota) + ')' : 'Não reter'} — ${esc(r.ir.motivo)}`)}
         ${linha('ISSQN', `${!r.iss.aplica ? 'Não se aplica' : r.iss.reter && r.iss.valor ? 'Reter ' + moeda(r.iss.valor) + ' (' + pctTxt(r.iss.aliquota) + ')' : 'Não reter'}${r.iss.motivo ? ' — ' + esc(r.iss.motivo) : ''}`)}
         ${linha('CBS / IBS', esc(r.cbsibs.motivo) + (r.cbsibs.esperado ? ` (CBS ${moeda(r.cbsibs.esperado.vCBS)} · IBS ${moeda(r.cbsibs.esperado.vIBS)})` : ''))}</table></div>
-      <div class="doc-secao"><div class="doc-secao-titulo">4 - Liquidação</div><table class="doc-tab">
+      <div class="doc-secao"><div class="doc-secao-titulo">4 - Liquidação</div>${r.temDadosNota ? `<table class="doc-tab">
+        <tr><th style="width:40%"></th><th>Na nota</th><th>Conferido (a pagar)</th><th>Diferença</th></tr>
+        <tr><td class="r">Valor bruto</td><td>${moeda(r.valor)}</td><td>${moeda(r.valor)}</td><td></td></tr>
+        ${r.comparativo.map(l => `<tr><td class="r">${l.total ? '' : '(−) '}${esc(l.item)}${l.notaAliq != null || l.conferidoAliq != null ? ` (${l.notaAliq != null ? pctTxt(l.notaAliq) : '—'} → ${l.conferidoAliq != null ? pctTxt(l.conferidoAliq) : '—'})` : ''}</td><td>${moeda(l.nota)}</td><td>${l.total ? '<strong>' + moeda(l.conferido) + '</strong>' : moeda(l.conferido)}</td><td>${Math.abs(l.diferenca) >= 0.01 ? moeda(l.diferenca) : '—'}</td></tr>`).join('')}
+      </table>` : `<table class="doc-tab">
         ${linha('Valor bruto', moeda(r.valor))}${linha('(−) IRRF', moeda(r.ir.reter ? r.ir.valor : 0))}${linha('(−) ISSQN', moeda(r.iss.reter ? r.iss.valor : 0))}
-        ${linha('Valor líquido a pagar', `<strong>${moeda(r.liquido)}</strong>`)}</table></div>
+        ${linha('Valor líquido a pagar', `<strong>${moeda(r.liquido)}</strong>`)}</table>`}</div>
       <div class="doc-secao"><div class="doc-secao-titulo">5 - Divergências e providências</div><table class="doc-tab"><tr><td>
         ${r.problemas.length ? `<ul class="doc-lista">${r.problemas.map(p => `<li><strong>[${NIVEL[p.nivel][0]}] ${esc(p.titulo)}.</strong> ${esc(p.solucao)}</li>`).join('')}</ul>` : 'Nenhuma divergência encontrada.'}
       </td></tr></table></div>
-      <p class="doc-sub" style="margin-top:6px">Bases: IN RFB 1.234/2012 com a IN RFB 2.145/2023 (IRRF, dispensa abaixo de R$ ${MINIMO_RETENCAO_IR},00); LC 116/2003 e legislação municipal (ISSQN ${pctTxt(ISS.aliquota)}); LC 123/2006 (Simples Nacional); LC 214/2025 (CBS/IBS).
+      <p class="doc-sub" style="margin-top:6px">Bases: IN RFB 1.234/2012 com a IN RFB 2.145/2023 (IRRF, dispensa abaixo de R$ ${MINIMO_RETENCAO_IR},00); LC 116/2003 e legislação municipal (ISSQN ${pctTxt(parametrosFiscais?.issPadrao || ISS.aliquota)}${Object.keys(parametrosFiscais?.issPorCodigo || {}).length ? ', com exceções por código' : ''}); LC 123/2006 (Simples Nacional); LC 214/2025 (CBS/IBS).
         Consulta do CNPJ em dados abertos da Receita Federal${cad ? ' (' + esc(cad.fonte) + ')' : ''}. Conferido em ${esc(ultimaConferencia.quando.toLocaleString('pt-BR'))} por ${esc(estado.sessao?.nome || '')}.</p>
       <table class="doc-ass"><tr><td><div class="doc-linha-ass">${esc(estado.sessao?.nome || 'Contabilidade')}<br>Contabilidade</div></td><td><div class="doc-linha-ass">Ordenador da despesa</div></td></tr></table>
     </div></div>`;
@@ -511,4 +561,95 @@ export function iniciarWidgetFiscal(container) {
   };
   window.addEventListener('hashchange', aoNavegar);
   botao.hidden = naTelaFiscal();
+}
+
+// ---------------- Alíquotas do ISS (config/fiscal no Firestore) ----------------
+let parametrosFiscais = null;
+let carregandoParametros = null;
+async function carregarParametros(el) {
+  if (parametrosFiscais || carregandoParametros) return;
+  carregandoParametros = (async () => {
+    try {
+      const db = await import('../db.js');
+      parametrosFiscais = (await db.lerDoc('config', 'fiscal')) || { issPadrao: ISS.aliquota, issPorCodigo: {} };
+      if (s.resultado && el?.isConnected) recalcular(el);
+    } catch { parametrosFiscais = null; }
+    finally { carregandoParametros = null; }
+  })();
+}
+
+function textoExcecoes(tab) { return Object.entries(tab || {}).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k} = ${String(v).replace('.', ',')}`).join('\n'); }
+
+async function abrirAliquotas(el) {
+  const ehAdmin = estado.sessao?.perfil === 'admin';
+  const p = parametrosFiscais || { issPadrao: ISS.aliquota, issPorCodigo: {} };
+  const fundo = document.createElement('div');
+  fundo.className = 'modal-fundo';
+  fundo.innerHTML = `<div class="modal" style="max-width:560px" role="dialog" aria-label="Alíquotas do ISS"><div class="modal-topo"><h2>Alíquotas do ISS — ${esc(MUNICIPIO.nome)}</h2><button class="btn-icone" type="button" data-fechar aria-label="Fechar">✕</button></div>
+    <form class="modal-corpo" id="f-aliq">
+      <p class="dica">Valem para serviços prestados em ${esc(MUNICIPIO.nome)} por fornecedor que não é do Simples. Use as alíquotas do Código Tributário Municipal (confirme com o setor de Tributos).</p>
+      <label class="campo campo-curto"><span>Alíquota padrão (%)</span><input type="number" name="padrao" step="0.01" min="2" max="5" value="${esc(String(p.issPadrao ?? ISS.aliquota))}" ${ehAdmin ? '' : 'disabled'}></label>
+      <label class="campo"><span>Exceções por código de serviço — uma por linha</span><textarea name="excecoes" rows="6" placeholder="16.01 = 2,5&#10;16.02 = 2,5" ${ehAdmin ? '' : 'disabled'}>${esc(textoExcecoes(p.issPorCodigo))}</textarea>
+        <small class="dica">Item (16), subitem (16.01) ou código completo (16.01.01). O mais específico vale.</small></label>
+      ${ehAdmin ? '<div class="acoes-form"><button class="btn" type="submit">Salvar alíquotas</button></div>' : '<p class="muted">Só o administrador altera as alíquotas.</p>'}
+    </form></div>`;
+  document.body.appendChild(fundo);
+  const fechar = () => fundo.remove();
+  fundo.querySelector('[data-fechar]').onclick = fechar;
+  fundo.onclick = e => { if (e.target === fundo) fechar(); };
+  fundo.querySelector('#f-aliq').onsubmit = async e => {
+    e.preventDefault();
+    const f = e.target;
+    const padrao = Number(String(f.padrao.value).replace(',', '.'));
+    if (!(padrao >= 2 && padrao <= 5)) return toast('A alíquota do ISS fica entre 2% e 5% (LC 116/2003).', 'erro');
+    const tab = {};
+    for (const linha of f.excecoes.value.split('\n').map(x => x.trim()).filter(Boolean)) {
+      const m = linha.match(/^(\d{2}(?:\.?\d{2}){0,2})\s*[=:;\s]\s*(\d+(?:[.,]\d+)?)\s*%?$/);
+      if (!m) return toast(`Linha não entendida: "${linha}". Use o formato 16.01 = 2,5`, 'erro');
+      const cod = m[1].replace(/\D/g, '').match(/.{1,2}/g).join('.');
+      const al = Number(m[2].replace(',', '.'));
+      if (!(al >= 0 && al <= 5)) return toast(`Alíquota inválida para ${cod}.`, 'erro');
+      tab[cod] = al;
+    }
+    try {
+      const db = await import('../db.js');
+      const novo = { issPadrao: padrao, issPorCodigo: tab };
+      try { await db.atualizar('config', 'fiscal', novo); } catch { await db.salvar('config', 'fiscal', novo); }
+      await db.registrarLog('fiscal.aliquotas', { antes: parametrosFiscais, depois: novo });
+      parametrosFiscais = novo;
+      toast('Alíquotas do ISS salvas.');
+      fechar();
+      if (s.resultado) recalcular(el);
+    } catch (err) { toast('Não foi possível salvar: ' + (err.message || err), 'erro'); }
+  };
+}
+
+// ---------------- Mensagem ao fornecedor ----------------
+function abrirMensagem() {
+  const r = s.resultado;
+  if (!r) return;
+  const cad = s.consulta?.cadastro;
+  const texto = mensagemFornecedor(r, s.doc, cad);
+  const assunto = `Correção da ${s.doc.documento || 'nota fiscal'}${s.doc.numero ? ' nº ' + s.doc.numero : ''}`;
+  const email = s.doc.email || '';
+  const fundo = document.createElement('div');
+  fundo.className = 'modal-fundo';
+  fundo.innerHTML = `<div class="modal" style="max-width:640px" role="dialog" aria-label="Mensagem ao fornecedor"><div class="modal-topo"><h2>Mensagem ao fornecedor</h2><button class="btn-icone" type="button" data-fechar aria-label="Fechar">✕</button></div>
+    <div class="modal-corpo"><textarea id="msg-forn" rows="14" style="width:100%;font:inherit">${esc(texto)}</textarea>
+      <div class="acoes-form">
+        <button class="btn" type="button" data-copiar>📋 Copiar</button>
+        <a class="btn btn-sec" data-whats target="_blank" rel="noopener noreferrer">WhatsApp</a>
+        <a class="btn btn-sec" data-email>E-mail${email ? ' (' + esc(email) + ')' : ''}</a>
+      </div></div></div>`;
+  document.body.appendChild(fundo);
+  const area = fundo.querySelector('#msg-forn');
+  const atualizarLinks = () => {
+    fundo.querySelector('[data-whats]').href = 'https://wa.me/?text=' + encodeURIComponent(area.value);
+    fundo.querySelector('[data-email]').href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(area.value)}`;
+  };
+  atualizarLinks(); area.oninput = atualizarLinks;
+  fundo.querySelector('[data-copiar]').onclick = () => navigator.clipboard?.writeText(area.value).then(() => toast('Mensagem copiada.'), () => { area.select(); toast('Selecione e copie (Ctrl+C).', 'aviso'); });
+  const fechar = () => fundo.remove();
+  fundo.querySelector('[data-fechar]').onclick = fechar;
+  fundo.onclick = e => { if (e.target === fundo) fechar(); };
 }

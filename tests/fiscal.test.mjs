@@ -1,5 +1,5 @@
 // Testes da conferência fiscal: node tests/fiscal.test.mjs
-import { descreverTributacao, lerCodigo, cnpjValido, lerXML, conferir, irNoTexto, consultarCnpj, normalizarCadastro, sugerirNatureza, optanteNaData } from '../assets/js/fiscal.js';
+import { aliquotaIss, mensagemFornecedor, descreverTributacao, lerCodigo, cnpjValido, lerXML, conferir, irNoTexto, consultarCnpj, normalizarCadastro, sugerirNatureza, optanteNaData } from '../assets/js/fiscal.js';
 let falhas = 0;
 const ok = (cond, msg) => { if (!cond) { falhas++; console.log('FALHA:', msg); } };
 const tem = (r, trecho) => r.problemas.some(p => p.titulo.includes(trecho));
@@ -155,5 +155,27 @@ r = conferir({ doc: { valor: 12000, emissao: '2026-10-01', servico: true, coopTr
 ok(r.ir.valor === 108 && tem(r, 'sem a parcela de serviços pessoais'), 'cooperativa sem discriminação: base no total');
 r = conferir({ doc: { valor: 12000, emissao: '2026-10-01', servico: true, codigoServico: '16.01.01' }, cadastro: coop, naturezaId: 'transporte_passageiros', hoje: '2026-11-03' });
 ok(r.situacao === 'erro' && tem(r, 'COOPERATIVA'), 'cooperativa com natureza errada');
+// alíquota de ISS por código
+ok(aliquotaIss('16.01.01').aliquota === 5, 'ISS padrão 5%');
+ok(aliquotaIss('16.01.01', { issPadrao: 5, issPorCodigo: { '16.01': 2.5 } }).aliquota === 2.5, 'exceção por subitem');
+ok(aliquotaIss('16.02.01', { issPadrao: 5, issPorCodigo: { '16.01': 2.5 } }).aliquota === 5, 'outro subitem usa o padrão');
+ok(aliquotaIss('16.01.01', { issPorCodigo: { '16': 3, '16.01.01': 2 } }).aliquota === 2, 'mais específico vence');
+
+// Caso real (dados fictícios): transporte escolar 16.01.01, não optante, nota com ISS 2,5% e IRRF 1,5%
+const docT = { origem: 'danfse', documento: 'NFS-e Nacional', modelo: 'nfse', servico: true, valor: 19426.92, emissao: '2026-10-27', codigoServico: '16.01.01',
+  municipioEmissor: '3113404', localPrestacao: '3126901', incidencia: '3126901', regimeNota: 'normal', issRetidoNota: true, issAliquota: 2.5, issValor: 485.67,
+  irrfDestacado: 291.40, totalRetencoesNota: 777.07, liquidoNota: 18649.85, ibscbs: { cst: '400', classTrib: '400001', base: 17144.26, vCBS: 0, vIBS: 0, pCBS: 0 } };
+const cadLtda = { ...cadNormal, naturezaCodigo: '2062', naturezaTexto: 'Sociedade Empresária Limitada' };
+r = conferir({ doc: docT, cadastro: cadLtda, hoje: '2026-11-03' });
+ok(r.ir.valor === 466.25 && r.iss.valor === 971.35 && r.liquido === 17989.32, 'transporte escolar: IR 2,4% + ISS 5%');
+ok(tem(r, 'diferente do devido') && tem(r, 'Alíquota de ISS na nota (2,5%)') && tem(r, 'isentos na nota (CST 400') && tem(r, 'Valor líquido da nota (R$'), 'erros do caso real');
+ok(r.problemas.find(p => p.titulo.startsWith('Alíquota de ISS')).solucao.includes('setor de Tributos'), 'orienta a conferir a parametrização do Município');
+const cl = r.comparativo.find(l => l.total);
+ok(cl.nota === 18649.85 && cl.conferido === 17989.32 && cl.diferenca === -660.53, 'comparativo do líquido');
+// com a exceção de 2,5% cadastrada para 16.01, o ISS da nota fica certo
+r = conferir({ doc: docT, cadastro: cadLtda, hoje: '2026-11-03', parametros: { issPadrao: 5, issPorCodigo: { '16.01': 2.5 } } });
+ok(r.iss.valor === 485.67 && !tem(r, 'Alíquota de ISS na nota') && r.liquido === 18475, 'exceção 2,5% para 16.01');
+const msg = mensagemFornecedor(r, docT, cadLtda).replace(/\s/g, ' ');
+ok(msg.includes('IRRF: R$ 466,25') && msg.includes('Valor líquido a pagar: R$ 18.475,00') && msg.includes('substituição'), 'mensagem ao fornecedor');
 console.log(falhas ? `${falhas} falha(s)` : 'fiscal: todos os testes passaram');
 process.exit(falhas ? 1 : 0);
