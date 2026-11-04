@@ -1,13 +1,13 @@
-# SISDIFI — Sistema de Diárias Municipais (versão web)
+# SISDIFI — Sistema de Diárias Municipais e Conferência Fiscal (versão web)
 
 Sistema de cálculo, emissão e controle de diárias de viagem da Prefeitura Municipal de Frei Inocêncio/MG,
-conforme a **Lei Ordinária nº 994/2025** (Anexo I). Hospedado no **GitHub Pages**, com login e banco de dados no **Firebase** (plano gratuito).
+conforme a **Lei Ordinária nº 994/2025** (Anexo I), e **conferência fiscal das notas de fornecedores** antes da liquidação (Simples Nacional, IRRF, ISSQN, CBS/IBS e natureza do serviço). Hospedado no **GitHub Pages**, com login e banco de dados no **Firebase** (plano gratuito).
 
 > Nenhum dado de servidor (CPF, Pix etc.) fica neste repositório. Os dados ficam no Firestore, protegidos pelas regras de segurança e acessíveis só a usuários cadastrados.
 
 ## O que o sistema faz
 
-- **Login por e-mail/senha ou Google**, com perfis: *Administrador*, *Contabilidade*, *Controle Interno*, *Secretaria (solicitante)* e *Somente consulta*. Só entra quem o administrador liberar.
+- **Login por e-mail/senha ou Google**, com perfis: *Administrador*, *Contabilidade*, *Controle Interno*, *Secretaria (solicitante)*, *RH*, *Somente consulta* e *Conferência fiscal* (só a conferência de notas). Só entra quem o administrador liberar.
 - **Secretarias solicitantes**: cada secretaria tem seu usuário, cadastra o servidor na hora (nome, CPF, Pix, cargo) e envia a solicitação para análise com conta para pagamento e fonte de recurso obrigatórias. Não vê valores nem pedidos de outras secretarias.
 - **Tramitação**: Secretaria envia (com conta para pagamento, fonte de recurso e link do curso opcional) → Controle Interno confere o servidor e aprova/reprova → Contabilidade calcula o valor e preenche a ficha, imprime o formulário e o link do curso → assinatura do Prefeito → empenho → liquidação → pagamento. Cada passo registra quem fez e quando.
 - **Importação da relação de servidores**: em Servidores → "Importar relação (PDF)", a Contabilidade lê o "Cadastro de Pessoal por Lotação". O CPF é a chave: quem já está cadastrado não é duplicado (só completa matrícula/lotação), CPFs repetidos viram um cadastro, mesmo nome com outro CPF é apontado como possível duplicidade (opção de corrigir o CPF existente) e aposentados/pensionistas ficam de fora. Os novos entram com chave Pix pendente e cargo a informar, que a secretaria completa.

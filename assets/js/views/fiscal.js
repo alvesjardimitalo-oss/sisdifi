@@ -64,7 +64,8 @@ const idNota = () => s.doc.chave || (s.doc.cnpj && s.doc.numero ? `${limparCnpj(
 export function telaFiscal(el) {
   const compacto = el.classList.contains('fiscal-compacto');
   el.innerHTML = `
-    ${compacto ? '' : cabecalho('Conferência fiscal de notas', '', `Leia o código de barras da nota (ou digite a chave / CNPJ) e preencha o que está impresso nela. O sistema confere Simples Nacional, IRRF, ISSQN (${esc(MUNICIPIO.nome)}: ${pctTxt(ISS.aliquota)}), CBS e IBS e aponta o que corrigir antes da liquidação.`)}
+    ${compacto ? '' : cabecalho('Conferência fiscal de notas', '', `Notas de fornecedores antes da liquidação: Simples Nacional, IRRF, ISSQN de ${esc(MUNICIPIO.nome)}, CBS/IBS e natureza do serviço.`)}
+    ${compacto ? '' : `<ol class="fiscal-etapas"><li class="${s.codigo || s.doc.cnpj ? 'feita' : 'atual'}"><b>1</b> Ler a nota</li><li class="${s.resultado && s.doc.valor ? 'feita' : s.codigo || s.doc.cnpj ? 'atual' : ''}"><b>2</b> Conferir os dados</li><li class="${s.resultado && s.doc.valor ? 'atual' : ''}"><b>3</b> Liquidar e comunicar</li></ol>`}
     <div class="cartao fiscal-leitura">
       <label class="campo"><span>Código de barras, chave de acesso, QR Code ou CNPJ</span>
         <div class="fiscal-linha">
@@ -247,6 +248,7 @@ function desenharForm(el) {
   f.innerHTML = `
     <h3>Dados da nota ${d.origem === 'xml' ? '<span class="selo selo-info">lidos do XML</span>' : ''}</h3>
     <p class="dica fiscal-passo">Preencha com o que está impresso na nota. Os campos com <b>*</b> são os que mudam as retenções.</p>
+    <div class="fiscal-sec"><span>1</span> Identificação da nota</div>
     <div class="grade-2">
       <label class="campo"><span>CNPJ do fornecedor *</span><input name="cnpj" value="${esc(d.cnpj ? formatarCnpj(d.cnpj) : '')}" placeholder="00.000.000/0000-00"></label>
       <label class="campo"><span>Documento</span><select name="documento">
@@ -257,6 +259,7 @@ function desenharForm(el) {
       <label class="campo"><span>Data de competência *</span><input type="date" name="emissao" value="${esc(d.emissao || '')}"></label>
       <label class="campo"><span>Valor bruto (R$) *</span><input type="number" name="valor" step="0.01" min="0" value="${esc(numCampo(d.valor))}" placeholder="0,00"></label>
     </div>
+    <div class="fiscal-sec"><span>2</span> ${ehServico || !d.documento ? 'Serviço e natureza do IRRF' : 'Natureza do IRRF'}</div>
     ${ehServico || !d.documento ? `<div class="grade-2">
       <label class="campo"><span>Código de tributação (serviço) *</span><input name="codigoServico" value="${esc(trib?.codigo || d.codigoServico || '')}" placeholder="ex.: 16.01.01" inputmode="numeric">
         <small class="dica ${trib && !trib.valido ? 'erro-txt' : ''}">${trib ? esc(trib.valido ? `${trib.texto} (item ${trib.item} — ${trib.grupo})` : trib.texto) : 'Item da lista de serviços (LC 116), como aparece na NFS-e.'}</small></label>
@@ -281,7 +284,7 @@ function desenharForm(el) {
       </div>
     </div>` : ''}
     <div class="fiscal-bloco">
-      <div class="fiscal-bloco-titulo">O que está na nota</div>
+      <div class="fiscal-bloco-titulo"><span class="fiscal-num">3</span> Valores e retenções impressos na nota</div>
       <div class="grade-2">
         <label class="campo"><span>Regime / Simples Nacional na nota *</span><select name="regimeNota">
           ${[['', 'Não informado'], ['normal', 'Não optante / regime normal'], ['simples', 'Optante — ME/EPP do Simples'], ['mei', 'MEI']].map(([v, n]) => `<option value="${v}" ${sel(v, d.regimeNota || '')}>${n}</option>`).join('')}</select>
@@ -314,7 +317,8 @@ function desenharForm(el) {
         ${ibs.pCBS != null || ibs.cst ? `<p class="dica">CST ${esc(ibs.cst || '—')}${ibs.classTrib ? ' · cClassTrib ' + esc(ibs.classTrib) : ''} · CBS ${pctTxt(ibs.pCBS)} · IBS UF ${pctTxt(ibs.pIBSUF)} · IBS Mun ${pctTxt(ibs.pIBSMun)}</p>` : ''}
       </details>
     </div>
-    <label class="campo mt"><span>Simples Nacional na data da nota (Receita Federal)</span><select name="simplesManual">
+    <div class="fiscal-sec mt"><span>4</span> Simples Nacional</div>
+    <label class="campo"><span>Situação na data da nota (Receita Federal)</span><select name="simplesManual">
       ${[['', cad ? 'Conforme a consulta à Receita' : 'Consultar automaticamente'], ['sim', 'Optante (ME/EPP) — conferido no Portal'], ['mei', 'MEI — conferido no Portal'], ['nao', 'Não optante — conferido no Portal']].map(([v, n]) => `<option value="${v}" ${sel(v, s.simplesManual)}>${n}</option>`).join('')}</select>
       <small class="dica">${linkPortal('Abrir a Consulta Optantes do Simples Nacional')} — confirme e anexe a consulta ao processo.</small></label>`;
   const ler = e => {
@@ -368,6 +372,11 @@ function recalcular(el) {
     }
   }
   const bl = $('#fis-limpar', el); if (bl) bl.disabled = !temConsulta();
+  const etapas = el.querySelectorAll('.fiscal-etapas li');
+  if (etapas.length === 3) {
+    const passo = s.resultado && s.doc.valor ? 3 : (s.codigo || s.doc.cnpj) ? 2 : 1;
+    etapas.forEach((li, i) => { li.className = i + 1 < passo ? 'feita' : i + 1 === passo ? 'atual' : ''; });
+  }
   ultimaConferencia.r = s.resultado; ultimaConferencia.s = structuredClone({ doc: s.doc, consulta: s.consulta, leitura: s.leitura }); ultimaConferencia.quando = new Date();
   desenharResultado(el);
 }
@@ -401,26 +410,29 @@ function desenharResultado(el) {
   const [cls, txt] = SIT[r.situacao];
   const qtd = n => r.problemas.filter(p => p.nivel === n).length;
   box.innerHTML = `
-    <div class="cartao fiscal-situacao ${cls}"><strong>${esc(txt)}</strong>
-      <span>${qtd('erro')} erro(s) · ${qtd('alerta')} aviso(s) · ${qtd('info')} orientação(ões)</span></div>
-    ${s.repetida ? `<div class="alerta">Esta nota já foi conferida neste computador em ${esc(new Date(s.repetida.quando).toLocaleString('pt-BR'))}${s.repetida.por ? ' por ' + esc(s.repetida.por) : ''}. Confira se não é pagamento em duplicidade.</div>` : ''}
-    <div class="cartao">
-${blocoFornecedor(cad)}
-      <div class="fiscal-cartoes">
-        <div class="fiscal-item"><span>Simples Nacional</span><strong>${r.simples == null ? 'Não confirmado' : r.mei ? 'MEI' : r.simples ? 'Optante' : 'Não optante'}</strong>
-          <small>${r.simples == null ? 'confira no Portal' : esc(r.fonteSimples)}${cad?.simplesInicio && r.simples ? ' · desde ' + esc(dataBR(cad.simplesInicio)) : ''}${cad?.simplesFim ? ' · excluído em ' + esc(dataBR(cad.simplesFim)) : ''}</small></div>
-        <div class="fiscal-item"><span>IRRF</span><strong>${r.ir.reter ? 'Reter ' + moeda(r.ir.valor) : 'Não reter'}</strong><small>${esc(r.ir.motivo)}</small></div>
-        <div class="fiscal-item"><span>ISSQN</span><strong>${!r.iss.aplica ? 'Não se aplica' : r.iss.reter && r.iss.valor ? 'Reter ' + moeda(r.iss.valor) : 'Não reter'}</strong><small>${esc(r.iss.motivo || (r.natureza.servico ? '' : 'Fornecimento de bens'))}</small></div>
-        <div class="fiscal-item"><span>CBS / IBS</span><strong>${r.cbsibs.esperado ? `${pctTxt(r.cbsibs.esperado.cbs)} / ${pctTxt(r.cbsibs.esperado.ibs)}` : 'Não se aplica'}</strong><small>${esc(r.cbsibs.motivo)}</small></div>
+    <div class="cartao fiscal-resumo ${cls}">
+      <div class="fiscal-resumo-topo"><strong>${esc(txt)}</strong>
+        <span>${qtd('erro')} erro(s) · ${qtd('alerta')} aviso(s) · ${qtd('info')} orientação(ões)</span></div>
+      <div class="fiscal-kpis">
+        <div><span>Valor bruto</span><strong>${moeda(r.valor)}</strong></div>
+        <div><span>Retenções (IRRF + ISS)</span><strong>${moeda(r.retencoes)}</strong></div>
+        <div class="fiscal-kpi-destaque"><span>Líquido a pagar</span><strong>${moeda(r.liquido)}</strong></div>
+      </div>
+      <div class="fiscal-acoes">
+        <a class="btn" href="#/imprimir/fiscal">🖨 Ficha de conferência</a>
+        <button type="button" class="btn btn-sec" data-mensagem>✉ Mensagem ao fornecedor</button>
+        ${linkPortal('Portal do Simples', 'btn btn-sec')}
       </div>
     </div>
-    ${r.verificacao?.linhas?.length ? `<div class="cartao">
-      <h3>Natureza do serviço</h3>
-      <ul class="fiscal-verif">${r.verificacao.linhas.map(l => `<li class="${l.ok === true ? 'v-ok' : l.ok === false ? 'v-erro' : 'v-info'}"><span aria-hidden="true">${l.ok === true ? '✓' : l.ok === false ? '✕' : '•'}</span>
-        <div><strong>${esc(l.titulo)}</strong><small>${esc(l.detalhe)}</small></div></li>`).join('')}</ul>
-    </div>` : ''}
+    ${s.repetida ? `<div class="alerta">Esta nota já foi conferida neste computador em ${esc(new Date(s.repetida.quando).toLocaleString('pt-BR'))}${s.repetida.por ? ' por ' + esc(s.repetida.por) : ''}. Confira se não é pagamento em duplicidade.</div>` : ''}
     <div class="cartao">
-      <h3>Para a liquidação</h3>
+      <h3><span class="fiscal-num">1</span> Erros e soluções</h3>
+      ${r.problemas.length ? `<ul class="fiscal-problemas">${r.problemas.map(p => `<li class="fiscal-${p.nivel}">
+        <span class="selo ${NIVEL[p.nivel][1]}">${NIVEL[p.nivel][0]}</span> <strong>${esc(p.titulo)}</strong>${p.detalhe ? ` <span class="muted">(${esc(p.detalhe)})</span>` : ''}
+        <p><b>Como resolver:</b> ${esc(p.solucao)}</p></li>`).join('')}</ul>` : '<p class="ok-txt">Nenhuma divergência encontrada.</p>'}
+    </div>
+    <div class="cartao">
+      <h3><span class="fiscal-num">2</span> Para a liquidação</h3>
       ${r.temDadosNota ? `<table class="tabela tabela-peq fiscal-liq fiscal-comp"><thead><tr><th></th><th class="num">Na nota</th><th class="num">Conferido</th><th class="num">Diferença</th></tr></thead><tbody>
         <tr><td>Valor bruto</td><td class="num">${moeda(r.valor)}</td><td class="num">${moeda(r.valor)}</td><td></td></tr>
         ${r.comparativo.map(l => `<tr class="${l.total ? 'fiscal-total' : ''} ${Math.abs(l.diferenca) >= 0.01 ? 'fiscal-difere' : ''}"><td>${l.total ? '' : '(−) '}${esc(l.item)}${l.notaAliq != null || l.conferidoAliq != null ? ` <span class="muted">${l.notaAliq != null ? pctTxt(l.notaAliq) : '—'} → ${l.conferidoAliq != null ? pctTxt(l.conferidoAliq) : '—'}</span>` : ''}</td>
@@ -434,24 +446,30 @@ ${blocoFornecedor(cad)}
         <tr class="fiscal-total"><td>Valor líquido a pagar</td><td class="num">${moeda(r.liquido)}</td></tr>
       </tbody></table>`}
       ${r.cbsibs.esperado && r.cbsibs.parametros?.teste ? `<p class="dica">CBS (${moeda(r.cbsibs.esperado.vCBS)}) e IBS (${moeda(r.cbsibs.esperado.vIBS)}) de 2026 são informativos: não entram no total nem são retidos.</p>` : ''}
-      <div class="acoes-form"><a class="btn" href="#/imprimir/fiscal">🖨 Imprimir ficha de conferência</a>
-        <button type="button" class="btn btn-sec" data-mensagem>✉ Mensagem ao fornecedor</button>
-        ${linkPortal('Consultar no Portal do Simples', 'btn btn-sec')}</div>
     </div>
     <div class="cartao">
-      <h3>Erros e soluções</h3>
-      ${r.problemas.length ? `<ul class="fiscal-problemas">${r.problemas.map(p => `<li class="fiscal-${p.nivel}">
-        <span class="selo ${NIVEL[p.nivel][1]}">${NIVEL[p.nivel][0]}</span> <strong>${esc(p.titulo)}</strong>${p.detalhe ? ` <span class="muted">(${esc(p.detalhe)})</span>` : ''}
-        <p><b>Como resolver:</b> ${esc(p.solucao)}</p></li>`).join('')}</ul>` : '<p class="ok-txt">Nenhuma divergência encontrada.</p>'}
+${blocoFornecedor(cad, '<span class="fiscal-num">3</span> ')}
+      <div class="fiscal-cartoes">
+        <div class="fiscal-item"><span>Simples Nacional</span><strong>${r.simples == null ? 'Não confirmado' : r.mei ? 'MEI' : r.simples ? 'Optante' : 'Não optante'}</strong>
+          <small>${r.simples == null ? 'confira no Portal' : esc(r.fonteSimples)}${cad?.simplesInicio && r.simples ? ' · desde ' + esc(dataBR(cad.simplesInicio)) : ''}${cad?.simplesFim ? ' · excluído em ' + esc(dataBR(cad.simplesFim)) : ''}</small></div>
+        <div class="fiscal-item"><span>IRRF</span><strong>${r.ir.reter ? 'Reter ' + moeda(r.ir.valor) : 'Não reter'}</strong><small>${esc(r.ir.motivo)}</small></div>
+        <div class="fiscal-item"><span>ISSQN</span><strong>${!r.iss.aplica ? 'Não se aplica' : r.iss.reter && r.iss.valor ? 'Reter ' + moeda(r.iss.valor) : 'Não reter'}</strong><small>${esc(r.iss.motivo || (r.natureza.servico ? '' : 'Fornecimento de bens'))}</small></div>
+        <div class="fiscal-item"><span>CBS / IBS</span><strong>${r.cbsibs.esperado ? `${pctTxt(r.cbsibs.esperado.cbs)} / ${pctTxt(r.cbsibs.esperado.ibs)}` : 'Não se aplica'}</strong><small>${esc(r.cbsibs.motivo)}</small></div>
+      </div>
     </div>
+    ${r.verificacao?.linhas?.length ? `<div class="cartao">
+      <h3><span class="fiscal-num">4</span> Natureza do serviço</h3>
+      <ul class="fiscal-verif">${r.verificacao.linhas.map(l => `<li class="${l.ok === true ? 'v-ok' : l.ok === false ? 'v-erro' : 'v-info'}"><span aria-hidden="true">${l.ok === true ? '✓' : l.ok === false ? '✕' : '•'}</span>
+        <div><strong>${esc(l.titulo)}</strong><small>${esc(l.detalhe)}</small></div></li>`).join('')}</ul>
+    </div>` : ''}
     <div class="fiscal-proxima"><button type="button" class="btn btn-sec fiscal-limpar" data-limpar>Limpar consulta e conferir outra nota</button></div>`;
   box.querySelector('[data-limpar]').onclick = () => limparConsulta(el);
   box.querySelector('[data-mensagem]').onclick = () => abrirMensagem();
 }
 
 
-function blocoFornecedor(cad) {
-  return `<h3>Fornecedor</h3>
+function blocoFornecedor(cad, prefixo = '') {
+  return `<h3>${prefixo}Fornecedor e tributos</h3>
       ${cad ? `<p><strong>${esc(cad.nome)}</strong>${cad.fantasia ? ` <span class="muted">(${esc(cad.fantasia)})</span>` : ''}<br>
         CNPJ ${esc(formatarCnpj(cad.cnpj))} · <span class="selo ${cad.situacao === 'ATIVA' ? 'selo-emitida' : 'selo-cancelada'}">${esc(cad.situacao || '—')}</span><br>
         <span class="muted">${esc(cad.naturezaTexto || '')}${cad.cnaeTexto ? ' · CNAE ' + esc(String(cad.cnae).replace(/\D/g, '').padStart(7, '0').replace(/^(\d{4})(\d)(\d{2})$/, '$1-$2/$3')) + ' ' + esc(cad.cnaeTexto) : ''}${cad.municipio ? ' · ' + esc(cad.municipio) + '/' + esc(cad.uf) : ''}</span></p>`

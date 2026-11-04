@@ -97,6 +97,7 @@ export function telaUsuarios(el) {
       <span><strong>Controle Interno:</strong> só analisa: vê o pedido da secretaria (servidor, período, destino, conta e fonte) e aprova ou reprova. Não cria solicitações, não vê valores nem cadastros.</span>
       <span><strong>Secretaria (solicitante):</strong> vinculada a uma secretaria; cadastra servidor e envia solicitações dela para análise, com conta e fonte de recurso. Não vê valores nem pedidos de outras secretarias.</span>
       <span><strong>Somente consulta:</strong> visualiza, imprime e exporta.</span>
+      <span><strong>Conferência fiscal:</strong> usa só a conferência das notas de fornecedores (Simples, IRRF, ISS, CBS/IBS). Não vê diárias, servidores nem valores das diárias.</span>
     </div>
     <div class="tabela-wrap"><table class="tabela">
       <thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Situação</th><th></th></tr></thead>

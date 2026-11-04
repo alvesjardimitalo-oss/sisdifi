@@ -22,6 +22,7 @@ export const PERFIS = {
   controle_interno: 'Controle Interno',
   secretaria: 'Secretaria (solicitante)',
   rh: 'RH (acompanha pagamentos)',
+  fiscal: 'Conferência fiscal (só notas de fornecedores)',
   consulta: 'Somente consulta'
 };
 
@@ -91,15 +92,17 @@ export function mesclarConfig(doc) {
 const perfilAtual = () => estado.sessao?.perfil;
 export const ehSecretaria = () => perfilAtual() === 'secretaria';
 // Secretaria e Controle Interno só trabalham com as solicitações (sem cadastros, sem valores)
-export const acessoRestrito = () => ['secretaria', 'controle_interno', 'rh'].includes(perfilAtual());
+export const acessoRestrito = () => ['secretaria', 'controle_interno', 'rh', 'fiscal'].includes(perfilAtual());
 export const ehRH = () => perfilAtual() === 'rh';
+/** Perfil que só usa a Conferência fiscal (não vê diárias, servidores nem valores). */
+export const ehFiscal = () => perfilAtual() === 'fiscal';
 export const pode = {
   // cadastros (servidores, secretarias) — Controle Interno NÃO altera tabelas do sistema
   editar: () => ['admin', 'operador'].includes(perfilAtual()),
   // criar/editar solicitações (antes da aprovação)
   solicitar: () => ['admin', 'operador', 'secretaria'].includes(perfilAtual()),
   // valores de diária: Secretaria e Controle Interno não veem (o valor só é calculado na Contabilidade)
-  verValores: () => !['secretaria', 'controle_interno', 'rh'].includes(perfilAtual()),
+  verValores: () => !['secretaria', 'controle_interno', 'rh', 'fiscal'].includes(perfilAtual()),
   // Controle Interno: apenas aprova ou reprova (confere servidor, período, conta e fonte)
   analisar: () => ['admin', 'controle_interno'].includes(perfilAtual()),
   // ficha, empenho, liquidação, pagamento e reembolsos
@@ -113,6 +116,8 @@ export const pode = {
   simular: () => ['admin', 'operador', 'consulta', 'controle_interno'].includes(perfilAtual()),
   // relatório do Controle Interno (análises, reprovações, prestação de contas — sem valores)
   controle: () => ['admin', 'operador', 'consulta', 'controle_interno'].includes(perfilAtual()),
+  // conferência fiscal de notas de fornecedores: Contabilidade, administrador e o perfil próprio
+  fiscal: () => ['admin', 'operador', 'fiscal'].includes(perfilAtual()),
   admin: () => perfilAtual() === 'admin'
 };
 

@@ -19,6 +19,8 @@ service cloud.firestore {
     function controleInterno() { return ativo() && perfil() == 'controle_interno'; }
     function contabilidade() { return ativo() && perfil() == 'operador'; }
     function rh() { return ativo() && perfil() == 'rh'; }
+    // Perfil 'fiscal': só a Conferência fiscal de notas — não lê servidores, CPFs, solicitações nem valores.
+    function diarias() { return ativo() && perfil() != 'fiscal'; }
     function camposValor() { return ['valor_total', 'valor_pernoite', 'valor_simples', 'valor_alimentacao', 'quantidade_pernoite', 'quantidade_simples', 'quantidade_alimentacao', 'horas_total', 'faixa_codigo', 'faixa_texto', 'descricao_calculo', 'justificativa_legal', 'reembolsos', 'total_reembolsos']; }
     function podeVerValores() { return ativo() && perfil() in ['admin', 'operador', 'consulta']; }
     function alterou(campos) { return request.resource.data.diff(resource.data).affectedKeys().hasAny(campos); }
@@ -84,7 +86,7 @@ service cloud.firestore {
     }
     match /servidores/{id} {
       // Secretaria vê só os servidores da própria pasta e os motoristas de todas as secretarias.
-      allow read: if ativo() && (!secretaria()
+      allow read: if diarias() && (!secretaria()
         || resource.data.secretaria_id == minhaSecretaria()
         || resource.data.motorista == true);
       // Secretaria completa o cadastro: cargo quando está em branco (ou servidor da própria pasta) e o indicador de Pix.
@@ -128,7 +130,7 @@ service cloud.firestore {
 
     // Índice de CPF: só responde a quem já sabe o CPF completo (get); ninguém lista.
     match /cpfs/{cpf} {
-      allow get: if ativo();
+      allow get: if diarias();
       allow list: if false;
       allow create: if (operador() || secretaria()) && cpf.size() == 11 && request.resource.data.servidor_id is string;
       allow update: if operador();

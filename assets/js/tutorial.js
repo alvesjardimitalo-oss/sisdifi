@@ -13,7 +13,7 @@ const el = sel => () => document.querySelector(sel);
 function passos() {
   const nome = (estado.sessao?.nome || '').split(' ')[0];
   const comuns = [
-    { titulo: `Bem-vindo(a) ao SISDIFI, ${nome}!`, texto: 'Este é o sistema de diárias de viagem da Prefeitura. Em um minuto mostramos onde fica cada coisa. Você pode pular agora e rever depois no botão ? do alto da tela.' },
+    { titulo: `Bem-vindo(a) ao SISDIFI, ${nome}!`, texto: 'Este é o sistema de diárias de viagem e de conferência fiscal das notas de fornecedores da Prefeitura. Em um minuto mostramos onde fica cada coisa. Você pode pular agora e rever depois no botão ? do alto da tela.' },
     { alvo: () => celular() ? document.querySelector('.abas-mobile') : document.querySelector('.lateral nav'), titulo: 'O menu', texto: celular()
         ? 'Os atalhos ficam nesta barra. O menu completo abre no botão Menu.'
         : 'O menu mostra só o que o seu perfil pode usar. A tela em que você está fica marcada em dourado.' },

@@ -7,7 +7,7 @@ import { cargoMotorista } from './privacidade.js';
 import { iniciarResponsivo } from './responsivo.js';
 import { iniciarTutorial } from './tutorial.js';
 import { exigirTermo, termoAceito } from './views/termo.js';
-import { estado, mesclarConfig, PERFIS, pode, ehSecretaria, acessoRestrito, secretariaNome, CAMPOS_VALOR, etapaDe, definirExercicio, definirHistorico, ehRH } from './estado.js';
+import { estado, mesclarConfig, PERFIS, pode, ehSecretaria, acessoRestrito, secretariaNome, CAMPOS_VALOR, etapaDe, definirExercicio, definirHistorico, ehRH, ehFiscal } from './estado.js';
 import { esc, $, toast, mensagemErro, lerForm } from './ui.js';
 import { telaPainel } from './views/painel.js';
 import { telaListaSolicitacoes, telaNovaSolicitacao, telaDetalheSolicitacao } from './views/solicitacoes.js';
@@ -23,7 +23,7 @@ import { telaRelatorio } from './views/relatorio.js';
 import { telaOrcamento } from './views/orcamento.js';
 import { telaFiscal, telaImprimirFiscal, iniciarWidgetFiscal } from './views/fiscal.js';
 
-const VERSAO = '3.8.0';
+const VERSAO = '3.9.0';
 const ICONE_GOOGLE = '<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>';
 const raiz = document.getElementById('app');
 let ouvintes = [];
@@ -61,7 +61,7 @@ const MENU = [
   { rota: 'relatorio', icone: 'relatorio', texto: 'Relatório mensal', relatorio: true },
   { rota: 'controle', icone: 'confere', texto: 'Relatório do Controle', controle: true },
   { rota: 'orcamento', icone: 'orcamento', texto: 'Orçamento', orcamento: true },
-  { rota: 'fiscal', icone: 'fiscal', texto: 'Conferência fiscal', contabil: true },
+  { rota: 'fiscal', icone: 'fiscal', texto: 'Conferência fiscal', fiscal: true },
   { rota: 'exercicio', icone: 'calendario', texto: 'Exercícios', contabil: true },
   { grupo: 'Administração', admin: true },
   { rota: 'parametros', icone: 'parametros', texto: 'Parâmetros da lei', admin: true },
@@ -73,7 +73,7 @@ const MENU = [
 iniciarResponsivo();
 
 // Atalhos da barra inferior no celular (os 4 primeiros que o perfil pode usar) + "Menu"
-const ABAS = [['painel', 'Painel'], ['solicitacoes/nova', 'Nova'], ['solicitacoes', 'Solicitações'], ['servidores', 'Servidores'], ['relatorio', 'Relatório'], ['controle', 'Controle']];
+const ABAS = [['painel', 'Painel'], ['solicitacoes/nova', 'Nova'], ['solicitacoes', 'Solicitações'], ['servidores', 'Servidores'], ['relatorio', 'Relatório'], ['controle', 'Controle'], ['fiscal', 'Conferir nota']];
 
 // ---------------- Inicialização ----------------
 if (!db.configurado) {
@@ -107,7 +107,7 @@ if (!db.configurado) {
       // primeiro acesso: abre o tutorial depois que a tela carregar
       let visto = !!perfil.tutorial_visto;
       try { visto = visto || localStorage.getItem('sisdifi.tutorial.' + usuario.uid) === '1'; } catch { /* sem armazenamento */ }
-      if (!visto) {
+      if (!visto && !ehFiscal()) {
         // o tutorial abre depois do termo de responsabilidade (quando ele é pedido)
         const abrir = () => setTimeout(() => { if (estado.sessao?.uid === usuario.uid) abrirTutorial(); }, termoAceito() ? 1200 : 400);
         if (termoAceito()) abrir(); else window.addEventListener('sisdifi:termo-aceito', abrir, { once: true });
@@ -134,7 +134,7 @@ function telaSemConfiguracao() {
 
 function marca() {
   return `<div class="marca"><img src="assets/img/brasao.png" alt="" width="44" height="44">
-    <div><strong>SISDIFI</strong><span>Sistema de Diárias Municipais</span></div></div>`;
+    <div><strong>SISDIFI</strong><span>Diárias e Conferência Fiscal</span></div></div>`;
 }
 
 async function telaLogin() {
@@ -142,7 +142,7 @@ async function telaLogin() {
   try { primeiroAcesso = !(await db.bootstrapExiste()); } catch { /* offline: mostra login normal */ }
   if (primeiroAcesso) return telaPrimeiroAdmin();
   raiz.innerHTML = `
-    <div class="login-fundo com-capa"><div class="login-capa"><img src="assets/img/brasao.png" alt="" width="88" height="88"><div><strong>SISDIFI</strong><p>Diárias de viagem dos servidores municipais: da solicitação ao pagamento, num só lugar.</p></div></div><form class="login-caixa" id="form-login" novalidate>
+    <div class="login-fundo com-capa"><div class="login-capa"><img src="assets/img/brasao.png" alt="" width="88" height="88"><div><strong>SISDIFI</strong><p>Diárias de viagem dos servidores municipais, da solicitação ao pagamento, e conferência fiscal das notas de fornecedores antes da liquidação — num só lugar.</p></div></div><form class="login-caixa" id="form-login" novalidate>
       ${marca()}
       <h2>Entrar</h2>
       <label class="campo"><span>E-mail</span><input type="email" name="email" autocomplete="username" required></label>
@@ -303,6 +303,11 @@ function marcarVisibilidade(base) {
 // ---------------- Dados em tempo real ----------------
 function iniciarDados() {
   estado.prontos.clear();
+  if (ehFiscal()) {
+    // Perfil da Conferência fiscal: só os parâmetros (nome do órgão na ficha). Não carrega diárias, servidores nem valores.
+    ouvintes.push(db.ouvirDoc('config', 'parametros', d => { estado.config = mesclarConfig(d); estado.prontos.add('config'); }, () => {}));
+    return;
+  }
   completouSecretaria = false; protegeuDados = false; marcouVisibilidade = false; marcouMotoristas = false; ajustouSecretarias = false;
   definirExercicio(estado.exercicio); // sincroniza os filtros das telas com o exercício salvo
   const pronto = nome => { estado.prontos.add(nome); atualizarTelaViva(nome); };
@@ -414,7 +419,7 @@ export function abrirTutorial() {
 // ---------------- Layout e rotas ----------------
 function montarLayout() {
   const s = estado.sessao;
-  const itensMenu = MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.solicitar()) && (!m.interno || !acessoRestrito()) && (!m.servidores || !acessoRestrito() || ehSecretaria()) && (!m.valores || pode.verValores()) && (!m.simulador || pode.simular()) && (!m.relatorio || pode.relatorio()) && (!m.orcamento || pode.orcamento()) && (!m.contabil || pode.contabil()) && (!m.controle || pode.controle()));
+  const itensMenu = MENU.filter(m => (!m.admin || pode.admin()) && (!m.editar || pode.solicitar()) && (!m.interno || !acessoRestrito()) && (!m.servidores || !acessoRestrito() || ehSecretaria()) && (!m.valores || pode.verValores()) && (!m.simulador || pode.simular()) && (!m.relatorio || pode.relatorio()) && (!m.orcamento || pode.orcamento()) && (!m.contabil || pode.contabil()) && (!m.controle || pode.controle()) && (!m.fiscal || pode.fiscal()) && (!ehFiscal() || m.fiscal));
   const abas = ABAS.map(([r, t]) => [itensMenu.find(m => m.rota === r), t]).filter(([m]) => m).slice(0, 4);
   raiz.innerHTML = `
     <div class="layout">
@@ -432,10 +437,10 @@ function montarLayout() {
         <header class="topo">
           <button class="btn-icone menu-mobile" id="abrir-menu" aria-label="Menu">☰</button>
           <div class="topo-titulo" id="topo-titulo"></div>
-          <label class="topo-exercicio" title="Exercício (ano) em uso: painel, solicitações, relatório e orçamento mostram este ano"><span>Exercício</span>
-            <select id="sel-exercicio"></select></label>
-          ${s.perfil === 'secretaria' ? '' : `<label class="topo-historico" title="Mostra as diárias importadas do sistema antigo em todas as telas"><input type="checkbox" id="chk-historico" ${estado.verHistorico ? 'checked' : ''}> <span>Histórico antigo</span></label>`}
-          <button type="button" class="btn-icone topo-ajuda" id="abrir-tutorial" title="Tutorial: como usar o sistema" aria-label="Abrir o tutorial">?</button>
+          ${ehFiscal() ? '' : `<label class="topo-exercicio" title="Exercício (ano) em uso: painel, solicitações, relatório e orçamento mostram este ano"><span>Exercício</span>
+            <select id="sel-exercicio"></select></label>`}
+          ${s.perfil === 'secretaria' || ehFiscal() ? '' : `<label class="topo-historico" title="Mostra as diárias importadas do sistema antigo em todas as telas"><input type="checkbox" id="chk-historico" ${estado.verHistorico ? 'checked' : ''}> <span>Histórico antigo</span></label>`}
+          ${ehFiscal() ? '' : `<button type="button" class="btn-icone topo-ajuda" id="abrir-tutorial" title="Tutorial: como usar o sistema" aria-label="Abrir o tutorial">?</button>`}
           <div class="usuario">
             <a href="#/conta" class="usuario-nome" title="Minha conta">${esc(s.nome)}<small>${esc(PERFIS[s.perfil] || s.perfil)}${s.perfil === 'secretaria' ? ' · ' + esc(s.secretaria_nome || 'sem secretaria') : ''}</small></a>
             <button class="btn btn-sec btn-peq" id="btn-sair">Sair</button>
@@ -448,10 +453,10 @@ function montarLayout() {
         <button type="button" id="abas-menu"><span class="ico" aria-hidden="true">${icone('menu')}</span>Menu</button>
       </nav>
     </div>`;
-  if (pode.contabil()) iniciarWidgetFiscal(raiz.querySelector('.layout'));
+  if (pode.fiscal() && !ehFiscal()) iniciarWidgetFiscal(raiz.querySelector('.layout'));
   $('#btn-sair').onclick = () => db.sair();
-  $('#abrir-tutorial').onclick = () => abrirTutorial();
-  $('#sel-exercicio').onchange = e => definirExercicio(e.target.value);
+  $('#abrir-tutorial')?.addEventListener('click', () => abrirTutorial());
+  $('#sel-exercicio')?.addEventListener('change', e => definirExercicio(e.target.value));
   $('#chk-historico')?.addEventListener('change', e => definirHistorico(e.target.checked));
   preencherExercicios();
   const menu = abrir => { $('#lateral').classList.toggle('aberta', abrir); $('#veu').hidden = !abrir; document.body.classList.toggle('sem-rolagem', abrir); };
@@ -470,8 +475,8 @@ const ROTAS = [
   [/^secretarias$/, telaSecretarias, 'interno'],
   [/^simulador$/, telaSimulador, 'simular'],
   [/^exercicio$/, telaExercicio, 'contabil'],
-  [/^fiscal$/, telaFiscal, 'contabil'],
-  [/^imprimir\/fiscal$/, telaImprimirFiscal, 'contabil'],
+  [/^fiscal$/, telaFiscal, 'fiscal'],
+  [/^imprimir\/fiscal$/, telaImprimirFiscal, 'fiscal'],
   [/^imprimir\/(simulacao)$/, telaImprimir, 'simular'],
   [/^conferencia$/, telaConferencia, 'valores'],
   [/^parametros$/, telaParametros, 'admin'],
@@ -490,7 +495,7 @@ const ROTAS = [
 function rotaAtual() {
   const h = location.hash.replace(/^#\/?/, '');
   const [caminho, qs] = h.split('?');
-  return { caminho: caminho || 'painel', query: new URLSearchParams(qs || '') };
+  return { caminho: caminho || (ehFiscal() ? 'fiscal' : 'painel'), query: new URLSearchParams(qs || '') };
 }
 
 function navegar() {
@@ -500,6 +505,7 @@ function navegar() {
 
 function desenharTela(atualizacao) {
   const { caminho, query } = rotaAtual();
+  if (ehFiscal() && !['fiscal', 'imprimir/fiscal', 'conta'].includes(caminho)) { location.replace('#/fiscal'); return; }
   let alvo = null, args = [];
   for (const [re, fn, req] of ROTAS) {
     const m = caminho.match(re);
@@ -511,6 +517,7 @@ function desenharTela(atualizacao) {
       if (req === 'relatorio' && !pode.relatorio()) break;
       if (req === 'simular' && !pode.simular()) break;
       if (req === 'contabil' && !pode.contabil()) break;
+      if (req === 'fiscal' && !pode.fiscal()) break;
       if (req === 'controle' && !pode.controle()) break;
       if (req === 'orcamento' && !pode.orcamento()) break;
       alvo = fn; args = m.slice(1); break;
