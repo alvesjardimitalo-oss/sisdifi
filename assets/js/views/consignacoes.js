@@ -1,7 +1,7 @@
 import { esc } from '../ui.js';
 import { pode, estado } from '../estado.js';
 import { DESTINOS, extrairMinuta, agruparMinuta } from '../minuta-pdf.js';
-import { MESES, rotuloCompetencia, valorEsperado, vincularFolha, conferenciaMensal, carregarMes, salvarMes } from '../consignacoes-mensal.js';
+import { MESES, rotuloCompetencia, valorEsperado, vincularFolha, conferenciaMensal, carregarMes, salvarMes } from '../consignacoes-mensal.js?v=3.12.0';
 const moeda = c => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 export function telaConsignacoes(el) {
   if (!pode.contabil()) return { titulo: 'Acesso restrito' };
