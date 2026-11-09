@@ -1,15 +1,17 @@
-# Consignações por fonte
+# Conferência mensal de consignações
 
-Menu **Consignações por fonte**, disponível para Administrador e Contabilidade (`admin`/`operador`). Rota `#/consignacoes`.
+Menu **Consignações por mês**, restrito a Administrador e Contabilidade (`admin`/`operador`). Rota `#/consignacoes`.
 
-Importe uma ou mais minutas analíticas em PDF com texto, até 15 MB por arquivo. O processamento ocorre no navegador via PDF.js, sem gravação no Firestore ou upload dos documentos. Resultados são descartados ao sair da tela. Exporte CSV ou imprima antes de sair.
+Selecione mês e ano. Cada competência exibe quatro categorias fixas: Caixa Econômica Federal, Sicoob, Bradesco e pensão alimentícia. Importe uma ou mais minutas analíticas com texto (PDF, até 15 MB por arquivo); o destino é extraído da descrição da receita. PDFs com registros sem data ou de outra competência são recusados integralmente, sem inclusão parcial. Relatórios com vários meses devem ser gerados separadamente na origem.
 
-A leitura reconhece documentos no formato ano/número-parcela, a receita na linha do documento e as fontes nas linhas seguintes (formato 1.500.000.0000). Preserva o tipo identificado no cabeçalho: Guia ou Empenho. Não infere um empenho a partir de uma guia.
+Informe o total esperado em cada categoria e clique em **Salvar valor**. O sistema exibe importado menos esperado: positivo = sobra; negativo = falta. Campo vazio significa não informado, diferente de zero. Os quatro blocos continuam mostrando arquivo pendente até receber lançamentos, mesmo com valor esperado zero. O resumo mensal independe dos filtros da tabela.
 
-Categorias: consignações da Caixa Econômica Federal/CEF, Sicoob, Bradesco e pensão alimentícia. Receitas desconhecidas ficam em Não classificado, com aviso. Cada categoria é agrupada pelos quatro primeiros dígitos da fonte, preservando o código completo na tabela. A soma usa centavos inteiros e apenas as linhas de fonte, sem somar novamente valores de documentos, totais diários ou resumos.
+Quando uma sobra coincide exatamente com uma falta de outra categoria, a tela sugere possível troca e lista os lançamentos individuais do banco com sobra que têm esse valor. Não confirma a causa, não procura todas as combinações de lançamentos e não altera classificações automaticamente. Mesmo com diferença geral zero, diferenças por categoria permanecem destacadas. Use busca pelo número, filtros de destino/fonte e o PDF original para conferir.
 
-Conferência: compara as fontes com cada documento e com o total geral, quando disponível. Mostra documentos sem fontes, fontes ilegíveis, receitas desconhecidas, repetição interna ou sobreposição entre arquivos. Um PDF idêntico já carregado é recusado por SHA-256. Sobreposições entre PDFs diferentes são sinalizadas, não excluídas automaticamente. Remova o arquivo sobreposto antes de exportar. O usuário confirma a revisão para liberar a exportação. CSV e impressão respeitam os filtros atuais.
+O histórico desta versão é **local**, no IndexedDB, separado por UID e competência, com PDFs originais, resultados e valores esperados. Não há upload para servidor, compartilhamento entre computadores ou backup remoto. Limpar dados do navegador apaga o histórico. Usuários devem guardar os originais e exportar CSV ou imprimir. O serviço existente de anexos de diárias não é reutilizado para minutas. Controle de revisão evita sobrescrever silenciosamente alterações de outra aba.
 
-PDFs digitalizados e outros layouts não têm OCR ou interpretação genérica. Novos modelos devem ser homologados com amostras reais. A validação real desta versão usou uma minuta Sicoob; outras categorias têm testes sintéticos de identificação. Nenhum documento real é incluído no repositório.
+Números são preservados conforme o cabeçalho: Guia ou Empenho. A leitura suporta documento ano/número-parcela e fontes no formato 1.500.000.0000. Agrupa pelos quatro primeiros dígitos da fonte e mantém o código completo. Soma em centavos apenas as linhas de fonte. Confere valores por documento e total geral; sinaliza desconhecidos, ilegíveis, repetição e sobreposição. PDF idêntico no mesmo mês é recusado por hash. Não há OCR ou suporte genérico a qualquer layout.
 
-Teste: `node tests/minuta-pdf.test.mjs`.
+CSV e impressão incluem o resumo mensal completo e o detalhamento conforme os filtros. Exportação depende da confirmação de revisão pelo usuário. A identificação real foi validada com minuta Sicoob; demais destinos têm testes sintéticos e precisam de amostras para homologar novos layouts. PDFs reais não são incluídos no repositório.
+
+Testes: `node tests/minuta-pdf.test.mjs` e `node tests/consignacoes-mensal.test.mjs`. Validação adicional em navegador: importar agosto, salvar esperados, identificar sobra/falta coincidente, recarregar mantendo histórico, buscar número e recusar minuta de agosto em setembro. IndexedDB validado com isolamento por mês/UID, preservação de Blob e conflito de revisão.
