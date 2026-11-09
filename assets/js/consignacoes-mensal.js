@@ -14,6 +14,58 @@ export function vincularFolha(resultado, competencia) {
   if (!competenciaValida(competencia)) throw Error('Selecione uma competência válida para a folha.');
   return { ...resultado, competenciaFolha: competencia };
 }
+// Investigação por documento completo: um mesmo empenho pode ter várias fontes.
+export function documentosParaConferencia(registros) {
+  const mapa = new Map();
+  for (const r of registros) {
+    const chave = [r.arquivo || '', r.data || '', r.tipo || '', r.numero || ''].join('|');
+    if (!mapa.has(chave)) mapa.set(chave, { ...r, centavos: 0, fontes: [], paginas: [] });
+    const doc = mapa.get(chave);
+    doc.centavos += r.centavos;
+    if (r.fonteCompleta && !doc.fontes.includes(r.fonteCompleta)) doc.fontes.push(r.fonteCompleta);
+    if (r.pagina && !doc.paginas.includes(r.pagina)) doc.paginas.push(r.pagina);
+  }
+  return [...mapa.values()].filter(r => r.centavos > 0);
+}
+// Somente hipóteses matematicamente compatíveis: até três documentos inteiros.
+export function buscarDocumentosDaDiferenca(registros, diferenca, limite = 5) {
+  if (!Number.isSafeInteger(diferenca) || diferenca <= 0) return [];
+  const pool = documentosParaConferencia(registros)
+    .filter(d => d.centavos <= diferenca)
+    .sort((a, b) => Math.abs(diferenca - a.centavos) - Math.abs(diferenca - b.centavos))
+    .slice(0, 240);
+  const combinacoes = [], vistos = new Set();
+  function adicionar(indices) {
+    const chave = [...indices].sort((a, b) => a - b).join(',');
+    if (vistos.has(chave)) return;
+    vistos.add(chave);
+    combinacoes.push(indices.map(i => pool[i]));
+  }
+  for (let i = 0; i < pool.length && combinacoes.length < limite; i++)
+    if (pool[i].centavos === diferenca) adicionar([i]);
+  for (let i = 0; i < pool.length && combinacoes.length < limite; i++)
+    for (let j = i + 1; j < pool.length && combinacoes.length < limite; j++)
+      if (pool[i].centavos + pool[j].centavos === diferenca) adicionar([i, j]);
+  if (combinacoes.length < limite) {
+    const indicesPorValor = new Map();
+    for (let i = 0; i < pool.length; i++) {
+      const v = pool[i].centavos;
+      if (!indicesPorValor.has(v)) indicesPorValor.set(v, []);
+      indicesPorValor.get(v).push(i);
+    }
+    for (let i = 0; i < pool.length && combinacoes.length < limite; i++)
+      for (let j = i + 1; j < pool.length && combinacoes.length < limite; j++) {
+        const falta = diferenca - pool[i].centavos - pool[j].centavos;
+        if (falta <= 0) continue;
+        for (const k of indicesPorValor.get(falta) || []) {
+          if (k <= j) continue;
+          adicionar([i, j, k]);
+          if (combinacoes.length >= limite) break;
+        }
+      }
+  }
+  return combinacoes;
+}
 export function conferenciaMensal(arquivos, esperados = {}) {
   const registros = arquivos.flatMap(a => a.resultado.registros.map(r => ({...r, arquivo:a.nome})));
   const blocos = DESTINOS.map(destino => {
@@ -21,16 +73,23 @@ export function conferenciaMensal(arquivos, esperados = {}) {
     const esperado = Number.isSafeInteger(esperados[destino]) ? esperados[destino] : null;
     return { destino, registros:rs, arquivos:arquivos.filter(a=>a.resultado.registros.some(r=>r.destino===destino)).length, total, esperado, diferenca:esperado === null ? null : total-esperado };
   });
-  const trocas = [];
-  for (const falta of blocos.filter(b=>b.diferenca < 0)) for (const sobra of blocos.filter(b=>b.diferenca > 0)) {
-    if (falta.diferenca + sobra.diferenca !== 0) continue;
-    const valor = sobra.diferenca;
-    trocas.push({ falta:falta.destino, sobra:sobra.destino, valor,
-      candidatos:sobra.registros.filter(r=>r.centavos===valor) });
-  }
+  const trocas = [], investigacoes = [];
+  for (const falta of blocos.filter(b => b.diferenca < 0))
+    for (const sobra of blocos.filter(b => b.diferenca > 0)) {
+      const exata = falta.diferenca + sobra.diferenca === 0;
+      const valor = Math.min(-falta.diferenca, sobra.diferenca);
+      const combinacoes = buscarDocumentosDaDiferenca(sobra.registros, valor);
+      const proximos = combinacoes.length ? [] : documentosParaConferencia(sobra.registros)
+        .filter(r => r.centavos > 0)
+        .sort((a, b) => Math.abs(a.centavos - valor) - Math.abs(b.centavos - valor))
+        .slice(0, 3);
+      if (exata) trocas.push({ falta:falta.destino, sobra:sobra.destino, valor,
+        candidatos:combinacoes.filter(c => c.length === 1).map(c => c[0]), combinacoes });
+      investigacoes.push({ falta:falta.destino, sobra:sobra.destino, valor, exata, combinacoes, proximos });
+    }
   const conhecidos = blocos.reduce((s,b)=>s+b.total,0), completo = blocos.every(b=>b.esperado !== null);
   const naoClassificados = registros.filter(r=>!DESTINOS.includes(r.destino));
-  return {blocos,trocas,naoClassificados,total:conhecidos, esperado:completo?blocos.reduce((s,b)=>s+b.esperado,0):null,
+  return {blocos,trocas,investigacoes,naoClassificados,total:conhecidos, esperado:completo?blocos.reduce((s,b)=>s+b.esperado,0):null,
     diferenca:completo?blocos.reduce((s,b)=>s+b.diferenca,0):null,
     conferido:completo && blocos.every(b=>b.arquivos>0 && b.diferenca===0) && !naoClassificados.length && !arquivos.some(a=>a.resultado.avisos.length)};
 }
