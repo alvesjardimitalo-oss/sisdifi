@@ -679,3 +679,11 @@ progress { width: 260px; vertical-align: middle; }
 .fiscal-resumo.fiscal-erro .fiscal-resumo-topo strong { color: var(--vermelho); }
 .col-resultado h3 { display: flex; align-items: center; gap: 6px; }
 @media (max-width: 700px) { .fiscal-kpis { grid-template-columns: minmax(0, 1fr); } }
+
+/* Crédito discreto de desenvolvimento; não interfere no conteúdo institucional. */
+.credito-tecnologia { font-size: 11px; line-height: 1.5; margin: 12px 0 0; color: var(--muted); text-align: center; }
+.credito-tecnologia a { color: var(--azul); text-decoration: none; font-weight: 700; }
+.credito-tecnologia a:hover, .credito-tecnologia a:focus-visible { text-decoration: underline; }
+.credito-menu { padding: 5px 12px 13px; margin: 0; color: #b2c3d4; }
+.credito-menu a { color: #e2d5ac; }
+@media print { .credito-tecnologia { display: none !important; } }
