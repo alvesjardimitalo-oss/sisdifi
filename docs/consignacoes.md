@@ -15,3 +15,7 @@ Números são preservados conforme o cabeçalho: Guia ou Empenho. A leitura supo
 CSV e impressão incluem o resumo mensal completo e o detalhamento conforme os filtros. Exportação depende da confirmação de revisão pelo usuário. A identificação real foi validada com minuta Sicoob; demais destinos têm testes sintéticos e precisam de amostras para homologar novos layouts. PDFs reais não são incluídos no repositório.
 
 Testes: `node tests/minuta-pdf.test.mjs` e `node tests/consignacoes-mensal.test.mjs`. Validação adicional em navegador: importar agosto, salvar esperados, identificar sobra/falta coincidente, recarregar mantendo histórico, buscar número e vincular pagamentos de outro mês à competência escolhida. IndexedDB validado com isolamento por mês/UID, preservação de Blob e conflito de revisão.
+
+
+## Minuta Caixa com receita 21 (Frei Inocêncio)
+O PDF analítico pode trazer somente a sequência \`00021 2.1.3.01.00.00 21\` em cada guia, sem nome Caixa. A especificação 21 **no contexto exato da receita 2.1.3.01.00.00** é mapeada à Caixa Econômica Federal; não inferir Caixa da ficha 00021 isoladamente nem de números 21 fora dessa sequência. A descrição literal de outros bancos tem prioridade sobre o mapeamento. Os documentos previamente importados são reclassificados na abertura do mês, sem precisar reenviar o PDF e sem alterar valores/fontes. Avisos de classificação já sanados deixam de ser pendentes; o histórico original permanece armazenado. Novos layouts sem essa sequência continuam exigindo revisão humana.
