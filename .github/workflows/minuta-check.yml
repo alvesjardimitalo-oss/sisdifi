@@ -1,9 +1,9 @@
 name: Consignações — testes
 on:
   push:
-    paths: ['assets/js/minuta-pdf.js', 'assets/js/views/consignacoes.js', 'assets/js/app.js', 'tests/minuta-pdf.test.mjs', '.github/workflows/minuta-check.yml']
+    paths: ['assets/js/minuta-pdf.js', 'assets/js/consignacoes-mensal.js', 'tests/consignacoes-mensal.test.mjs', 'assets/js/views/consignacoes.js', 'assets/js/app.js', 'tests/minuta-pdf.test.mjs', '.github/workflows/minuta-check.yml']
   pull_request:
-    paths: ['assets/js/minuta-pdf.js', 'assets/js/views/consignacoes.js', 'assets/js/app.js', 'tests/minuta-pdf.test.mjs']
+    paths: ['assets/js/minuta-pdf.js', 'assets/js/consignacoes-mensal.js', 'tests/consignacoes-mensal.test.mjs', 'assets/js/views/consignacoes.js', 'assets/js/app.js', 'tests/minuta-pdf.test.mjs']
 jobs:
   testar:
     runs-on: ubuntu-latest
@@ -12,4 +12,4 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '22' }
       - run: node --check assets/js/app.js && node --check assets/js/views/consignacoes.js
-      - run: node tests/minuta-pdf.test.mjs
+      - run: node tests/minuta-pdf.test.mjs && node tests/consignacoes-mensal.test.mjs
