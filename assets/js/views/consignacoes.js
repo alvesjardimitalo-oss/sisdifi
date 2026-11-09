@@ -1,7 +1,7 @@
 import { esc } from '../ui.js';
 import { pode, estado } from '../estado.js';
 import { DESTINOS, extrairMinuta, agruparMinuta } from '../minuta-pdf.js';
-import { MESES, rotuloCompetencia, valorEsperado, vincularFolha, conferenciaMensal, carregarMes, salvarMes } from '../consignacoes-mensal.js?v=3.12.0';
+import { MESES, rotuloCompetencia, valorEsperado, vincularFolha, conferenciaMensal, carregarMes, salvarMes, reconhecerCodigoCaixaExistente, classificarArquivo, avisosPendentes } from '../consignacoes-mensal.js?v=3.12.1';
 const moeda = c => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 export function telaConsignacoes(el) {
   if (!pode.contabil()) return { titulo: 'Acesso restrito' };
@@ -15,7 +15,7 @@ export function telaConsignacoes(el) {
   <div class="mi-acoes"><label class="campo"><span>Mês da folha</span><select id="mi-mes">${MESES.map((m,i)=>`<option value="${String(i+1).padStart(2,'0')}">${m}</option>`).join('')}</select></label><label class="campo"><span>Ano da folha</span><input id="mi-ano" type="number" min="2000" max="2100" step="1" style="width:110px"></label><strong id="mi-competencia"></strong></div>
   <p class="dica">Histórico salvo neste navegador e nesta conta do SISDIFI. Não é compartilhado com outros computadores; limpar os dados do navegador apaga este histórico. Guarde os PDFs originais e exporte a conferência.</p>
   <div id="mi-status" role="status" aria-live="polite"></div><div id="mi-bancos" class="mi-bancos"></div><div id="mi-conferencia"></div>
-  <div class="mi-card"><label class="campo"><span>Adicionar minutas à competência da folha selecionada (PDF, até 15 MB por arquivo)</span><input id="mi-pdf" type="file" accept="application/pdf,.pdf" multiple disabled></label><p class="dica">O banco é identificado pelo conteúdo do PDF. A competência é a da folha, mesmo quando o pagamento ou a arrecadação ocorre no mês seguinte. As datas do PDF são preservadas e não definem a competência. PDFs sem texto precisam de OCR. O número mantém o tipo indicado na minuta: guia ou empenho.</p></div>
+  <div class="mi-card"><label class="campo"><span>Adicionar minutas à competência da folha selecionada (PDF, até 15 MB por arquivo)</span><input id="mi-pdf" type="file" accept="application/pdf,.pdf" multiple disabled></label><p class="dica">O banco é identificado pelo conteúdo do PDF, inclusive código de receita 21 para Caixa nas minutas de Frei Inocêncio. A competência é a da folha, mesmo quando o pagamento ou a arrecadação ocorre no mês seguinte. As datas do PDF são preservadas e não definem a competência. PDFs sem texto precisam de OCR. O número mantém o tipo indicado na minuta: guia ou empenho.</p></div>
   <div id="mi-arquivos"></div><h2>Conferir por banco ou desconto</h2><nav id="mi-abas" class="mi-abas" role="tablist" aria-label="Conferência por banco"><button type="button" data-aba="" role="tab" aria-selected="true">Visão geral</button>${DESTINOS.map(d=>`<button type="button" data-aba="${esc(d)}" role="tab" aria-selected="false">${esc(d)}</button>`).join('')}</nav><div class="mi-acoes"><label class="campo"><span>Banco / desconto</span><select id="mi-destino"><option value="">Todos</option>${DESTINOS.map(d=>`<option>${esc(d)}</option>`).join('')}<option>Não classificado</option></select></label><label class="campo"><span>Fonte</span><select id="mi-fonte"><option value="">Todas</option></select></label><label class="campo"><span>Buscar guia ou empenho</span><input id="mi-busca" type="search" placeholder="Ex.: 4041"></label><button class="btn btn-sec" id="mi-csv" disabled>Exportar CSV</button><button class="btn btn-sec" id="mi-print" disabled>Imprimir / PDF</button></div>
   <label><input type="checkbox" id="mi-revisado"> Conferi os documentos, as categorias e os avisos antes de exportar</label><div id="mi-resultado"></div></section>`;
   const $=s=>el.querySelector(s);
@@ -47,7 +47,7 @@ export function telaConsignacoes(el) {
     }).join('');
     $('#mi-conferencia').innerHTML=`<div class="mi-card"><strong>${c.conferido?'Quatro categorias conferem com os valores esperados':'Conferência pendente'}</strong><p>Total das quatro categorias: ${moeda(c.total)}${c.esperado===null?' · Informe os quatro valores esperados para comparar.':` · Esperado: ${moeda(c.esperado)} · Diferença: ${moeda(c.diferenca)}`}</p>${c.diferenca===0&&c.blocos.some(b=>b.diferenca!==0)?'<p class="mi-aviso">O total geral bate, mas há diferenças entre bancos. Confira os empenhos apontados abaixo.</p>':''}${c.naoClassificados.length?`<p class="mi-aviso">${c.naoClassificados.length} lançamento(s) não classificado(s). Se a minuta é de um banco só, selecione o banco no arquivo para corrigir a classificação.</p>`:''}</div>${hipoteses}`;
     $('#mi-abas').querySelectorAll('[data-aba]').forEach(b => b.setAttribute('aria-selected',String(b.dataset.aba===$('#mi-destino').value)));
-    $('#mi-arquivos').innerHTML=arquivos.map((a,i)=>`<details class="mi-card"><summary><strong>${esc(a.nome)}</strong> · ${a.resultado.registros.length} linhas · ${moeda(a.resultado.totalLido)}${a.resultado.avisos.length?' · Revisar avisos':''}</summary><p>Total do PDF: ${a.resultado.totalInformado===null?'Não identificado':moeda(a.resultado.totalInformado)}</p>${a.resultado.avisos.length?`<ul class="mi-aviso">${a.resultado.avisos.map(v=>`<li>${esc(v)}</li>`).join('')}</ul>`:''}<label class="campo"><span>Banco do arquivo (opcional, para PDF sem identificação)</span><select data-classificar="${i}"><option value="">Identificação automática</option>${DESTINOS.map(d=>`<option value="${esc(d)}" ${a.destinoForcado===d?'selected':''}>${esc(d)}</option>`).join('')}</select></label><small>Escolha manualmente apenas se todos os lançamentos deste PDF pertencerem ao mesmo banco/desconto. A descrição extraída será preservada para auditoria.</small><div class="mi-acoes"><button class="btn btn-sec" data-pdf="${i}">Baixar PDF original</button><button class="btn btn-sec" data-remover="${i}">Retirar deste mês</button></div></details>`).join('');
+    $('#mi-arquivos').innerHTML=arquivos.map((a,i)=>{ const pendentes=avisosPendentes(a); return `<details class="mi-card"><summary><strong>${esc(a.nome)}</strong> · ${a.resultado.registros.length} linhas · ${moeda(a.resultado.totalLido)}${pendentes.length?' · Revisar avisos':''}</summary><p>Total do PDF: ${a.resultado.totalInformado===null?'Não identificado':moeda(a.resultado.totalInformado)}</p>${pendentes.length?`<ul class="mi-aviso">${pendentes.map(v=>`<li>${esc(v)}</li>`).join('')}</ul>`:''}<label class="campo"><span>Banco do arquivo (opcional, para PDF sem identificação)</span><select data-classificar="${i}"><option value="">Identificação automática</option>${DESTINOS.map(d=>`<option value="${esc(d)}" ${a.destinoForcado===d?'selected':''}>${esc(d)}</option>`).join('')}</select></label><small>Escolha manualmente apenas se todos os lançamentos deste PDF pertencerem ao mesmo banco/desconto. A descrição extraída será preservada para auditoria.</small><div class="mi-acoes"><button class="btn btn-sec" data-pdf="${i}">Baixar PDF original</button><button class="btn btn-sec" data-remover="${i}">Retirar deste mês</button></div></details>`;}).join('');
     $('#mi-resultado').innerHTML=rs.length?`<div class="mi-card"><small>Detalhamento filtrado · ${rs.length} lançamentos</small><div class="mi-total">${moeda(rs.reduce((s,r)=>s+r.centavos,0))}</div></div>${tabela(agruparMinuta(rs))}`:'<div class="mi-card">Nenhum lançamento nesta seleção.</div>';
     el.querySelectorAll('[data-ver]').forEach(b=>b.onclick=()=>{$('#mi-destino').value=DESTINOS[Number(b.dataset.ver)];$('#mi-busca').value='';$('#mi-fonte').value='';render();$('#mi-resultado').scrollIntoView({behavior:'smooth'});});
     el.querySelectorAll('[data-salvar]').forEach(botao=>botao.onclick=async()=>{
@@ -66,7 +66,7 @@ export function telaConsignacoes(el) {
     el.querySelectorAll('[data-classificar]').forEach(select=>select.onchange=async()=>{
       if(ocupado)return;
       const i=Number(select.dataset.classificar), destino=select.value, a=arquivos[i];
-      const novo={...a,destinoForcado:destino,resultado:{...a.resultado,registros:a.resultado.registros.map(r=>({...r,destinoOriginal:r.destinoOriginal??r.destino,destino:destino||(r.destinoOriginal??r.destino)}))}};
+      const novo=classificarArquivo(a,destino);
       try{await gravar(arquivos.map((x,j)=>j===i?novo:x),esperados);}catch(e){status(e.message);render();}
     });
     travar(ocupado);
@@ -89,7 +89,11 @@ export function telaConsignacoes(el) {
   }
   async function carregar() {
     travar(true);erroCarga=false;arquivos=[];esperados={};revisao=0;atualizar();status('Carregando '+rotuloCompetencia(competencia)+'…');
-    try {const d=await carregarMes(uid,competencia);if(!ativo)return;arquivos=d.arquivos;esperados=d.esperados;revisao=d.revisao;status('Histórico local carregado.');}
+    try {const d=await carregarMes(uid,competencia);if(!ativo)return;arquivos=d.arquivos;esperados=d.esperados;revisao=d.revisao;
+      const processados=arquivos.map(reconhecerCodigoCaixaExistente);
+      const reconhecidos=processados.reduce((s,x)=>s+x.alterados,0);
+      if(reconhecidos){await gravar(processados.map(x=>x.arquivo),esperados);status(reconhecidos+' guia(s) com código 21 reconhecida(s) automaticamente como Caixa.');}
+      else status('Histórico local carregado.');}
     catch(e){erroCarga=true;status('Não foi possível abrir o histórico local. '+e.message);}
     finally{if(ativo){ocupado=false;atualizar();}}
   }

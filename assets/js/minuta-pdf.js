@@ -4,10 +4,16 @@ const normal = s => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').t
 export function identificarDestino(s) {
   const t = normal(s);
   if (/PENSAO\s+ALIMENT/.test(t)) return DESTINOS[3];
-  if (!/CONSIG|EMPRESTIMO/.test(t)) return '';
-  if (/SICOOB/.test(t)) return DESTINOS[1];
-  if (/BRADESCO/.test(t)) return DESTINOS[2];
-  if (/CAIXA|\bCEF\b/.test(t)) return DESTINOS[0];
+  // Prefere a descrição nominal se ela identificar o banco.
+  if (/CONSIG|EMPRESTIMO/.test(t)) {
+    if (/SICOOB/.test(t)) return DESTINOS[1];
+    if (/BRADESCO/.test(t)) return DESTINOS[2];
+    if (/CAIXA|\bCEF\b/.test(t)) return DESTINOS[0];
+  }
+  // Layout de minuta analítica de Frei Inocêncio: receita 2.1.3.01.00.00
+  // e especificação "21" identificam a Caixa Econômica Federal.
+  // O contexto é obrigatório: a ficha "00021" isolada não identifica o banco.
+  if (/\b2\.1\.3\.01\.00\.00\s+21(?=\s|$)/.test(t)) return DESTINOS[0];
   return '';
 }
 export function centavos(s) {

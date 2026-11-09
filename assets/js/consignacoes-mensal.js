@@ -1,4 +1,4 @@
-import { DESTINOS, centavos } from './minuta-pdf.js';
+import { DESTINOS, centavos, identificarDestino } from './minuta-pdf.js';
 export const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 export const competenciaValida = s => /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
 export function rotuloCompetencia(s) { return competenciaValida(s) ? `${MESES[Number(s.slice(5))-1]} de ${s.slice(0,4)}` : ''; }
@@ -14,6 +14,65 @@ export function vincularFolha(resultado, competencia) {
   if (!competenciaValida(competencia)) throw Error('Selecione uma competência válida para a folha.');
   return { ...resultado, competenciaFolha: competencia };
 }
+// Atualiza documentos já importados antes da identificação por código.
+// Mantém o PDF e os avisos históricos; a tela filtra avisos sanados.
+export function reconhecerCodigoCaixaExistente(arquivo) {
+  let alterados = 0;
+  const registros = (arquivo.resultado?.registros || []).map(r => {
+    if (r.destino) return r;
+    const destino = identificarDestino(r.descricao || '');
+    if (destino !== DESTINOS[0]) return r;
+    alterados++;
+    return { ...r, destinoOriginal: r.destinoOriginal ?? r.destino ?? '',
+      destino, origemClassificacao: 'codigo_receita_21' };
+  });
+  return { arquivo: alterados ? { ...arquivo, resultado: { ...arquivo.resultado, registros } } : arquivo, alterados };
+}
+
+// Alguns PDFs de consignação trazem somente um código de receita (ex.: "21").
+// O nome do banco não pode ser inferido desse código isoladamente: ele varia por ente/layout.
+// O nome do arquivo serve só de sugestão, nunca de confirmação automática.
+export function sugerirDestinoArquivo(nome, resultado) {
+  const registros = resultado?.registros || [];
+  if (!registros.length || !registros.some(r => !DESTINOS.includes(r.destino))) return '';
+  const nomeNormalizado = String(nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
+    .replace(/\.PDF$/i, '').replace(/[_\-.]+/g, ' ');
+  const opcoes = [
+    [/\b(?:CAIXA|CEF)\b/, DESTINOS[0]],
+    [/\bSICOOB\b/, DESTINOS[1]],
+    [/\bBRADESCO\b/, DESTINOS[2]],
+    [/\bPENSAO(?:\s+ALIMENTICIA)?\b/, DESTINOS[3]]
+  ].filter(([re]) => re.test(nomeNormalizado)).map(([, destino]) => destino);
+  if (opcoes.length !== 1) return '';
+  return registros.some(r => r.destino && r.destino !== opcoes[0]) ? '' : opcoes[0];
+}
+
+export function classificarArquivo(arquivo, destino) {
+  if (destino && !DESTINOS.includes(destino)) throw Error('Banco ou desconto inválido.');
+  return {
+    ...arquivo, destinoForcado: destino, origemClassificacao: destino ? 'confirmado_pelo_usuario' : '',
+    resultado: {
+      ...arquivo.resultado,
+      registros: arquivo.resultado.registros.map(r => ({
+        ...r,
+        destinoOriginal: r.destinoOriginal ?? r.destino ?? '',
+        destino: destino || (r.destinoOriginal ?? r.destino ?? '')
+      }))
+    }
+  };
+}
+
+// Avisos originais ficam preservados no histórico; avisos de classificação já
+// resolvidos não devem continuar aparecendo nem impedir a conferência mensal.
+export function avisosPendentes(arquivo) {
+  const classificados = new Set((arquivo.resultado?.registros || [])
+    .filter(r => DESTINOS.includes(r.destino)).map(r => r.numero));
+  return (arquivo.resultado?.avisos || []).filter(aviso => {
+    const m = String(aviso).match(/^(.+?): receita não classificada; confira antes de usar o resultado\.$/);
+    return !m || !classificados.has(m[1]);
+  });
+}
+
 // Investigação por documento completo: um mesmo empenho pode ter várias fontes.
 export function documentosParaConferencia(registros) {
   const mapa = new Map();
@@ -91,7 +150,7 @@ export function conferenciaMensal(arquivos, esperados = {}) {
   const naoClassificados = registros.filter(r=>!DESTINOS.includes(r.destino));
   return {blocos,trocas,investigacoes,naoClassificados,total:conhecidos, esperado:completo?blocos.reduce((s,b)=>s+b.esperado,0):null,
     diferenca:completo?blocos.reduce((s,b)=>s+b.diferenca,0):null,
-    conferido:completo && blocos.every(b=>b.arquivos>0 && b.diferenca===0) && !naoClassificados.length && !arquivos.some(a=>a.resultado.avisos.length)};
+    conferido:completo && blocos.every(b=>b.arquivos>0 && b.diferenca===0) && !naoClassificados.length && !arquivos.some(a=>avisosPendentes(a).length)};
 }
 // Histórico local separado por usuário e competência. PDFs ficam no IndexedDB, nunca no repositório.
 function abrir() {
