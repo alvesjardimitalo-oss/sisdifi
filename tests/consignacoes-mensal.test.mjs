@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { conferenciaMensal, vincularFolha, valorEsperado, rotuloCompetencia } from '../assets/js/consignacoes-mensal.js';
+import { conferenciaMensal, vincularFolha, valorEsperado, rotuloCompetencia, buscarDocumentosDaDiferenca, documentosParaConferencia } from '../assets/js/consignacoes-mensal.js';
 import { DESTINOS } from '../assets/js/minuta-pdf.js';
 const [caixa,sicoob,bradesco,pensao]=DESTINOS;
 const arquivo=(destino,valor,numero='2026/1-1')=>({nome:destino+'.pdf',resultado:{avisos:[],registros:[{destino,centavos:valor,numero,data:'28/08/2026',fonte:'1500',fonteCompleta:'1.500.000.0000'}]}});
@@ -25,3 +25,26 @@ assert.equal(agosto.registros[0].centavos,20000);
 assert.equal(vincularFolha({registros:[{data:'05/01/2027'}]},'2026-12').competenciaFolha,'2026-12');
 assert.equal(vincularFolha({registros:[{data:''}]},'2026-08').competenciaFolha,'2026-08');
 assert.throws(()=>vincularFolha(setembro,'2026-13'));
+
+// O mesmo empenho dividido entre fontes é um único candidato (não duas hipóteses).
+const registrosReais = [
+  {destino:sicoob,numero:'2026/51-1',tipo:'Empenho',arquivo:'Sicoob.pdf',data:'05/09/2026',fonte:'1500',fonteCompleta:'1.500.000.0000',centavos:12000},
+  {destino:sicoob,numero:'2026/51-1',tipo:'Empenho',arquivo:'Sicoob.pdf',data:'05/09/2026',fonte:'1540',fonteCompleta:'1.540.000.0000',centavos:8000},
+  {destino:sicoob,numero:'2026/52-1',tipo:'Empenho',arquivo:'Sicoob.pdf',data:'05/09/2026',fonte:'1500',fonteCompleta:'1.500.000.0000',centavos:5000},
+  {destino:sicoob,numero:'2026/53-1',tipo:'Empenho',arquivo:'Sicoob.pdf',data:'05/09/2026',fonte:'1500',fonteCompleta:'1.500.000.0000',centavos:7000}
+];
+const docs = documentosParaConferencia(registrosReais);
+assert.equal(docs.length,3);
+assert.equal(docs[0].centavos,20000);
+assert.deepEqual(docs[0].fontes,['1.500.000.0000','1.540.000.0000']);
+const simples=buscarDocumentosDaDiferenca(registrosReais,20000);
+assert.equal(simples[0][0].numero,'2026/51-1');
+assert.ok(simples.some(comb=>comb.length===1));
+const duplo=buscarDocumentosDaDiferenca(registrosReais,12000);
+assert.ok(duplo.some(comb=>comb.length===2 && comb.reduce((s,d)=>s+d.centavos,0)===12000));
+assert.equal(buscarDocumentosDaDiferenca(registrosReais,1).length,0);
+const comFonte=[{nome:'Sicoob.pdf',resultado:{avisos:[],registros:registrosReais}},
+ {nome:'CEF.pdf',resultado:{avisos:[],registros:[{...registrosReais[0],destino:caixa,arquivo:'CEF.pdf',centavos:10000}]}}];
+const inv=conferenciaMensal(comFonte,{[sicoob]:12000,[caixa]:18000});
+assert.ok(inv.investigacoes.some(v=>v.sobra===sicoob && v.falta===caixa && v.valor===8000));
+console.log('Diagnóstico: fontes agregadas por documento e hipóteses simples/combinadas aprovadas.');
