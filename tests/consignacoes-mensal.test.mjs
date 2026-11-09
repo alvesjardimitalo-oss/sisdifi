@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { conferenciaMensal, conferirCompetencia, valorEsperado, rotuloCompetencia } from '../assets/js/consignacoes-mensal.js';
+import { conferenciaMensal, vincularFolha, valorEsperado, rotuloCompetencia } from '../assets/js/consignacoes-mensal.js';
 import { DESTINOS } from '../assets/js/minuta-pdf.js';
 const [caixa,sicoob,bradesco,pensao]=DESTINOS;
 const arquivo=(destino,valor,numero='2026/1-1')=>({nome:destino+'.pdf',resultado:{avisos:[],registros:[{destino,centavos:valor,numero,data:'28/08/2026',fonte:'1500',fonteCompleta:'1.500.000.0000'}]}});
@@ -14,7 +14,14 @@ assert.equal(conferenciaMensal(arquivos,{...esperados,[caixa]:80000,[sicoob]:120
 assert.equal(conferenciaMensal([...arquivos,arquivo('',10)],esperados).naoClassificados.length,1);
 assert.equal(valorEsperado(''),null);assert.equal(valorEsperado('0'),0);assert.equal(valorEsperado('1.234,56'),123456);assert.throws(()=>valorEsperado('-10,00'));assert.throws(()=>valorEsperado('1.2'));
 assert.equal(rotuloCompetencia('2026-08'),'Agosto de 2026');
-assert.equal(conferirCompetencia(arquivos[0].resultado.registros,'2026-08').length,0);
-assert.equal(conferirCompetencia(arquivos[0].resultado.registros,'2025-08').length,1);
-assert.equal(conferirCompetencia([{data:''}],'2026-08').length,1);
 console.log('Conferência mensal: quatro categorias, valores esperados, trocas, pendências e competência aprovados.');
+
+// Folha de agosto paga em setembro: manter a referência e a data original.
+const setembro={registros:[{data:'05/09/2026',centavos:20000}],avisos:[]};
+const agosto=vincularFolha(setembro,'2026-08');
+assert.equal(agosto.competenciaFolha,'2026-08');
+assert.equal(agosto.registros[0].data,'05/09/2026');
+assert.equal(agosto.registros[0].centavos,20000);
+assert.equal(vincularFolha({registros:[{data:'05/01/2027'}]},'2026-12').competenciaFolha,'2026-12');
+assert.equal(vincularFolha({registros:[{data:''}]},'2026-08').competenciaFolha,'2026-08');
+assert.throws(()=>vincularFolha(setembro,'2026-13'));

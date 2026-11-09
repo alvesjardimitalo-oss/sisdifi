@@ -9,8 +9,10 @@ export function valorEsperado(s) {
   if (n < 0) throw Error('O total esperado não pode ser negativo.');
   return n;
 }
-export function conferirCompetencia(registros, competencia) {
-  return registros.filter(r => !/^\d{2}\/\d{2}\/\d{4}$/.test(r.data) || `${r.data.slice(6)}-${r.data.slice(3,5)}` !== competencia);
+// A competência é declarada pelo usuário; a arrecadação pode ocorrer em outro mês/ano.
+export function vincularFolha(resultado, competencia) {
+  if (!competenciaValida(competencia)) throw Error('Selecione uma competência válida para a folha.');
+  return { ...resultado, competenciaFolha: competencia };
 }
 export function conferenciaMensal(arquivos, esperados = {}) {
   const registros = arquivos.flatMap(a => a.resultado.registros.map(r => ({...r, arquivo:a.nome})));

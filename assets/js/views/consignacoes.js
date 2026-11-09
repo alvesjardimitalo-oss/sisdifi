@@ -1,7 +1,7 @@
 import { esc } from '../ui.js';
 import { pode, estado } from '../estado.js';
 import { DESTINOS, extrairMinuta, agruparMinuta } from '../minuta-pdf.js';
-import { MESES, rotuloCompetencia, valorEsperado, conferirCompetencia, conferenciaMensal, carregarMes, salvarMes } from '../consignacoes-mensal.js';
+import { MESES, rotuloCompetencia, valorEsperado, vincularFolha, conferenciaMensal, carregarMes, salvarMes } from '../consignacoes-mensal.js';
 const moeda = c => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 export function telaConsignacoes(el) {
   if (!pode.contabil()) return { titulo: 'Acesso restrito' };
@@ -11,11 +11,11 @@ export function telaConsignacoes(el) {
   const urls=new Set();
   el.innerHTML=`<style>
   .minuta .mi-acoes{display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin:16px 0}.minuta .mi-card{border:1px solid #dce3ed;border-radius:12px;padding:20px;margin:16px 0;background:#fff}.minuta .mi-total{font-size:1.6rem;font-weight:700;color:#174665}.minuta .mi-tabela{overflow:auto}.minuta table{width:100%;border-collapse:collapse}.minuta th,.minuta td{padding:10px;text-align:left;border-bottom:1px solid #e2e8f0}.minuta .mi-valor{text-align:right;white-space:nowrap}.minuta .mi-aviso{background:#fff7df;padding:14px;border-radius:8px;margin:10px 0}.minuta select{max-width:100%}.minuta summary{cursor:pointer}.minuta small{display:block;color:#526174}.minuta .mi-bancos{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}.minuta .mi-bancos .mi-card{margin:0}.minuta .mi-diferenca{font-weight:700;color:#a3430c}.minuta .mi-ok{color:#14673c}.minuta input[type=search]{min-width:220px}
-  </style><section class="minuta"><h1>Conferência mensal de consignações</h1><p>Selecione o mês, importe as minutas e confira os três bancos e a pensão alimentícia.</p>
-  <div class="mi-acoes"><label class="campo"><span>Mês</span><select id="mi-mes">${MESES.map((m,i)=>`<option value="${String(i+1).padStart(2,'0')}">${m}</option>`).join('')}</select></label><label class="campo"><span>Ano</span><input id="mi-ano" type="number" min="2000" max="2100" step="1" style="width:110px"></label><strong id="mi-competencia"></strong></div>
+  </style><section class="minuta"><h1>Conferência mensal de consignações</h1><p>Selecione a competência da folha, importe as minutas e confira os três bancos e a pensão alimentícia.</p>
+  <div class="mi-acoes"><label class="campo"><span>Mês da folha</span><select id="mi-mes">${MESES.map((m,i)=>`<option value="${String(i+1).padStart(2,'0')}">${m}</option>`).join('')}</select></label><label class="campo"><span>Ano da folha</span><input id="mi-ano" type="number" min="2000" max="2100" step="1" style="width:110px"></label><strong id="mi-competencia"></strong></div>
   <p class="dica">Histórico salvo neste navegador e nesta conta do SISDIFI. Não é compartilhado com outros computadores; limpar os dados do navegador apaga este histórico. Guarde os PDFs originais e exporte a conferência.</p>
   <div id="mi-status" role="status" aria-live="polite"></div><div id="mi-bancos" class="mi-bancos"></div><div id="mi-conferencia"></div>
-  <div class="mi-card"><label class="campo"><span>Adicionar minutas ao mês selecionado (PDF, até 15 MB por arquivo)</span><input id="mi-pdf" type="file" accept="application/pdf,.pdf" multiple disabled></label><p class="dica">O banco é identificado pelo conteúdo do PDF. Arquivos de outro mês são recusados. PDFs sem texto precisam de OCR. O número mantém o tipo indicado na minuta: guia ou empenho.</p></div>
+  <div class="mi-card"><label class="campo"><span>Adicionar minutas à competência da folha selecionada (PDF, até 15 MB por arquivo)</span><input id="mi-pdf" type="file" accept="application/pdf,.pdf" multiple disabled></label><p class="dica">O banco é identificado pelo conteúdo do PDF. A competência é a da folha, mesmo quando o pagamento ou a arrecadação ocorre no mês seguinte. As datas do PDF são preservadas e não definem a competência. PDFs sem texto precisam de OCR. O número mantém o tipo indicado na minuta: guia ou empenho.</p></div>
   <div id="mi-arquivos"></div><div class="mi-acoes"><label class="campo"><span>Destino</span><select id="mi-destino"><option value="">Todos</option>${DESTINOS.map(d=>`<option>${esc(d)}</option>`).join('')}<option>Não classificado</option></select></label><label class="campo"><span>Fonte</span><select id="mi-fonte"><option value="">Todas</option></select></label><label class="campo"><span>Buscar guia ou empenho</span><input id="mi-busca" type="search" placeholder="Ex.: 4041"></label><button class="btn btn-sec" id="mi-csv" disabled>Exportar CSV</button><button class="btn btn-sec" id="mi-print" disabled>Imprimir / PDF</button></div>
   <label><input type="checkbox" id="mi-revisado"> Conferi os documentos, as categorias e os avisos antes de exportar</label><div id="mi-resultado"></div></section>`;
   const $=s=>el.querySelector(s);
@@ -30,7 +30,7 @@ export function telaConsignacoes(el) {
     $('#mi-csv').disabled=$('#mi-print').disabled=valor||!filtrados().length||!$('#mi-revisado').checked;
   }
   function tabela(grupos) {
-    return grupos.map(g=>`<section class="mi-card"><h3>${esc(g.destino)} · Fonte ${esc(g.fonte)}</h3><div class="mi-tabela"><table><thead><tr><th>Tipo / Número</th><th>Data</th><th>Fonte completa</th><th>Arquivo / página</th><th class="mi-valor">Valor</th></tr></thead><tbody>${g.registros.map(r=>`<tr><td>${esc(r.tipo)} ${esc(r.numero)}</td><td>${esc(r.data)}</td><td>${esc(r.fonteCompleta)}<small>${esc(r.fonteNome)}</small></td><td>${esc(r.arquivo)} · p. ${r.pagina}</td><td class="mi-valor">${moeda(r.centavos)}</td></tr>`).join('')}</tbody><tfoot><tr><th colspan="4">Total da fonte ${esc(g.fonte)}</th><th class="mi-valor">${moeda(g.total)}</th></tr></tfoot></table></div></section>`).join('');
+    return grupos.map(g=>`<section class="mi-card"><h3>${esc(g.destino)} · Fonte ${esc(g.fonte)}</h3><div class="mi-tabela"><table><thead><tr><th>Tipo / Número</th><th>Data da arrecadação</th><th>Fonte completa</th><th>Arquivo / página</th><th class="mi-valor">Valor</th></tr></thead><tbody>${g.registros.map(r=>`<tr><td>${esc(r.tipo)} ${esc(r.numero)}</td><td>${esc(r.data)}</td><td>${esc(r.fonteCompleta)}<small>${esc(r.fonteNome)}</small></td><td>${esc(r.arquivo)} · p. ${r.pagina}</td><td class="mi-valor">${moeda(r.centavos)}</td></tr>`).join('')}</tbody><tfoot><tr><th colspan="4">Total da fonte ${esc(g.fonte)}</th><th class="mi-valor">${moeda(g.total)}</th></tr></tfoot></table></div></section>`).join('');
   }
   function resumo(c) {
     return `<h2>${esc(rotuloCompetencia(competencia))}</h2><table><thead><tr><th>Destino</th><th>Importado</th><th>Esperado</th><th>Diferença</th></tr></thead><tbody>${c.blocos.map(b=>`<tr><td>${esc(b.destino)}${b.arquivos?'':' — arquivo pendente'}</td><td>${moeda(b.total)}</td><td>${b.esperado===null?'Não informado':moeda(b.esperado)}</td><td>${b.diferenca===null?'—':moeda(b.diferenca)}</td></tr>`).join('')}</tbody></table>`;
@@ -97,10 +97,8 @@ export function telaConsignacoes(el) {
           if(!/\.pdf$/i.test(file.name)||file.size>15*1024*1024)throw Error('Selecione um PDF de até 15 MB.');
           const data=await file.arrayBuffer(),hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',data))].map(b=>b.toString(16).padStart(2,'0')).join('');
           if(novos.some(a=>a.hash===hash))throw Error('Este PDF já está neste mês; cópia ignorada.');
-          const resultado=await extrairMinuta(data);
+          const resultado=vincularFolha(await extrairMinuta(data),competencia);
           if(!resultado.registros.length)throw Error('Nenhum lançamento reconhecido. Confira o layout e se o PDF possui texto.');
-          const fora=conferirCompetencia(resultado.registros,competencia);
-          if(fora.length)throw Error(`${fora.length} lançamento(s) com data fora de ${rotuloCompetencia(competencia)} ou sem data. Selecione a competência correta; para PDFs com vários meses, gere uma minuta por mês.`);
           const chaves=new Set(novos.flatMap(a=>a.resultado.registros).map(r=>[r.data,r.numero,r.fonteCompleta,r.destino,r.centavos].join('|')));
           if(resultado.registros.some(r=>chaves.has([r.data,r.numero,r.fonteCompleta,r.destino,r.centavos].join('|'))))resultado.avisos.push('Há lançamentos iguais em outro PDF deste mês. Confira a sobreposição antes de usar os totais.');
           novos.push({nome:file.name,hash,resultado,pdf:file});
@@ -116,10 +114,10 @@ export function telaConsignacoes(el) {
   function baixar(blob,nome){const url=URL.createObjectURL(blob);urls.add(url);const a=document.createElement('a');a.href=url;a.download=nome;a.click();setTimeout(()=>{URL.revokeObjectURL(url);urls.delete(url);},1000);}
   $('#mi-csv').onclick=()=>{
     const cell=s=>'"'+String(s??'').replace(/^[=+@-]/,"'"+'$&').replace(/"/g,'""')+'"';
-    const linhas=[['Competência',competencia],['Conferência mensal (todos os lançamentos)'],['Destino','Importado','Esperado','Diferença','Arquivos']];
+    const linhas=[['Competência da folha',competencia],['Conferência mensal (todos os lançamentos)'],['Destino','Importado','Esperado','Diferença','Arquivos']];
     const c=conferenciaMensal(arquivos,esperados),num=n=>n===null?'':(n/100).toFixed(2).replace('.',',');
     for(const b of c.blocos)linhas.push([b.destino,num(b.total),num(b.esperado),num(b.diferenca),b.arquivos]);
-    linhas.push([],['Detalhamento conforme filtros'],['Destino','Tipo','Número','Data','Fonte','Fonte completa','Valor','Arquivo','Página']);
+    linhas.push([],['Detalhamento conforme filtros'],['Destino','Tipo','Número','Data da arrecadação','Fonte','Fonte completa','Valor','Arquivo','Página']);
     for(const g of agruparMinuta(filtrados())){
       for(const r of g.registros)linhas.push([g.destino,r.tipo,r.numero,r.data,r.fonte,r.fonteCompleta,num(r.centavos),r.arquivo,r.pagina]);
       linhas.push([g.destino,'TOTAL DA FONTE','','',g.fonte,'',num(g.total)]);

@@ -2,7 +2,7 @@
 
 Menu **Consignações por mês**, restrito a Administrador e Contabilidade (`admin`/`operador`). Rota `#/consignacoes`.
 
-Selecione mês e ano. Cada competência exibe quatro categorias fixas: Caixa Econômica Federal, Sicoob, Bradesco e pensão alimentícia. Importe uma ou mais minutas analíticas com texto (PDF, até 15 MB por arquivo); o destino é extraído da descrição da receita. PDFs com registros sem data ou de outra competência são recusados integralmente, sem inclusão parcial. Relatórios com vários meses devem ser gerados separadamente na origem.
+Selecione mês e ano da folha. Cada competência exibe quatro categorias fixas: Caixa Econômica Federal, Sicoob, Bradesco e pensão alimentícia. Importe uma ou mais minutas analíticas com texto (PDF, até 15 MB por arquivo); o destino é extraído da descrição da receita. A competência é informada pelo usuário e independe da data de arrecadação do PDF: folha de agosto paga em setembro permanece em agosto; dezembro pago em janeiro permanece no ano da folha. As datas originais são preservadas na coluna Data da arrecadação. A importação não deduz, bloqueia ou desloca a competência a partir dessas datas. Se um PDF reunir várias folhas, separe os relatórios na origem antes de vinculá-los.
 
 Informe o total esperado em cada categoria e clique em **Salvar valor**. O sistema exibe importado menos esperado: positivo = sobra; negativo = falta. Campo vazio significa não informado, diferente de zero. Os quatro blocos continuam mostrando arquivo pendente até receber lançamentos, mesmo com valor esperado zero. O resumo mensal independe dos filtros da tabela.
 
@@ -14,4 +14,4 @@ Números são preservados conforme o cabeçalho: Guia ou Empenho. A leitura supo
 
 CSV e impressão incluem o resumo mensal completo e o detalhamento conforme os filtros. Exportação depende da confirmação de revisão pelo usuário. A identificação real foi validada com minuta Sicoob; demais destinos têm testes sintéticos e precisam de amostras para homologar novos layouts. PDFs reais não são incluídos no repositório.
 
-Testes: `node tests/minuta-pdf.test.mjs` e `node tests/consignacoes-mensal.test.mjs`. Validação adicional em navegador: importar agosto, salvar esperados, identificar sobra/falta coincidente, recarregar mantendo histórico, buscar número e recusar minuta de agosto em setembro. IndexedDB validado com isolamento por mês/UID, preservação de Blob e conflito de revisão.
+Testes: `node tests/minuta-pdf.test.mjs` e `node tests/consignacoes-mensal.test.mjs`. Validação adicional em navegador: importar agosto, salvar esperados, identificar sobra/falta coincidente, recarregar mantendo histórico, buscar número e vincular pagamentos de outro mês à competência escolhida. IndexedDB validado com isolamento por mês/UID, preservação de Blob e conflito de revisão.
