@@ -153,6 +153,7 @@ async function telaLogin() {
       <button class="btn btn-sec btn-bloco btn-google" type="button" id="google">${ICONE_GOOGLE} Entrar com Google</button>
       <button class="link" type="button" id="esqueci">Esqueci minha senha</button>
       <p class="rodape-login">Acesso restrito a usuários autorizados pela administração.</p>
+      <p class="credito-tecnologia">Tecnologia <a href="https://italoinfotec.com.br/" target="_blank" rel="noopener noreferrer">Ítalo InfoTec</a></p>
     </form></div>`;
   const form = $('#form-login');
   form.onsubmit = async e => {
@@ -431,6 +432,7 @@ function montarLayout() {
         </nav>
         <div class="lateral-usuario"><a href="#/conta">${esc(s.nome)}<small>${esc(PERFIS[s.perfil] || s.perfil)}</small></a></div>
         <div class="versao">v${VERSAO}</div>
+        <div class="credito-tecnologia credito-menu">Tecnologia <a href="https://italoinfotec.com.br/" target="_blank" rel="noopener noreferrer">Ítalo InfoTec</a></div>
       </aside>
       <div class="veu" id="veu" hidden></div>
       <div class="principal">
