@@ -1,4 +1,4 @@
-import { DESTINOS, centavos } from './minuta-pdf.js';
+import { DESTINOS, centavos, identificarDestino } from './minuta-pdf.js';
 export const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 export const competenciaValida = s => /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
 export function rotuloCompetencia(s) { return competenciaValida(s) ? `${MESES[Number(s.slice(5))-1]} de ${s.slice(0,4)}` : ''; }
@@ -14,6 +14,21 @@ export function vincularFolha(resultado, competencia) {
   if (!competenciaValida(competencia)) throw Error('Selecione uma competência válida para a folha.');
   return { ...resultado, competenciaFolha: competencia };
 }
+// Atualiza documentos já importados antes da identificação por código.
+// Mantém o PDF e os avisos históricos; a tela filtra avisos sanados.
+export function reconhecerCodigoCaixaExistente(arquivo) {
+  let alterados = 0;
+  const registros = (arquivo.resultado?.registros || []).map(r => {
+    if (r.destino) return r;
+    const destino = identificarDestino(r.descricao || '');
+    if (destino !== DESTINOS[0]) return r;
+    alterados++;
+    return { ...r, destinoOriginal: r.destinoOriginal ?? r.destino ?? '',
+      destino, origemClassificacao: 'codigo_receita_21' };
+  });
+  return { arquivo: alterados ? { ...arquivo, resultado: { ...arquivo.resultado, registros } } : arquivo, alterados };
+}
+
 // Alguns PDFs de consignação trazem somente um código de receita (ex.: "21").
 // O nome do banco não pode ser inferido desse código isoladamente: ele varia por ente/layout.
 // O nome do arquivo serve só de sugestão, nunca de confirmação automática.
