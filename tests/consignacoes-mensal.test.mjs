@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { conferenciaMensal, vincularFolha, valorEsperado, rotuloCompetencia, buscarDocumentosDaDiferenca, documentosParaConferencia } from '../assets/js/consignacoes-mensal.js';
+import { conferenciaMensal, vincularFolha, valorEsperado, rotuloCompetencia, buscarDocumentosDaDiferenca, documentosParaConferencia, reconhecerCodigoCaixaExistente, avisosPendentes, classificarArquivo } from '../assets/js/consignacoes-mensal.js';
 import { DESTINOS } from '../assets/js/minuta-pdf.js';
 const [caixa,sicoob,bradesco,pensao]=DESTINOS;
 const arquivo=(destino,valor,numero='2026/1-1')=>({nome:destino+'.pdf',resultado:{avisos:[],registros:[{destino,centavos:valor,numero,data:'28/08/2026',fonte:'1500',fonteCompleta:'1.500.000.0000'}]}});
@@ -48,3 +48,21 @@ const comFonte=[{nome:'Sicoob.pdf',resultado:{avisos:[],registros:registrosReais
 const inv=conferenciaMensal(comFonte,{[sicoob]:12000,[caixa]:18000});
 assert.ok(inv.investigacoes.some(v=>v.sobra===sicoob && v.falta===caixa && v.valor===8000));
 console.log('Diagnóstico: fontes agregadas por documento e hipóteses simples/combinadas aprovadas.');
+
+const legadoCaixa = {
+  nome:'caixa.pdf', resultado: {
+    avisos:['2026/4001-1: receita não classificada; confira antes de usar o resultado.'],
+    registros:[{numero:'2026/4001-1',destino:'',descricao:'00021 2.1.3.01.00.00 21 2.549,99',fonte:'1500',fonteCompleta:'1.500.000.0000',centavos:254999}]
+  }
+};
+const corrigido = reconhecerCodigoCaixaExistente(legadoCaixa);
+assert.equal(corrigido.alterados,1);
+assert.equal(corrigido.arquivo.resultado.registros[0].destino,caixa);
+assert.equal(avisosPendentes(corrigido.arquivo).length,0);
+assert.equal(legadoCaixa.resultado.registros[0].destino,''); // Histórico bruto original intacto
+assert.equal(reconhecerCodigoCaixaExistente(corrigido.arquivo).alterados,0);
+assert.equal(conferenciaMensal([corrigido.arquivo],{}).naoClassificados.length,0);
+const confirmadoManual=classificarArquivo(legadoCaixa,caixa);
+assert.equal(avisosPendentes(confirmadoManual).length,0);
+assert.equal(classificarArquivo(confirmadoManual,'').resultado.registros[0].destino,'');
+console.log('Arquivo Caixa já importado reconhecido, com avisos resolvidos.');
