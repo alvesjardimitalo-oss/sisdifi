@@ -1,0 +1,63 @@
+name: Folha de pagamentos — testes
+on:
+  push:
+    paths:
+      - 'assets/js/folha-empenhos.js'
+      - 'assets/js/folha-maternidade.js'
+      - 'assets/js/folha-empenhos-pdf.js'
+      - 'assets/js/folha-empenhos-store.js'
+      - 'assets/js/folha-empenhos-xlsx.js'
+      - 'assets/js/views/folha-empenhos.js'
+      - 'assets/js/app.js'
+      - 'tests/folha-empenhos.test.mjs'
+      - '.github/workflows/folha-empenhos-check.yml'
+  pull_request:
+    paths:
+      - 'assets/js/folha-empenhos.js'
+      - 'assets/js/folha-maternidade.js'
+      - 'assets/js/folha-empenhos-pdf.js'
+      - 'assets/js/folha-empenhos-store.js'
+      - 'assets/js/folha-empenhos-xlsx.js'
+      - 'assets/js/views/folha-empenhos.js'
+      - 'assets/js/app.js'
+      - 'tests/folha-empenhos.test.mjs'
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: |
+          node --check assets/js/folha-empenhos.js
+          node --check assets/js/folha-maternidade.js
+          node --check assets/js/folha-empenhos-pdf.js
+          node --check assets/js/folha-empenhos-store.js
+          node --check assets/js/folha-empenhos-xlsx.js
+          node --check assets/js/views/folha-empenhos.js
+          node --check assets/js/app.js
+      - run: node tests/folha-empenhos.test.mjs
+      - name: Conferir planilha XLSX e fórmulas OpenXML
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          import zipfile
+          caminho=Path('/tmp/sisdifi-folha-teste.xlsx')
+          assert caminho.exists()
+          with zipfile.ZipFile(caminho) as z:
+              assert z.testzip() is None
+              nomes=z.namelist()
+              assert 'xl/workbook.xml' in nomes
+              folhas=[x for x in nomes if x.startswith('xl/worksheets/sheet') and x.endswith('.xml')]
+              assert len(folhas)==5,folhas
+              base=z.read('xl/workbook.xml').decode()
+              assert 'Empenhos' in base and 'Composição' in base and 'OPs Extras' in base
+              folha=z.read('xl/worksheets/sheet1.xml').decode()
+              assert '<f>SUM(J3:P3)</f>' in folha
+              assert '<f>Q3-R3</f>' in folha
+              assert '<f>Q3-T3</f>' in folha
+              ET.fromstring(folha)
+              ET.fromstring(z.read('xl/worksheets/sheet2.xml'))
+          print('Planilha XLSX íntegra, 5 abas e fórmulas corretas.')
+          PY
