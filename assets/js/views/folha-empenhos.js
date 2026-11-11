@@ -33,7 +33,7 @@ export function telaFolhaEmpenhos(el){
   const uid=estado.sessao?.uid;
   let competencia=new Date().getFullYear()+'-'+String(new Date().getMonth()+1).padStart(2,'0');
   let primeiro=5000,arquivos={},pessoas=[],mapa={},aprovouMapa=false,aprovouConsignados=false;
-  let minutas=[],alertas=[],origemIndividual='',filtro='todos',carregando=false,ativa=true,filaDeSalvamento=Promise.resolve();
+  let minutas=[],alertas=[],origemIndividual='',filtro='todos',visao='composicao',carregando=false,ativa=true,filaDeSalvamento=Promise.resolve();
   const $=sel=>el.querySelector(sel);
   const estilo='<style>'+
     '.fe{max-width:1350px;margin:0 auto;color:#233e58}.fe h1{color:#174366;font-size:1.55rem;margin:0 0 8px}.fe h2{font-size:1.12rem;color:#174366;margin:0 0 12px}'+
@@ -76,10 +76,13 @@ export function telaFolhaEmpenhos(el){
       '<p class="fe-muted">Consulta as minutas já lidas na aba Consignações por mês, neste mesmo navegador e conta. A comparação automática é por total de cada banco, não garante por si só a lotação de cada guia.</p>'+
       '<div class="fe-actions"><button class="btn btn-sec" type="button" id="fe-buscar-minutas">Consultar minutas</button>'+
       '<label><input type="checkbox" id="fe-confirmar-bancos"> Conferi também a distribuição dos descontos por empenho</label></div><div id="fe-bancos"></div></section>'+
-    '<section class="fe-card"><div class="fe-actions"><h2>5 · Empenhos gerados</h2>'+
+    '<section class="fe-card"><div class="fe-actions"><h2>5 · Empenhos gerados</h2>'+ 
+      '<label class="campo"><span>Visualização</span><select id="fe-visao"><option value="composicao">Composição dos descontos</option><option value="resumo">Bruto, líquido, ficha e fonte</option></select></label>'+
       '<button class="btn btn-sec" type="button" id="fe-rascunho">Baixar rascunho XLSX</button>'+
       '<button class="btn" type="button" id="fe-final" disabled>Baixar planilha conferida XLSX</button></div>'+
-      '<div id="fe-kpis" class="fe-kpis"></div><div id="fe-pendencias"></div><div class="fe-scroll" id="fe-tabela"></div><div id="fe-extras"></div>'+
+      '<div id="fe-kpis" class="fe-kpis"></div><div id="fe-pendencias"></div>'+ 
+      '<p class="fe-muted">Uma linha por empenho. A composição mostra Caixa, Sicoob, Bradesco, pensões, INSS, IRRF e demais descontos, com rubricas originais e conferência da soma.</p>'+ 
+      '<div class="fe-scroll" id="fe-tabela"></div><div id="fe-extras"></div>'+
       '<p class="fe-muted">Dados armazenados no navegador, separados pela conta. A planilha contém fórmulas de líquido para a Contabilidade conferir e preencher a liquidação no sistema oficial.</p>'+
     '</section></div>';
   const status=t=>{$('#fe-status').textContent=t;};
@@ -181,6 +184,7 @@ export function telaFolhaEmpenhos(el){
       (!minutas.length?'<p class="fe-alert">Sem minutas carregadas. Consulte a competência correspondente.</p>':'')+
       '<p class="fe-muted">A igualdade do total por banco não prova que cada guia está vinculada à lotação correta.</p>';
     const registros=p.empenhos.filter(e=>filtro==='todos'||filtro==='pendentes'&&e.problemas.length||e.tipo===filtro);
+    if(visao==='resumo'){
     $('#fe-tabela').innerHTML='<table><thead><tr><th>Empenho</th><th>Grupo</th><th>Secretaria</th><th>Vínculo</th><th>Lotação</th><th>Ficha</th><th>Fonte</th><th>Conta</th><th class="fe-money">Bruto</th><th class="fe-money">Desconto RH</th><th class="fe-money">INSS extra</th><th class="fe-money">Líquido</th><th>Pendências</th></tr></thead><tbody>'+
       registros.map(r=>{
         const m=mapa[r.id]||mapa[r.lotacao]||{};
@@ -193,6 +197,28 @@ export function telaFolhaEmpenhos(el){
         '<td class="fe-money">'+dinheiroFolha(r.maisInssExtra)+'</td><td class="fe-money"><strong>'+dinheiroFolha(r.liquido||0)+'</strong></td>'+
         '<td class="fe-status">'+esc(r.problemas.join('; ')||'Pronto para conferir')+'</td></tr>';
       }).join('')+'</tbody></table>';
+    }else{
+      const cabecalhos=['Empenho','Secretaria / vínculo','Lotação','Caixa','Sicoob','Bradesco','Pensão',
+        'INSS','Imposto de Renda','Outros','Soma das rubricas','Desconto do RH','Diferença','Rubricas de origem'];
+      const linhas=registros.map(r=>{
+        const c=r.composicao||{};
+        const detalhes=(r.rubricasDesconto||[]).map(v=>
+          '<li><strong>'+esc(v.codigo)+' — '+esc(v.descricao)+'</strong> · '+esc(v.categoria)+
+          ' · '+dinheiroFolha(v.valor)+' <small>(p. '+esc(v.pagina||r.pagina)+')</small></li>').join('');
+        return '<tr><td><strong>'+r.empenho+'</strong></td><td>'+esc(r.secretaria)+'<br><small>'+esc(r.vinculo)+'</small></td><td>'+esc(r.lotacao)+'</td>'+
+          ['Caixa','Sicoob','Bradesco','Pensao','INSS','IRRF','Outros'].map(cat=>
+            '<td class="fe-money">'+dinheiroFolha(c[cat]||0)+'</td>').join('')+
+          '<td class="fe-money"><strong>'+dinheiroFolha(r.composicaoTotal||0)+'</strong></td>'+
+          '<td class="fe-money">'+dinheiroFolha(r.descontoRH||0)+'</td>'+
+          '<td class="fe-money" style="'+(r.diferencaComposicao?'color:#b53c30;font-weight:700':'color:#287746')+'">'+
+          (r.diferencaComposicao==null?'Pendente':dinheiroFolha(r.diferencaComposicao))+'</td>'+
+          '<td><details><summary>Ver ('+(r.rubricasDesconto||[]).length+')</summary>'+
+          '<ul style="min-width:270px;padding-left:18px">'+(detalhes||'<li>Não foi identificado o bloco de descontos do RH.</li>')+
+          '</ul><small>Origem: '+esc(r.arquivo)+' · lotação '+esc(r.lotacao)+'</small></details></td></tr>';
+      }).join('');
+      $('#fe-tabela').innerHTML='<table><thead><tr>'+cabecalhos.map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+
+        (linhas||'<tr><td colspan="14">Nenhum empenho neste filtro.</td></tr>')+'</tbody></table>';
+    }
     $('#fe-tabela').querySelectorAll('[data-ref]').forEach(input=>input.onchange=()=>{
       const k=input.dataset.ref,campo=input.dataset.campo;
       mapa[k]={...(mapa[k]||{}),[campo]:input.value.trim()};
@@ -243,6 +269,7 @@ export function telaFolhaEmpenhos(el){
     primeiro=v;persistir();render();
   };
   $('#fe-filtro').onchange=e=>{filtro=e.target.value;render();};
+  $('#fe-visao').onchange=e=>{visao=e.target.value;render();};
   $('#fe-confirmar-mapa').onchange=e=>{aprovouMapa=e.target.checked;persistir();render();};
   $('#fe-confirmar-bancos').onchange=e=>{aprovouConsignados=e.target.checked;persistir();render();};
   $('#fe-baixar-mapa').onclick=()=>{
