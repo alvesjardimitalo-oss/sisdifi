@@ -13,7 +13,7 @@ export function criarZIP(arquivos){
   const parts=[],entries=[];let offset=0;
   for(const [nome,conteudo] of arquivos){
     const fileName=bytes(nome),data=typeof conteudo==='string'?bytes(conteudo):conteudo,crc=crc32(data),local=[];
-    p32(local,0x04034b50);p16(local,20);p16(local,0);p16(local,0);p16(local,0);p16(local,0);
+    p32(local,0x04034b50);p16(local,20);p16(local,0);p16(local,0);p16(local,0);p16(local,0x21);
     p32(local,crc);p32(local,data.length);p32(local,data.length);p16(local,fileName.length);p16(local,0);
     const part=new Uint8Array([...local,...fileName,...data]);parts.push(part);
     entries.push({fileName,data,crc,offset});offset+=part.length;
@@ -21,7 +21,7 @@ export function criarZIP(arquivos){
   const central=[];
   for(const r of entries){
     p32(central,0x02014b50);p16(central,20);p16(central,20);p16(central,0);p16(central,0);
-    p16(central,0);p16(central,0);p32(central,r.crc);p32(central,r.data.length);p32(central,r.data.length);
+    p16(central,0);p16(central,0x21);p32(central,r.crc);p32(central,r.data.length);p32(central,r.data.length);
     p16(central,r.fileName.length);p16(central,0);p16(central,0);p16(central,0);p16(central,0);
     p32(central,0);p32(central,r.offset);central.push(...r.fileName);
   }
@@ -36,7 +36,7 @@ function letra(ind){
 function celula(v,col,row,header=false){
   const ref=letra(col)+row;
   if(v==null||v==='')return '<c r="'+ref+'"/>';
-  if(typeof v==='object'&&v.formula)return '<c r="'+ref+'" s="'+(v.moeda?2:0)+'"><f>'+xml(v.formula.replace(/^=/,''))+'</f><v>0</v></c>';
+  if(typeof v==='object'&&v.formula)return '<c r="'+ref+'" s="'+(v.moeda?2:0)+'"><f>'+xml(v.formula.replace(/^=/,''))+'</f><v>'+(Number(v.cache||0)/100).toFixed(2)+'</v></c>';
   if(typeof v==='object'&&v.centavos!=null)return '<c r="'+ref+'" s="2"><v>'+(v.centavos/100).toFixed(2)+'</v></c>';
   if(typeof v==='number'&&Number.isFinite(v))return '<c r="'+ref+'" s="0"><v>'+v+'</v></c>';
   return '<c r="'+ref+'" s="'+(header?1:0)+'" t="inlineStr"><is><t xml:space="preserve">'+xml(v)+'</t></is></c>';
@@ -55,7 +55,7 @@ export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',co
     const n=emp.length+1;
     emp.push([r.empenho,{principal:'Folha principal',decimo:'Adiantamento 13º',rescisao:'Rescisões'}[r.tipo],r.secretaria,r.vinculo,r.lotacao,
       r.ficha,r.fonte,r.conta,r.bruto==null?'':{centavos:r.bruto},r.descontoRH==null?'':{centavos:r.descontoRH},
-      {centavos:r.maisInssExtra}, {formula:'J'+n+'-K'+n,moeda:true},{formula:'I'+n+'-L'+n,moeda:true},
+      {centavos:r.maisInssExtra}, {formula:'J'+n+'-K'+n,moeda:true,cache:r.descontoAjustado},{formula:'I'+n+'-L'+n,moeda:true,cache:r.liquido},
       {centavos:r.familia},{centavos:r.maternidade},
       r.problemas.length?'PENDENTE: '+r.problemas.join(' / '):status,r.arquivo+' · p. '+r.pagina,
       aprovouMapa?'SIM':'NÃO','']);
@@ -64,7 +64,7 @@ export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',co
   for(const x of previsao.extras){
     const n=extra.length+1;
     extra.push([x.tipo,x.empenhoReferencia,x.lotacao,x.ficha,x.fonte,x.conta,
-      {centavos:x.bruto},{centavos:x.inss},{formula:'G'+n+'-H'+n,moeda:true},
+      {centavos:x.bruto},{centavos:x.inss},{formula:'G'+n+'-H'+n,moeda:true,cache:x.liquido},
       x.problemas.length?'PENDENTE: '+x.problemas.join('; '):status,'Referente ao empenho '+x.empenhoReferencia]);
   }
   const conf=[['SISDIFI · Prévia de empenhos da folha da Prefeitura de Frei Inocêncio','Valor'],
