@@ -4,7 +4,7 @@ import { estado } from '../estado.js';
 import { esc, $, toast, dataBR, hojeISO } from '../ui.js';
 import { cabecalho } from './comum.js';
 import { lerDanfsePDF } from '../danfse-pdf.js';
-import { auditoriaNota, monitorFiscalSituacao, VERSAO_POLITICA_FISCAL, FONTES_LEGISLATIVAS } from '../auditoria-fiscal.js?v=3.15.0';
+import { auditoriaNota, monitorFiscalSituacao, VERSAO_POLITICA_FISCAL, FONTES_LEGISLATIVAS } from '../auditoria-fiscal.js?v=3.15.1';
 import {
   lerCodigo, lerXML, consultarCnpj, conferir, sugerirNatureza, descreverTributacao, NATUREZAS, MUNICIPIO, ISS, MINIMO_RETENCAO_IR,
   formatarCnpj, limparCnpj, cnpjValido, moeda, aliquotaIss, mensagemFornecedor
@@ -466,10 +466,10 @@ function blocoAuditoriaFiscal(el) {
     (impedimentos?'<h4>Inconsistências impeditivas</h4><ul class="fiscal-problemas">'+impedimentos+'</ul>':'')+
     '<details open><summary><strong>Confirmações do processo administrativo</strong></summary><div style="padding:10px 0">'+marcacoes+'</div></details>'+
     (lembretes?'<details open><summary><strong>Perguntas e informações pendentes ('+a.pendencias.length+')</strong></summary><ul class="fiscal-problemas">'+lembretes+'</ul></details>':'')+
-    '<details><summary><strong>Atualizador de legislação · '+esc(VERSAO_POLITICA_FISCAL)+'</strong> '+(a.monitor.pendentes.length?' · ALTERAÇÕES PARA REVISÃO':'')+'</summary>'+
+    '<details><summary><strong>Atualizador de legislação · '+esc(VERSAO_POLITICA_FISCAL)+'</strong> '+(a.monitor.requerRevisao?' · REVISÃO OBRIGATÓRIA':'')+'</summary>'+
       '<p class="dica">As fontes oficiais são consultadas diariamente. Mudanças no texto geram revisão; nunca alteram automaticamente ISS, IRRF ou outros parâmetros da liquidação.</p>'+
       '<p><strong>Última varredura:</strong> '+esc(a.monitor.ultimo||'Ainda não realizada')+(erroCatalogoFiscal?' · '+esc(erroCatalogoFiscal):'')+
-      ' · <strong>'+a.monitor.pendentes.length+'</strong> alteração(ões) em análise</p><ul>'+fontesHtml+'</ul>'+
+      ' · <strong>'+a.monitor.pendentes.length+'</strong> alteração(ões) detectada(s) e <strong>'+a.monitor.indisponiveis.length+'</strong> fonte(s) com verificação manual necessária</p><ul>'+fontesHtml+'</ul>'+
       '<button class="btn btn-sec" type="button" data-fis-atualizar-lei>Recarregar boletim legislativo</button></details></section>';
 }
 async function aprovarLegislacao(el,id) {
@@ -672,7 +672,7 @@ export function telaImprimirFiscal(el) {
         ${linha('ISSQN', `${!r.iss.aplica ? 'Não se aplica' : r.iss.reter && r.iss.valor ? 'Reter ' + moeda(r.iss.valor) + ' (' + pctTxt(r.iss.aliquota) + ')' : 'Não reter'}${r.iss.motivo ? ' — ' + esc(r.iss.motivo) : ''}`)}
         ${linha('CBS / IBS', esc(r.cbsibs.motivo) + (r.cbsibs.esperado ? ` (CBS ${moeda(r.cbsibs.esperado.vCBS)} · IBS ${moeda(r.cbsibs.esperado.vIBS)})` : ''))}</table></div>
       <div class="doc-secao"><div class="doc-secao-titulo">4 - Liquidação</div>${r.temDadosNota ? `<table class="doc-tab">
-        <tr><th style="width:40%"></th><th>Na nota</th><th>Conferido (a pagar)</th><th>Diferença</th></tr>
+        <tr><th style="width:40%"></th><th>Na nota</th><th>Cálculo preliminar</th><th>Diferença</th></tr>
         <tr><td class="r">Valor bruto</td><td>${moeda(r.valor)}</td><td>${moeda(r.valor)}</td><td></td></tr>
         ${r.comparativo.map(l => `<tr><td class="r">${l.total ? '' : '(−) '}${esc(l.item)}${l.notaAliq != null || l.conferidoAliq != null ? ` (${l.notaAliq != null ? pctTxt(l.notaAliq) : '—'} → ${l.conferidoAliq != null ? pctTxt(l.conferidoAliq) : '—'})` : ''}</td><td>${moeda(l.nota)}</td><td>${l.total ? '<strong>' + moeda(l.conferido) + '</strong>' : moeda(l.conferido)}</td><td>${Math.abs(l.diferenca) >= 0.01 ? moeda(l.diferenca) : '—'}</td></tr>`).join('')}
       </table>` : `<table class="doc-tab">
