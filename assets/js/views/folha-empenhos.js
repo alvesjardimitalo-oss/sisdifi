@@ -174,7 +174,7 @@ export function telaFolhaEmpenhos(el){
     renderPessoas();
     const pacote=montar();
     if(!pacote){
-      $('#fe-kpis').innerHTML='';$('#fe-pendencias').innerHTML='<p class="fe-alert">Importe o Resumo de Verbas principal ou o Resumo da folha extra do dia 10.</p>';
+      $('#fe-kpis').innerHTML='';$('#fe-pendencias').innerHTML='<p class="fe-alert">Envie o PDF único do Resumo de Verbas no campo destacado acima. A planilha será gerada automaticamente.</p>';
       $('#fe-bancos').innerHTML='<p class="fe-muted">Aguardando dados da folha.</p>';
       $('#fe-tabela').innerHTML='';$('#fe-extras').innerHTML='';$('#fe-final').disabled=true;return;
     }
@@ -182,10 +182,16 @@ export function telaFolhaEmpenhos(el){
     const campos=[['Empenhos previstos',String(p.empenhos.length)],['Bruto orçamentário',dinheiroFolha(p.totalBruto)],
       ['Desconto ajustado',dinheiroFolha(p.totalDescontoAjustado)],['Líquido ajustado',dinheiroFolha(p.totalLiquido)]];
     $('#fe-kpis').innerHTML=campos.map(x=>'<div><small>'+x[0]+'</small><strong>'+x[1]+'</strong></div>').join('');
-    $('#fe-pendencias').innerHTML='<p class="'+(possivel?'fe-ok':'fe-alert')+'">'+
+    const bateu=p.diferencaTotalRH===0;
+    const faixa='<div class="'+(bateu?'fe-ok':'fe-danger')+'" style="display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap">'+
+      '<strong>'+(bateu?'VALOR BATEU':'VALOR NÃO BATEU')+'</strong>'+
+      '<span>Líquido informado pelo RH: '+dinheiroFolha(p.totalLiquidoRH)+
+      ' · Líquido base calculado: '+dinheiroFolha(p.totalLiquidoBase)+
+      ' · Diferença: '+dinheiroFolha(p.diferencaTotalRH)+'</span></div>';
+    $('#fe-pendencias').innerHTML=faixa+'<p class="'+(possivel?'fe-ok':'fe-alert')+'">'+
       (possivel?'Planilha conferida habilitada. Revise os lançamentos no sistema contábil.':
         p.pendentes.length+' empenho(s) com pendências. Os PDFs e a planilha podem ser conferidos em rascunho.')+'</p>'+
-      '<p class="fe-muted">Numeração sugerida: '+p.primeiro+' até '+p.ultimo+'. A ordem é: folha principal por secretaria/vínculo, 13º, depois rescisões.</p>'+
+      '<p class="fe-muted">Numeração sugerida: '+p.primeiro+' até '+p.ultimo+'. A ordem é a mesma do PDF do RH dentro de cada grupo: folha principal, extra, adiantamento do 13º e rescisões.</p>'+
       pacote.maternidade.avisos.map(x=>'<p class="fe-alert">'+esc(x)+'</p>').join('')+
       arquivosLista().flatMap(a=>a.avisos||[]).slice(0,18).map(x=>'<p class="fe-alert">'+esc(x)+'</p>').join('');
     $('#fe-final').disabled=!possivel;
