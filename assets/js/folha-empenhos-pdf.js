@@ -8,7 +8,7 @@ export async function extrairLinhasDaFolha(dados){
   const task=lib.getDocument({data:new Uint8Array(dados),isEvalSupported:false});
   try{
     const pdf=await task.promise, linhas=[];
-    if(pdf.numPages>450)throw Error('PDF excede 450 páginas. Separe a folha em partes.');
+    if(pdf.numPages>1600)throw Error('PDF excede 1.600 páginas; divida em duas partes para manter o navegador estável.');
     for(let pagina=1;pagina<=pdf.numPages;pagina++){
       const p=await pdf.getPage(pagina),conteudo=await p.getTextContent(),agrupadas=[];
       const [a,b,c,d,e,f]=p.getViewport({scale:1}).transform;
