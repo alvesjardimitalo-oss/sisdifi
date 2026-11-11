@@ -1,9 +1,9 @@
 name: Conferência fiscal — testes
 on:
   push:
-    paths: ['assets/js/fiscal.js', 'assets/js/danfse-pdf.js', 'assets/js/views/fiscal.js', 'tests/fiscal.test.mjs', 'tests/danfse.test.mjs', '.github/workflows/fiscal-check.yml']
+    paths: ['assets/js/fiscal.js', 'assets/js/danfse-pdf.js', 'assets/js/views/fiscal.js', 'assets/js/auditoria-fiscal.js', 'tests/fiscal.test.mjs', 'tests/danfse.test.mjs', 'tests/auditoria-fiscal.test.mjs', '.github/workflows/fiscal-check.yml']
   pull_request:
-    paths: ['assets/js/fiscal.js', 'assets/js/danfse-pdf.js', 'assets/js/views/fiscal.js', 'tests/fiscal.test.mjs', 'tests/danfse.test.mjs']
+    paths: ['assets/js/fiscal.js', 'assets/js/danfse-pdf.js', 'assets/js/views/fiscal.js', 'assets/js/auditoria-fiscal.js', 'tests/fiscal.test.mjs', 'tests/danfse.test.mjs', 'tests/auditoria-fiscal.test.mjs']
 jobs:
   testar:
     runs-on: ubuntu-latest
@@ -12,5 +12,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '22' }
       - run: node --check assets/js/views/fiscal.js && node --check assets/js/app.js
+      - run: node --check assets/js/auditoria-fiscal.js && node --check assets/js/fiscal.js
       - run: node tests/fiscal.test.mjs
+      - run: node tests/auditoria-fiscal.test.mjs
       - run: node tests/danfse.test.mjs

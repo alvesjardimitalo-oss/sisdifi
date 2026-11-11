@@ -1,0 +1,48 @@
+name: SISDIFI — Atualizador de legislação fiscal
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/monitor-legislacao-fiscal.py'
+      - '.github/workflows/monitor-legislacao-fiscal.yml'
+  schedule:
+    - cron: '17 10 * * *' # Diário, 07h17 em Minas Gerais (UTC-3)
+  workflow_dispatch:
+permissions:
+  contents: write
+  issues: write
+concurrency:
+  group: legislacao-fiscal
+  cancel-in-progress: false
+jobs:
+  monitorar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Código atualizado
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Consultar legislação oficial
+        id: verificar
+        run: python3 scripts/monitor-legislacao-fiscal.py
+      - name: Registrar monitoramento e atualizar catálogo do SISDIFI
+        run: |
+          git config user.name "sisdifi-legislacao[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/data/legislacao-fiscal.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(fiscal): consulta diária às fontes oficiais de legislação"
+            git push origin HEAD:main
+          fi
+      - name: Abrir alerta para revisão de mudança detectada
+        if: steps.verificar.outputs.novos_alertas != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create --title "Conferência fiscal: alteração em fonte oficial detectada" \
+            --body "O monitor diário detectou alteração textual ou de arquivo em fonte oficial. Verifique a lista em assets/data/legislacao-fiscal.json, compare o texto e a vigência da norma, e confirme com Tributos/Contabilidade se a alteração afeta IRRF, ISS, INSS ou CBS/IBS. Não altere alíquotas automaticamente. As análises do SISDIFI mostram revisão pendente enquanto não houver validação."

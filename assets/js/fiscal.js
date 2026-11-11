@@ -194,6 +194,7 @@ function lerNFe(x) {
     chave: (x.match(/Id="NFe(\d{44})"/) || [])[1] || tag(x, 'chNFe'),
     numero: tag(ide, 'nNF'), serie: tag(ide, 'serie'), emissao: dataDe(tag(ide, 'dhEmi') || tag(ide, 'dEmi')),
     cnpj: tag(emit, 'CNPJ'), nome: tag(emit, 'xNome'), municipioEmissor: tag(bloco(emit, 'enderEmit'), 'cMun'),
+    tomadorCnpj: tag(bloco(x,'dest'),'CNPJ'), tomadorNome: tag(bloco(x,'dest'),'xNome'),
     valor: num(tag(tot, 'vNF')), regimeNota: crt === '3' ? 'normal' : crt === '4' ? 'mei' : crt ? 'simples' : '',
     regimeNotaTexto: ({ 1: 'CRT 1 — Simples Nacional', 2: 'CRT 2 — Simples Nacional, excesso de sublimite', 3: 'CRT 3 — Regime normal', 4: 'CRT 4 — MEI' })[crt] || '',
     irrfDestacado: numOuNulo(tag(ret, 'vIRRF')) ?? irTexto,
@@ -214,6 +215,8 @@ function lerNFSeNacional(x) {
     chave: (x.match(/Id="NFS(\w{50})"/i) || [])[1] || '',
     numero: tag(inf, 'nNFSe'), emissao: dataDe(tag(dps, 'dhEmi') || tag(inf, 'dhProc')),
     cnpj: tag(emit, 'CNPJ') || tag(prest, 'CNPJ'), nome: tag(emit, 'xNome') || tag(prest, 'xNome'),
+    tomadorCnpj: tag(bloco(dps,'toma'),'CNPJ') || tag(bloco(inf,'toma'),'CNPJ'),
+    tomadorNome: tag(bloco(dps,'toma'),'xNome') || tag(bloco(inf,'toma'),'xNome'),
     municipioEmissor: tag(dps, 'cLocEmi') || tag(bloco(emit, 'enderNac'), 'cMun') || tag(inf, 'cLocIncid'),
     municipioIncidencia: tag(inf, 'cLocIncid'), incidencia: tag(inf, 'cLocIncid'),
     localPrestacao: tag(bloco(dps, 'locPrest'), 'cLocPrestacao') || tag(dps, 'cLocPrestacao') || tag(inf, 'cLocIncid'),
@@ -240,6 +243,8 @@ function lerNFSeAbrasf(x) {
     origem: 'xml', documento: 'NFS-e', modelo: 'nfse',
     numero: tag(x, 'Numero'), emissao: dataDe(tag(x, 'DataEmissao') || tag(x, 'Competencia')),
     cnpj: tag(prest, 'Cnpj') || tag(x, 'Cnpj'), nome: tag(prest, 'RazaoSocial') || tag(x, 'RazaoSocial'),
+    tomadorCnpj: tag(bloco(x,'TomadorServico'),'Cnpj'),
+    tomadorNome: tag(bloco(x,'TomadorServico'),'RazaoSocial'),
     municipioEmissor: tag(bloco(x, 'Endereco'), 'CodigoMunicipio') || tag(x, 'CodigoMunicipio'),
     localPrestacao: tag(x, 'MunicipioPrestacaoServico') || tag(bloco(x, 'Servico'), 'CodigoMunicipio') || tag(x, 'MunicipioIncidencia'),
     valor: num(tag(v, 'ValorServicos')),
@@ -699,12 +704,12 @@ export function mensagemFornecedor(r, doc = {}, cadastro = null, orgao = 'Prefei
   const nome = cadastro?.nome || doc.nome || 'fornecedor';
   const nota = [doc.documento || 'nota fiscal', doc.numero ? 'nº ' + doc.numero : ''].filter(Boolean).join(' ');
   const itens = r.problemas.filter(p => p.nivel !== 'info' && !/^Comprove|^Alíquotas de|^Sem parâmetros|^Não foi possível consultar/.test(p.titulo));
-  if (!itens.length) return `Prezados (${nome}),\n\nConferimos a ${nota} (${moeda(r.valor)}) e não encontramos divergências. O pagamento será liquidado pelo valor líquido de ${moeda(r.liquido)}.\n\nAtenciosamente,\nContabilidade — ${orgao}`;
-  const linhas = itens.map((p, i) => `${i + 1}. ${p.titulo}.`);
+  if (!itens.length) return `Prezados (${nome}),\n\nA ${nota} está em pré-conferência fiscal. Não foram encontradas divergências no cálculo preliminar, mas a Contabilidade ainda verificará o documento original, eventuais retenções adicionais e o processo administrativo. Não há, por ora, solicitação de substituição da nota.\n\nAtenciosamente,\nContabilidade — ${orgao}`;
+  const linhas = itens.map((p, i) => `${i + 1}. ${p.titulo}.\nProvidência solicitada: ${p.solucao}`);
   const corretos = [];
   if (r.ir.reter) corretos.push(`IRRF: ${moeda(r.ir.valor)} (${pct(r.ir.aliquota)}${r.natureza.cooperativa ? '' : ' — ' + r.natureza.texto})`);
   if (r.iss.aplica && r.iss.reter && r.iss.valor) corretos.push(`ISSQN: ${pct(r.iss.aliquota)} = ${moeda(r.iss.valor)}, retido pelo tomador, local da prestação/incidência ${MUNICIPIO.nome}/${MUNICIPIO.uf}`);
   return `Prezados (${nome}),\n\nNa conferência da ${nota}, no valor de ${moeda(r.valor)}, encontramos:\n${linhas.join('\n')}\n\n` +
-    (corretos.length ? `Valores corretos para a liquidação:\n- ${corretos.join('\n- ')}\n- Valor líquido a pagar: ${moeda(r.liquido)}\n\n` : '') +
-    `Solicitamos a correção (substituição da nota) para darmos continuidade à liquidação. Ficamos à disposição.\n\nAtenciosamente,\nContabilidade — ${orgao}`;
+    (corretos.length ? `Valores preliminares para conferência da Contabilidade (não substituir orientação tributária final):\n- ${corretos.join('\n- ')}\n- Valor líquido a pagar: ${moeda(r.liquido)}\n\n` : '') +
+    `Solicitamos a providência correspondente, observando se o documento admite correção, cancelamento ou substituição conforme a legislação e o emissor. A análise final depende do setor de Tributos, Contabilidade e dos documentos do processo. Ficamos à disposição.\n\nAtenciosamente,\nContabilidade — ${orgao}`;
 }

@@ -4,6 +4,7 @@ import { estado } from '../estado.js';
 import { esc, $, toast, dataBR, hojeISO } from '../ui.js';
 import { cabecalho } from './comum.js';
 import { lerDanfsePDF } from '../danfse-pdf.js';
+import { auditoriaNota, monitorFiscalSituacao, VERSAO_POLITICA_FISCAL, FONTES_LEGISLATIVAS } from '../auditoria-fiscal.js?v=3.15.0';
 import {
   lerCodigo, lerXML, consultarCnpj, conferir, sugerirNatureza, descreverTributacao, NATUREZAS, MUNICIPIO, ISS, MINIMO_RETENCAO_IR,
   formatarCnpj, limparCnpj, cnpjValido, moeda, aliquotaIss, mensagemFornecedor
@@ -28,12 +29,13 @@ const CHAVE_HIST = 'sisdifi.fiscal.historico';
 // Estado da tela (fica entre as navegações)
 const s = {
   codigo: '', leitura: null, doc: {}, consulta: null, consultando: false, natureza: '', naturezaAuto: true,
-  simplesManual: '', resultado: null, conf: 0, tipo: lerTipoSalvo()
+  simplesManual: '', resultado: null, auditoria:null, confirmacoes:{}, conf: 0, tipo: lerTipoSalvo()
 };
 function lerTipoSalvo() { try { return localStorage.getItem('sisdifi.fiscal.tipo') || ''; } catch { return ''; } }
 const TIPOS = [['', 'Automático'], ['nfe', 'NF-e / NFC-e / CT-e (44)'], ['nfse', 'NFS-e Nacional (50)'], ['cnpj', 'CNPJ (14)']];
 const TAMANHO = { nfe: 44, nfse: 50, cnpj: 14 };
-export const ultimaConferencia = { r: null, s: null, quando: null };
+export const ultimaConferencia = { r: null, s: null, auditoria:null, quando: null };
+let catalogoFiscal=null, ultimaLeituraLegislacao=0, carregandoLegislacao=null, erroCatalogoFiscal='';
 
 // Nome do município pelo código IBGE (lista local do sistema)
 let mapaMunicipios = null;
@@ -64,8 +66,8 @@ const idNota = () => s.doc.chave || (s.doc.cnpj && s.doc.numero ? `${limparCnpj(
 export function telaFiscal(el) {
   const compacto = el.classList.contains('fiscal-compacto');
   el.innerHTML = `
-    ${compacto ? '' : cabecalho('Conferência fiscal de notas', '', `Notas de fornecedores antes da liquidação: Simples Nacional, IRRF, ISSQN de ${esc(MUNICIPIO.nome)}, CBS/IBS e natureza do serviço.`)}
-    ${compacto ? '' : `<ol class="fiscal-etapas"><li class="${s.codigo || s.doc.cnpj ? 'feita' : 'atual'}"><b>1</b> Ler a nota</li><li class="${s.resultado && s.doc.valor ? 'feita' : s.codigo || s.doc.cnpj ? 'atual' : ''}"><b>2</b> Conferir os dados</li><li class="${s.resultado && s.doc.valor ? 'atual' : ''}"><b>3</b> Liquidar e comunicar</li></ol>`}
+    ${compacto ? '' : cabecalho('Auditoria fiscal pré-liquidação', '', `Tomador: Prefeitura Municipal de ${esc(MUNICIPIO.nome)}/${MUNICIPIO.uf}. Conferência de NF-e/NFS-e, retenções e legislação atualizada, com diligências antes da liquidação.`)}
+    ${compacto ? '' : `<p class="alerta alerta-info">O código da nota identifica o documento, mas não fornece sozinho todos os itens, retenções ou a autorização. Para auditoria completa, abra o XML/PDF e confirme os dados e o atesto. O SISDIFI não liquida notas no sistema contábil.</p><ol class="fiscal-etapas"><li class="${s.codigo || s.doc.cnpj ? 'feita' : 'atual'}"><b>1</b> Ler a nota</li><li class="${s.resultado && s.doc.valor ? 'feita' : s.codigo || s.doc.cnpj ? 'atual' : ''}"><b>2</b> Conferir os dados</li><li class="${s.resultado && s.doc.valor ? 'atual' : ''}"><b>3</b> Liquidar e comunicar</li></ol>`}
     <div class="cartao fiscal-leitura">
       <label class="campo"><span>Código de barras, chave de acesso, QR Code ou CNPJ</span>
         <div class="fiscal-linha">
@@ -134,6 +136,7 @@ export function telaFiscal(el) {
   $('#fis-xml', el).onchange = e => { const a = e.target.files?.[0]; e.target.value = ''; if (a && /\.pdf$/i.test(a.name)) abrirPDF(el, a); else abrirXML(el, a); };
   $('#fis-aliquotas', el).onclick = () => abrirAliquotas(el);
   carregarParametros(el);
+  carregarLegislacao(el);
   $('#fis-limpar', el).onclick = () => limparConsulta(el);
   $('#fis-x', el).onclick = () => { inp.value = ''; $('#fis-x', el).hidden = true; inp.focus(); };
   inp.addEventListener('input', () => { $('#fis-x', el).hidden = !inp.value; });
@@ -148,7 +151,7 @@ const temConsulta = () => !!(s.codigo || s.doc.cnpj || s.doc.valor || s.resultad
 
 /** Apaga a nota, a consulta do CNPJ e o resultado, e deixa o leitor pronto para a próxima nota. */
 function limparConsulta(el) {
-  Object.assign(s, { codigo: '', leitura: null, doc: {}, consulta: null, consultando: false, natureza: '', naturezaAuto: true, simplesManual: '', resultado: null, repetida: null, conf: 0 });
+  Object.assign(s, { codigo: '', leitura: null, doc: {}, consulta: null, consultando: false, natureza: '', naturezaAuto: true, simplesManual: '', resultado: null, auditoria:null, confirmacoes:{}, repetida: null, conf: 0 });
   ultimaConferencia.r = null; ultimaConferencia.s = null;
   ultimaLeitura = { texto: '', quando: 0 };
   telaFiscal(el);
@@ -177,6 +180,7 @@ async function processarCodigo(el, texto) {
   s.leitura = l; s.conf = Date.now();
   // mantém o que veio do XML se for a mesma nota
   if (!(s.doc.origem === 'xml' && s.doc.chave === l.chave)) {
+    s.confirmacoes = {};
     s.doc = { origem: 'leitura', cnpj: l.cnpj, documento: l.tipo === 'chave' ? l.documento : '', modelo: l.modelo || '', chave: l.chave || '', numero: l.numero || '', serie: l.serie || '',
       municipioEmissor: l.municipio || '', servico: l.modelo === 'nfse', emissao: l.anoMes ? l.anoMes + '-01' : '' };
     s.naturezaAuto = true;
@@ -194,7 +198,7 @@ async function abrirPDF(el, arquivo) {
     d.municipioEmissor = d.municipioEmissorIbge || codigoMunicipio(d.municipioEmissorTexto);
     d.localPrestacao = codigoMunicipio(d.localPrestacaoTexto) || (d.localPrestacaoTexto ? 'outro' : '');
     d.incidencia = d.incidenciaIbge || codigoMunicipio(d.incidenciaTexto) || (d.incidenciaTexto ? 'outro' : '');
-    s.doc = d; s.naturezaAuto = true; s.simplesManual = ''; s.conf = Date.now();
+    s.doc = d; s.naturezaAuto = true; s.simplesManual = ''; s.confirmacoes={}; s.conf = Date.now();
     s.leitura = d.chave ? lerCodigo(d.chave) : (d.cnpj ? lerCodigo(d.cnpj) : null);
     s.codigo = d.chave || formatarCnpj(d.cnpj);
     telaFiscal(el);
@@ -208,7 +212,7 @@ async function abrirXML(el, arquivo) {
   try {
     const texto = await arquivo.text();
     const d = lerXML(texto);
-    s.doc = d; s.naturezaAuto = true; s.simplesManual = ''; s.conf = Date.now();
+    s.doc = d; s.naturezaAuto = true; s.simplesManual = ''; s.confirmacoes={}; s.conf = Date.now();
     s.leitura = d.chave ? lerCodigo(d.chave) : (d.cnpj ? lerCodigo(d.cnpj) : null);
     s.codigo = d.chave || formatarCnpj(d.cnpj);
     telaFiscal(el);
@@ -258,6 +262,15 @@ function desenharForm(el) {
       <label class="campo"><span>Número</span><input name="numero" value="${esc(d.numero || '')}"></label>
       <label class="campo"><span>Data de competência *</span><input type="date" name="emissao" value="${esc(d.emissao || '')}"></label>
       <label class="campo"><span>Valor bruto (R$) *</span><input type="number" name="valor" step="0.01" min="0" value="${esc(numCampo(d.valor))}" placeholder="0,00"></label>
+    </div>
+    <div class="fiscal-bloco">
+      <div class="fiscal-bloco-titulo">Tomador e documentos do processo · Prefeitura de Frei Inocêncio</div>
+      <div class="grade-2">
+        <label class="campo"><span>Nome do tomador na nota</span><input name="tomadorNome" value="${esc(d.tomadorNome||'')}" placeholder="Prefeitura Municipal de Frei Inocêncio"></label>
+        <label class="campo"><span>CNPJ do tomador na nota</span><input name="tomadorCnpj" value="${esc(d.tomadorCnpj||'')}" placeholder="CNPJ que consta na nota"></label>
+        <label class="campo"><span>Número do empenho / contrato *</span><input name="numeroEmpenho" value="${esc(d.numeroEmpenho||'')}" placeholder="Ex.: 2026/1234"></label>
+        <label class="campo"><span>Referência ao atesto / recebimento *</span><input name="referenciaAtesto" value="${esc(d.referenciaAtesto||'')}" placeholder="Ex.: atesto assinado em 05/11"></label>
+      </div><p class="dica">Confirme os dados no documento original e no processo. O sistema não conhece o CNPJ tomador por presunção.</p>
     </div>
     <div class="fiscal-sec"><span>2</span> ${ehServico || !d.documento ? 'Serviço e natureza do IRRF' : 'Natureza do IRRF'}</div>
     ${ehServico || !d.documento ? `<div class="grade-2">
@@ -329,6 +342,8 @@ function desenharForm(el) {
     const mudouCodigo = 'codigoServico' in v && v.codigoServico.replace(/\D/g, '') !== String(s.doc.codigoServico || '').replace(/\D/g, '');
     if (e?.target?.name === 'natureza' && v.natureza !== s.natureza) s.naturezaAuto = false;
     if (mudouCodigo || e?.target?.name === 'documento') s.naturezaAuto = e?.target?.name === 'natureza' ? false : true;
+    if(mudouCnpj || mudouCodigo || v.numero !== (s.doc.numero||'') || Number(v.valor||0)!==Number(s.doc.valor||0))
+      s.confirmacoes={}; // Mudança material invalida conferências anteriores.
     s.natureza = v.natureza;
     s.simplesManual = v.simplesManual;
     const ibsAnt = s.doc.ibscbs || {};
@@ -336,6 +351,8 @@ function desenharForm(el) {
     const [cstV, classV] = String(v.cstClass || '').split('/').map(x => x.replace(/\D/g, ''));
     Object.assign(s.doc, {
       cnpj: cnpjNovo, documento: v.documento, numero: v.numero, emissao: v.emissao, valor: n(v.valor),
+      tomadorNome:v.tomadorNome||'',tomadorCnpj:limparCnpj(v.tomadorCnpj),
+      numeroEmpenho:v.numeroEmpenho||'',referenciaAtesto:v.referenciaAtesto||'',
       codigoServico: 'codigoServico' in v ? v.codigoServico : s.doc.codigoServico,
       descricaoServico: 'descricaoServico' in v ? v.descricaoServico : s.doc.descricaoServico,
       localPrestacao: 'localPrestacao' in v ? (v.localPrestacao === 'outro' ? (s.doc.localPrestacao && s.doc.localPrestacao !== MUNICIPIO.ibge ? s.doc.localPrestacao : 'outro') : MUNICIPIO.ibge) : s.doc.localPrestacao,
@@ -363,6 +380,10 @@ function recalcular(el) {
   if (s.doc.municipioEmissor) s.doc.municipioEmissorNome = nomeMunicipio(s.doc.municipioEmissor);
   s.doc.incidenciaNome = s.doc.incidencia ? nomeMunicipio(s.doc.incidencia) : '';
   s.resultado = temDados ? conferir({ doc: s.doc, cadastro: s.consulta?.cadastro || null, naturezaId: s.natureza, simplesManual: s.simplesManual, hoje: hojeISO(), chave: s.leitura?.tipo === 'chave' ? s.leitura : null, parametros: parametrosFiscais }) : null;
+  s.auditoria = s.resultado ? auditoriaNota({
+    doc:s.doc,cadastro:s.consulta?.cadastro||null,resultado:s.resultado,contexto:s.confirmacoes,
+    catalogo:catalogoFiscal,aprovacoes:parametrosFiscais?.legislacaoAprovada||{},hoje:hojeISO()
+  }) : null;
   if (s.resultado && s.doc.valor) {
     const id = idNota();
     if (id) {
@@ -377,13 +398,103 @@ function recalcular(el) {
     const passo = s.resultado && s.doc.valor ? 3 : (s.codigo || s.doc.cnpj) ? 2 : 1;
     etapas.forEach((li, i) => { li.className = i + 1 < passo ? 'feita' : i + 1 === passo ? 'atual' : ''; });
   }
-  ultimaConferencia.r = s.resultado; ultimaConferencia.s = structuredClone({ doc: s.doc, consulta: s.consulta, leitura: s.leitura }); ultimaConferencia.quando = new Date();
+  ultimaConferencia.r = s.resultado; ultimaConferencia.s = structuredClone({ doc: s.doc, consulta: s.consulta, leitura: s.leitura }); ultimaConferencia.auditoria = s.auditoria ? structuredClone(s.auditoria) : null; ultimaConferencia.quando = new Date();
   desenharResultado(el);
 }
 
+// Boletim público atualizado diariamente por GitHub Actions — não altera cálculos.
+const URL_LEIS_ATUALIZADAS = 'https://raw.githubusercontent.com/alvesjardimitalo-oss/sisdifi/main/assets/data/legislacao-fiscal.json';
+async function carregarLegislacao(el, forcar=false) {
+  if(carregandoLegislacao)return carregandoLegislacao;
+  if(!forcar && catalogoFiscal && Date.now()-ultimaLeituraLegislacao<1800000)return;
+  carregandoLegislacao=(async()=>{
+    try {
+      const resposta=await fetch(URL_LEIS_ATUALIZADAS+'?consulta='+Date.now(),{cache:'no-store'});
+      if(!resposta.ok)throw Error('Catálogo indisponível (HTTP '+resposta.status+')');
+      const d=await resposta.json();
+      if(d.schema!==1 || d.codigoIBGE!=='3126901' || !Array.isArray(d.fontes))throw Error('Catálogo de legislação inválido.');
+      catalogoFiscal=d;ultimaLeituraLegislacao=Date.now();erroCatalogoFiscal='';
+    } catch(e) {
+      catalogoFiscal=null;erroCatalogoFiscal=e.message||'Falha de atualização';
+    } finally {
+      carregandoLegislacao=null;
+      if(s.resultado && el?.isConnected)recalcular(el);
+    }
+  })();
+  return carregandoLegislacao;
+}
+const CHECKS_FISCAIS=[
+ ['originalConferido','Conferi o XML/PDF integral ou consultei o documento no portal do emissor'],
+ ['tomadorConfirmado','Confirmei o tomador: Prefeitura Municipal de Frei Inocêncio/MG e seu CNPJ'],
+ ['autenticidadeConfirmada','Verifiquei a autorização e que a nota não está cancelada/substituída'],
+ ['naturezaConfirmada','Conferi a natureza tributária/serviço usada na retenção do IRRF'],
+ ['regimeConfirmado','Conferi o Simples/MEI na data da emissão, quando necessário'],
+ ['localConfirmado','Confirmei o local efetivo da prestação e a incidência de ISS'],
+ ['legislacaoIssConfirmada','Validei alíquota e base de ISS na lei municipal com Tributos'],
+ ['baseEspecialAnalisada','Examinei deduções legais específicas da base do ISS e comprovantes'],
+ ['inssAnalisado','Analisei possível retenção do INSS (não calculada automaticamente)'],
+ ['vinculoEmpenho','Conferi empenho, contrato/ordem de fornecimento e valores'],
+ ['atestoConfirmado','Conferi o atesto de recebimento dos bens ou da execução do serviço']
+];
+function blocoAuditoriaFiscal(el) {
+  const a=s.auditoria;if(!a)return '';
+  const relevantes=new Set(a.pendencias.map(q=>q.id));
+  const perfil=estado.sessao?.perfil;
+  const fontes=a.monitor.fontes;
+  const estadoFonte={monitorado:'Monitorada',mudanca_detectada:'Alteração detectada',erro:'Fonte indisponível',revisao_registrada:'Alteração revisada',nao_verificado:'Aguardando coleta'};
+  let marcacoes='';
+  for(const [id,label] of CHECKS_FISCAIS){
+    const cond={localConfirmado:'local',legislacaoIssConfirmada:'legislacao_iss',baseEspecialAnalisada:'base_especial',inssAnalisado:'inss'};
+    if(cond[id] && !relevantes.has(cond[id]) && !s.confirmacoes[id]) continue;
+    marcacoes+='<label style="display:flex;gap:9px;align-items:flex-start;margin:8px 0"><input type="checkbox" data-fis-confirma="'+id+'" '+(s.confirmacoes[id]?'checked':'')+'><span>'+esc(label)+'</span></label>';
+  }
+  const lembretes=a.pendencias.map(q=>'<li><strong>'+esc(q.titulo)+'</strong>: '+esc(q.pergunta)+(q.base?' <small>('+esc(q.base)+')</small>':'')+'</li>').join('');
+  const impedimentos=a.impedimentos.map(q=>'<li><strong>'+esc(q.titulo)+'</strong>: '+esc(q.pergunta)+'</li>').join('');
+  const fontesHtml=fontes.length?fontes.map(f=>{
+    const aprovar=perfil==='admin' && f.estado==='mudanca_detectada' && f.hashObservado;
+    return '<li style="margin:8px 0"><strong>'+esc(f.titulo)+'</strong> — '+esc(estadoFonte[f.estado]||f.estado)+
+      ' · <a href="'+esc(f.url)+'" target="_blank" rel="noopener noreferrer">Norma oficial</a>'+
+      (f.ultimaConsulta?' · <small>Última coleta: '+esc(new Date(f.ultimaConsulta).toLocaleDateString('pt-BR'))+'</small>':'')+
+      (aprovar?'<button type="button" class="btn btn-sec" data-fis-aprovar-lei="'+esc(f.id)+'">Registrar revisão</button>':'')+'</li>';
+  }).join(''):'<li>Boletim oficial ainda não carregado. Conferência de vigência obrigatória.</li>';
+  const situacaoTxt={bloqueada:'NÃO LIQUIDAR — divergência identificada',pendente:'AGUARDAR CONFERÊNCIAS E DOCUMENTOS',conferida_para_revisao:'PRÉ-AUDITORIA CONCLUÍDA — decisão humana obrigatória'}[a.situacao];
+  return '<section class="cartao" style="border-left:4px solid '+(a.situacao==='bloqueada'?'#b84040':a.situacao==='pendente'?'#c39131':'#2c885b')+'">'+
+    '<h3>Auditoria da Prefeitura de Frei Inocêncio</h3><p><strong>'+esc(situacaoTxt)+'</strong></p>'+
+    '<p class="dica">'+esc(a.resumo)+' O sistema não acessa nem bloqueia a liquidação no software contábil externo.</p>'+
+    (s.doc.tomadorNome||s.doc.tomadorCnpj?'<p><strong>Tomador lido da nota:</strong> '+esc(s.doc.tomadorNome||'Não identificado')+
+      (s.doc.tomadorCnpj?' · CNPJ '+esc(formatarCnpj(s.doc.tomadorCnpj)):'')+'</p>':'')+
+    (impedimentos?'<h4>Inconsistências impeditivas</h4><ul class="fiscal-problemas">'+impedimentos+'</ul>':'')+
+    '<details open><summary><strong>Confirmações do processo administrativo</strong></summary><div style="padding:10px 0">'+marcacoes+'</div></details>'+
+    (lembretes?'<details open><summary><strong>Perguntas e informações pendentes ('+a.pendencias.length+')</strong></summary><ul class="fiscal-problemas">'+lembretes+'</ul></details>':'')+
+    '<details><summary><strong>Atualizador de legislação · '+esc(VERSAO_POLITICA_FISCAL)+'</strong> '+(a.monitor.pendentes.length?' · ALTERAÇÕES PARA REVISÃO':'')+'</summary>'+
+      '<p class="dica">As fontes oficiais são consultadas diariamente. Mudanças no texto geram revisão; nunca alteram automaticamente ISS, IRRF ou outros parâmetros da liquidação.</p>'+
+      '<p><strong>Última varredura:</strong> '+esc(a.monitor.ultimo||'Ainda não realizada')+(erroCatalogoFiscal?' · '+esc(erroCatalogoFiscal):'')+
+      ' · <strong>'+a.monitor.pendentes.length+'</strong> alteração(ões) em análise</p><ul>'+fontesHtml+'</ul>'+
+      '<button class="btn btn-sec" type="button" data-fis-atualizar-lei>Recarregar boletim legislativo</button></details></section>';
+}
+async function aprovarLegislacao(el,id) {
+  if(estado.sessao?.perfil!=='admin')return toast('A aprovação é exclusiva do administrador.','erro');
+  const fonte=catalogoFiscal?.fontes?.find(f=>f.id===id);
+  if(!fonte || fonte.estado!=='mudanca_detectada' || !fonte.hashObservado)return;
+  const observacao=window.prompt('Depois de ler a fonte oficial, registre o impacto tributário e a providência (mínimo 20 caracteres). Não significa aplicar uma alíquota automaticamente.');
+  if(observacao==null)return;
+  if(observacao.trim().length<20)return toast('Informe a conclusão da análise e a providência (mínimo 20 caracteres).','erro');
+  if(!window.confirm('Confirma que revisou a norma e registrou a consequência para o SISDIFI? A revisão ficará no registro de auditoria.'))return;
+  try {
+    const db=await import('../db.js');
+    const aprovacao={hash:fonte.hashObservado,quando:new Date().toISOString(),por:estado.sessao.nome||estado.sessao.uid,observacao:observacao.trim(),fonte:fonte.url};
+    await db.salvar('config','fiscal',{legislacaoAprovada:{[id]:aprovacao}});
+    await db.registrarLog('fiscal.legislacao.revisada',{fonte:id,hash:fonte.hashObservado,observacao:observacao.trim()});
+    parametrosFiscais={...(parametrosFiscais||{}),legislacaoAprovada:{...(parametrosFiscais?.legislacaoAprovada||{}),[id]:aprovacao}};
+    toast('Revisão legislativa registrada. Nenhuma alíquota foi alterada.');
+    recalcular(el);
+  } catch(e){toast('Não foi possível registrar a análise: '+(e.message||e),'erro');}
+}
+
+
 // ---------------- Resultado ----------------
 const SIT = {
-  ok: ['fiscal-ok', 'Nota conferida — pode seguir para a liquidação'],
+  ok: ['fiscal-ok', 'Cálculo tributário sem divergências detectadas — confira a auditoria documental'],
   alerta: ['fiscal-alerta', 'Atenção — confira os avisos antes de liquidar'],
   erro: ['fiscal-erro', 'Há erros na nota — resolva antes de liquidar']
 };
@@ -407,7 +518,10 @@ function desenharResultado(el) {
     <li>Preencha o valor, o código de tributação e o que está impresso na nota (regime, ISS retido, IRRF).</li>
     <li>Veja aqui o que reter, o valor líquido e cada erro da nota com a solução.</li>
     <li>Imprima a ficha de conferência e junte ao processo de liquidação.</li></ol></div>`; return; }
-  const [cls, txt] = SIT[r.situacao];
+  const a=s.auditoria;
+  const [cls, txt] = a?.situacao==='bloqueada'?['fiscal-erro','NÃO LIQUIDAR — divergências materiais na nota']:
+    a?.situacao==='pendente'?['fiscal-alerta','NÃO LIQUIDAR AINDA — informações ou validações pendentes']:
+    a?.situacao==='conferida_para_revisao'?['fiscal-ok','Pré-auditoria concluída — encaminhar para conferência e liquidação pelo responsável']:SIT[r.situacao];
   const qtd = n => r.problemas.filter(p => p.nivel === n).length;
   box.innerHTML = `
     <div class="cartao fiscal-resumo ${cls}">
@@ -424,6 +538,7 @@ function desenharResultado(el) {
         ${linkPortal('Portal do Simples', 'btn btn-sec')}
       </div>
     </div>
+    ${blocoAuditoriaFiscal(el)}
     ${s.repetida ? `<div class="alerta">Esta nota já foi conferida neste computador em ${esc(new Date(s.repetida.quando).toLocaleString('pt-BR'))}${s.repetida.por ? ' por ' + esc(s.repetida.por) : ''}. Confira se não é pagamento em duplicidade.</div>` : ''}
     <div class="cartao">
       <h3><span class="fiscal-num">1</span> Erros e soluções</h3>
@@ -438,7 +553,7 @@ function desenharResultado(el) {
         ${r.comparativo.map(l => `<tr class="${l.total ? 'fiscal-total' : ''} ${Math.abs(l.diferenca) >= 0.01 ? 'fiscal-difere' : ''}"><td>${l.total ? '' : '(−) '}${esc(l.item)}${l.notaAliq != null || l.conferidoAliq != null ? ` <span class="muted">${l.notaAliq != null ? pctTxt(l.notaAliq) : '—'} → ${l.conferidoAliq != null ? pctTxt(l.conferidoAliq) : '—'}</span>` : ''}</td>
           <td class="num">${moeda(l.nota)}</td><td class="num"><strong>${moeda(l.conferido)}</strong></td><td class="num">${Math.abs(l.diferenca) >= 0.01 ? (l.diferenca > 0 ? '+' : '−') + moeda(Math.abs(l.diferenca)) : '✓'}</td></tr>`).join('')}
       </tbody></table>
-      <p class="dica">Pague o valor da coluna <b>Conferido</b>.${r.ir.reter ? ` IRRF ${pctTxt(r.ir.aliquota)} — ${esc(r.natureza.texto)}.` : ''}</p>`
+      <p class="dica">Valor líquido <b>estimado</b>, sujeito à conferência documental, INSS e demais hipóteses legais. Não liquidar enquanto houver pendências. ${r.ir.reter ? ` IRRF ${pctTxt(r.ir.aliquota)} — ${esc(r.natureza.texto)}.` : ''}</p>`
       : `<table class="tabela tabela-peq fiscal-liq"><tbody>
         <tr><td>Valor bruto da nota</td><td class="num">${moeda(r.valor)}</td></tr>
         <tr><td>(−) IRRF ${r.ir.reter ? `${pctTxt(r.ir.aliquota)} · ${esc(r.natureza.texto)}` : ''}</td><td class="num">${moeda(r.ir.reter ? r.ir.valor : 0)}</td></tr>
@@ -463,6 +578,12 @@ ${blocoFornecedor(cad, '<span class="fiscal-num">3</span> ')}
         <div><strong>${esc(l.titulo)}</strong><small>${esc(l.detalhe)}</small></div></li>`).join('')}</ul>
     </div>` : ''}
     <div class="fiscal-proxima"><button type="button" class="btn btn-sec fiscal-limpar" data-limpar>Limpar consulta e conferir outra nota</button></div>`;
+  box.querySelectorAll('[data-fis-confirma]').forEach(cb=>cb.onchange=()=>{
+    s.confirmacoes[cb.dataset.fisConfirma]=cb.checked;
+    recalcular(el);
+  });
+  box.querySelector('[data-fis-atualizar-lei]')?.addEventListener('click',()=>carregarLegislacao(el,true));
+  box.querySelectorAll('[data-fis-aprovar-lei]').forEach(b=>b.onclick=()=>aprovarLegislacao(el,b.dataset.fisAprovarLei));
   box.querySelector('[data-limpar]').onclick = () => limparConsulta(el);
   box.querySelector('[data-mensagem]').onclick = () => abrirMensagem();
 }
@@ -524,19 +645,19 @@ async function abrirCamera(el) {
 export function telaImprimirFiscal(el) {
   const r = ultimaConferencia.r, x = ultimaConferencia.s;
   if (!r || !x) { el.innerHTML = '<div class="vazio"><h2>Nenhuma conferência para imprimir</h2><p><a href="#/fiscal">Abrir a conferência fiscal</a></p></div>'; return { titulo: 'Ficha de conferência' }; }
-  const cad = x.consulta?.cadastro, d = x.doc;
-  const linha = (a, b) => `<tr><td class="r" style="width:32%">${esc(a)}</td><td>${b}</td></tr>`;
+  const cad = x.consulta?.cadastro, d = x.doc, a=ultimaConferencia.auditoria;
+  const linha = (campo, valor) => `<tr><td class="r" style="width:32%">${esc(campo)}</td><td>${valor}</td></tr>`;
   el.innerHTML = `<div class="barra-impressao"><button class="btn" onclick="window.print()">🖨 Imprimir / salvar PDF</button><a class="btn btn-sec" href="#/fiscal">Voltar</a></div>
     <div class="documentos"><div class="folha">
-      <div class="doc-cab"><img src="assets/img/brasao.png" alt="Brasão" class="doc-brasao"><div class="doc-titulos"><div class="doc-orgao">${esc(estado.config.orgao)}</div>
-        <div class="doc-titulo">Ficha de conferência fiscal para liquidação</div><div class="doc-sub">${esc({ ok: 'Nota conferida', alerta: 'Nota com avisos', erro: 'Nota com erros' }[r.situacao])}</div></div></div>
+      <div class="doc-cab"><img src="assets/img/brasao.png" alt="Brasão" class="doc-brasao"><div class="doc-titulos"><div class="doc-orgao">PREFEITURA MUNICIPAL DE FREI INOCÊNCIO/MG</div>
+        <div class="doc-titulo">Pré-auditoria fiscal da nota · conferência antes da liquidação</div><div class="doc-sub">${esc(a?.resumo || 'Parecer documental ainda não emitido')}</div></div></div>
       <div class="doc-linha"></div>
       <div class="doc-secao"><div class="doc-secao-titulo">1 - Nota fiscal</div><table class="doc-tab">
         ${linha('Documento', esc([d.documento, d.numero ? 'nº ' + d.numero : '', d.serie ? 'série ' + d.serie : ''].filter(Boolean).join(' ')))}
         ${d.chave ? linha('Chave de acesso', `<span class="quebra">${esc(d.chave)}</span>`) : ''}
         ${linha('Data de competência', esc(dataBR(d.emissao)))}
         ${linha('Valor bruto', moeda(r.valor))}
-        ${linha('Natureza (IN RFB 1.234/2012)', esc(r.natureza.texto))}</table></div>
+        ${linha('Natureza (IN RFB 1.234/2012)', esc(r.natureza.texto))}${d.tomadorNome||d.tomadorCnpj?linha('Tomador lido',esc(d.tomadorNome||'')+' · '+esc(d.tomadorCnpj||'')):''}</table></div>
       <div class="doc-secao"><div class="doc-secao-titulo">2 - Fornecedor</div><table class="doc-tab">
         ${linha('Razão social', esc(cad?.nome || d.nome || ''))}
         ${linha('CNPJ', esc(formatarCnpj(cad?.cnpj || d.cnpj)))}
@@ -556,12 +677,19 @@ export function telaImprimirFiscal(el) {
         ${r.comparativo.map(l => `<tr><td class="r">${l.total ? '' : '(−) '}${esc(l.item)}${l.notaAliq != null || l.conferidoAliq != null ? ` (${l.notaAliq != null ? pctTxt(l.notaAliq) : '—'} → ${l.conferidoAliq != null ? pctTxt(l.conferidoAliq) : '—'})` : ''}</td><td>${moeda(l.nota)}</td><td>${l.total ? '<strong>' + moeda(l.conferido) + '</strong>' : moeda(l.conferido)}</td><td>${Math.abs(l.diferenca) >= 0.01 ? moeda(l.diferenca) : '—'}</td></tr>`).join('')}
       </table>` : `<table class="doc-tab">
         ${linha('Valor bruto', moeda(r.valor))}${linha('(−) IRRF', moeda(r.ir.reter ? r.ir.valor : 0))}${linha('(−) ISSQN', moeda(r.iss.reter ? r.iss.valor : 0))}
-        ${linha('Valor líquido a pagar', `<strong>${moeda(r.liquido)}</strong>`)}</table>`}</div>
+        ${linha('Líquido preliminar (sem INSS)', `<strong>${moeda(r.liquido)}</strong>`)}</table>`}</div>
       <div class="doc-secao"><div class="doc-secao-titulo">5 - Divergências e providências</div><table class="doc-tab"><tr><td>
         ${r.problemas.length ? `<ul class="doc-lista">${r.problemas.map(p => `<li><strong>[${NIVEL[p.nivel][0]}] ${esc(p.titulo)}.</strong> ${esc(p.solucao)}</li>`).join('')}</ul>` : 'Nenhuma divergência encontrada.'}
       </td></tr></table></div>
-      <p class="doc-sub" style="margin-top:6px">Bases: IN RFB 1.234/2012 com a IN RFB 2.145/2023 (IRRF, dispensa abaixo de R$ ${MINIMO_RETENCAO_IR},00); LC 116/2003 e legislação municipal (ISSQN ${pctTxt(parametrosFiscais?.issPadrao || ISS.aliquota)}${Object.keys(parametrosFiscais?.issPorCodigo || {}).length ? ', com exceções por código' : ''}); LC 123/2006 (Simples Nacional); LC 214/2025 (CBS/IBS).
-        Consulta do CNPJ em dados abertos da Receita Federal${cad ? ' (' + esc(cad.fonte) + ')' : ''}. Conferido em ${esc(ultimaConferencia.quando.toLocaleString('pt-BR'))} por ${esc(estado.sessao?.nome || '')}.</p>
+      <div class="doc-secao"><div class="doc-secao-titulo">6 - Parecer de pré-auditoria e diligências</div><table class="doc-tab">
+        ${linha('Situação',esc(a?.resumo || 'Conferência pendente'))}
+        ${linha('Versão das regras fiscais',esc(a?.versaoPolitica || 'Não registrada'))}
+        ${linha('Boletim legislativo',esc(a?.monitor?.ultimo || 'Não verificado')+' · '+(a?.monitor?.pendentes?.length || 0)+' alteração(ões) pendente(s)')}
+        ${a?.pendencias?.length?linha('Informações não confirmadas','<ul class="doc-lista">'+a.pendencias.map(p=>'<li>'+esc(p.titulo)+': '+esc(p.pergunta)+'</li>').join('')+'</ul>'):''}
+        ${a?.impedimentos?.length?linha('Impedimentos','<ul class="doc-lista">'+a.impedimentos.map(p=>'<li>'+esc(p.titulo)+': '+esc(p.pergunta)+'</li>').join('')+'</ul>'):''}
+      </table></div>
+      <p class="doc-sub" style="margin-top:6px">Bases: IN RFB 1.234/2012 com a IN RFB 2.145/2023 (IRRF, dispensa abaixo de R$ ${MINIMO_RETENCAO_IR},00); LC 116/2003, Lei Municipal 883/2017 e Lei 966/2023 (ISSQN ${pctTxt(parametrosFiscais?.issPadrao || ISS.aliquota)}${Object.keys(parametrosFiscais?.issPorCodigo || {}).length ? ', com exceções por código' : ''}); LC 123/2006 (Simples Nacional); LC 214/2025 (CBS/IBS).
+        O cálculo não abrange retenção previdenciária e situações especiais de base de ISS, que exigem parecer específico. Este documento não autoriza liquidar notas. Consulta do CNPJ em dados abertos da Receita Federal${cad ? ' (' + esc(cad.fonte) + ')' : ''}. Conferido em ${esc(ultimaConferencia.quando.toLocaleString('pt-BR'))} por ${esc(estado.sessao?.nome || '')}.</p>
       <table class="doc-ass"><tr><td><div class="doc-linha-ass">${esc(estado.sessao?.nome || 'Contabilidade')}<br>Contabilidade</div></td><td><div class="doc-linha-ass">Ordenador da despesa</div></td></tr></table>
     </div></div>`;
   return { titulo: 'Ficha de conferência fiscal' };
