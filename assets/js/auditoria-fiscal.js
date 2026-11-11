@@ -21,8 +21,12 @@ export function codigoExcecaoISS(codigo) {
   const item=n.slice(0,2),sub=n.slice(2,4);
   return (item==='10' && Number(sub)>=1 && Number(sub)<=8) || n==='1508' || n==='1701';
 }
-export function monitorFiscalSituacao(catalogo, agora='2026-11-11') {
-  const fontes = Array.isArray(catalogo?.fontes) ? catalogo.fontes : [];
+export function monitorFiscalSituacao(catalogo, agora='2026-11-11', aprovacoes={}) {
+  const fontes = (Array.isArray(catalogo?.fontes) ? catalogo.fontes : []).map(f => {
+    const aprovado = aprovacoes?.[f.id];
+    return aprovado?.hash && aprovado.hash === f.hashObservado && f.estado === 'mudanca_detectada'
+      ? {...f,estado:'revisao_registrada',aprovacao:aprovado} : f;
+  });
   const verificadas=fontes.filter(f=>f.estado==='monitorado');
   const pendentes=fontes.filter(f=>f.estado==='mudanca_detectada');
   const indisponiveis=fontes.filter(f=>f.estado==='erro');
@@ -34,7 +38,7 @@ export function monitorFiscalSituacao(catalogo, agora='2026-11-11') {
     // Mudanças ou ausência de verificação exigem análise técnica antes de qualquer liberação.
     requerRevisao:!fontes.length || dias===null || dias>7 || pendentes.length>0 || indisponiveis.length>0};
 }
-export function auditoriaNota({doc={},cadastro=null,resultado=null,contexto={},catalogo=null,hoje=new Date().toISOString().slice(0,10)}={}) {
+export function auditoriaNota({doc={},cadastro=null,resultado=null,contexto={},catalogo=null,aprovacoes={},hoje=new Date().toISOString().slice(0,10)}={}) {
   const pendencias=[], impedimentos=[], orientacoes=[];
   const adicionar = (id,titulo,pergunta,base='')=>pendencias.push(fato(id,titulo,pergunta,base));
   const bloquear=(id,titulo,pergunta,base='')=>impedimentos.push(fato(id,titulo,pergunta,base));
@@ -46,6 +50,11 @@ export function auditoriaNota({doc={},cadastro=null,resultado=null,contexto={},c
   if (!literal(doc.cnpj)) adicionar('cnpj','CNPJ emitente','Informe o CNPJ que consta na nota.');
   if (!cadastro) adicionar('cadastro','Cadastro do fornecedor','Consultar e documentar a situação cadastral do emitente na Receita Federal.');
   if (!contexto.originalConferido) adicionar('original','Documento fiscal original','Abra PDF/XML integral da nota ou confirme a verificação do documento no portal oficial.');
+  const nomeTomador = norm(doc.tomadorNome);
+  if (nomeTomador && !nomeTomador.includes('FREI INOCENCIO')) {
+    bloquear('tomador_divergente','Tomador diferente de Frei Inocêncio',
+      'A nota indica outro tomador ('+literal(doc.tomadorNome)+'). Confirme no documento e solicite correção ao emissor se o Município de Frei Inocêncio é o contratante.');
+  }
   if (!contexto.tomadorConfirmado) adicionar('tomador','Tomador da nota','Confirme que a nota foi emitida em nome da Prefeitura Municipal de Frei Inocêncio/MG, CNPJ do órgão conforme cadastro oficial.');
   if (!contexto.autenticidadeConfirmada) adicionar('autenticidade','Autenticidade e autorização','Confirme no portal emissor que a nota está autorizada, não cancelada nem substituída.');
   if (!contexto.vinculoEmpenho) adicionar('empenho','Vínculo com empenho/contrato','Informe e confira a nota contra empenho, contrato/ordem de fornecimento e saldo contratual.');
@@ -63,7 +72,7 @@ export function auditoriaNota({doc={},cadastro=null,resultado=null,contexto={},c
   if (resultado?.problemas?.some(p=>p.nivel==='erro')) for(const p of resultado.problemas.filter(p=>p.nivel==='erro'))
     bloquear('motor_'+impedimentos.length,p.titulo,p.solucao);
   if (cadastro?.situacao && norm(cadastro.situacao)!=='ATIVA') bloquear('cnpj_inativo','CNPJ com situação cadastral irregular','Esclarecer a situação cadastral antes de prosseguir.');
-  const monitor=monitorFiscalSituacao(catalogo,hoje);
+  const monitor=monitorFiscalSituacao(catalogo,hoje,aprovacoes);
   if (monitor.requerRevisao) adicionar('legislacao','Monitoramento legislativo pendente','Confirme as fontes oficiais e os efeitos de alterações antes de validar as retenções; nenhuma alíquota é alterada automaticamente.');
   if (!contexto.naturezaConfirmada) adicionar('natureza','Natureza tributária do item','Confirme a natureza do serviço/bem escolhida para o cálculo do IRRF.');
   if (resultado?.problemas?.some(p=>p.nivel==='alerta')) adicionar('avisos','Pendências técnicas do cálculo','Revise os avisos de retenções, ISS, Simples e CBS/IBS na conferência fiscal.');
