@@ -1,0 +1,24 @@
+name: Duodécimo — testes
+on:
+  push:
+    paths:
+      - 'assets/js/duodecimo.js'
+      - 'assets/js/views/duodecimo.js'
+      - 'assets/js/app.js'
+      - 'tests/duodecimo.test.mjs'
+      - '.github/workflows/duodecimo-check.yml'
+  pull_request:
+    paths:
+      - 'assets/js/duodecimo.js'
+      - 'assets/js/views/duodecimo.js'
+      - 'assets/js/app.js'
+      - 'tests/duodecimo.test.mjs'
+jobs:
+  testar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: node --check assets/js/duodecimo.js && node --check assets/js/views/duodecimo.js && node --check assets/js/app.js
+      - run: node tests/duodecimo.test.mjs
