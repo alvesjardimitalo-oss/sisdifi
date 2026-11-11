@@ -28,3 +28,8 @@ Outras referências: LC 116/2003; LC 123/2006; IN RFB 1.234/2012, com alteraçã
 
 ## Validação
 Execução automática de `node --check`, `node tests/fiscal.test.mjs`, `node tests/danfse.test.mjs`, `node tests/auditoria-fiscal.test.mjs`. Testar leitura e impressão no navegador com nota real, inclusive notas retificadas, canceladas, ISS de incidência externa e fornecedor do Simples. O status de auditoria pressupõe confirmação humana; nunca declarar que o sistema certifica integralmente regularidade fiscal ou substitui parecer jurídico da Fazenda.
+
+## Portais municipais com bloqueio anti-robô (HTTP 403)
+A primeira execução em GitHub Actions (11/11/2026) confirmou que os portais oficiais municipais podem bloquear o IP do GitHub. O robô tenta um agente compatível com navegador e, se o portal recusar, utiliza **espelho público de leitura somente como sinal de monitoramento**, nunca como texto autenticado da norma. O SISDIFI distingue fonte oficial acessada diretamente, **consulta via espelho com revisão obrigatória** e fonte indisponível. ADM pode registrar verificação manual do texto oficial, com justificativa, link e registro em log. Essa conferência manual expira em sete dias; não altera automaticamente ISS ou retenções. Sem verificação vigente, mantém a pré-auditoria pendente.
+
+O controle evita concluir que uma lei não mudou só porque a coleta automática encontrou um bloqueio de acesso.
