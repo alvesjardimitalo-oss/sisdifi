@@ -263,6 +263,15 @@ function desenharForm(el) {
       <label class="campo"><span>Data de competência *</span><input type="date" name="emissao" value="${esc(d.emissao || '')}"></label>
       <label class="campo"><span>Valor bruto (R$) *</span><input type="number" name="valor" step="0.01" min="0" value="${esc(numCampo(d.valor))}" placeholder="0,00"></label>
     </div>
+    <div class="fiscal-bloco">
+      <div class="fiscal-bloco-titulo">Tomador e documentos do processo · Prefeitura de Frei Inocêncio</div>
+      <div class="grade-2">
+        <label class="campo"><span>Nome do tomador na nota</span><input name="tomadorNome" value="${esc(d.tomadorNome||'')}" placeholder="Prefeitura Municipal de Frei Inocêncio"></label>
+        <label class="campo"><span>CNPJ do tomador na nota</span><input name="tomadorCnpj" value="${esc(d.tomadorCnpj||'')}" placeholder="CNPJ que consta na nota"></label>
+        <label class="campo"><span>Número do empenho / contrato *</span><input name="numeroEmpenho" value="${esc(d.numeroEmpenho||'')}" placeholder="Ex.: 2026/1234"></label>
+        <label class="campo"><span>Referência ao atesto / recebimento *</span><input name="referenciaAtesto" value="${esc(d.referenciaAtesto||'')}" placeholder="Ex.: atesto assinado em 05/11"></label>
+      </div><p class="dica">Confirme os dados no documento original e no processo. O sistema não conhece o CNPJ tomador por presunção.</p>
+    </div>
     <div class="fiscal-sec"><span>2</span> ${ehServico || !d.documento ? 'Serviço e natureza do IRRF' : 'Natureza do IRRF'}</div>
     ${ehServico || !d.documento ? `<div class="grade-2">
       <label class="campo"><span>Código de tributação (serviço) *</span><input name="codigoServico" value="${esc(trib?.codigo || d.codigoServico || '')}" placeholder="ex.: 16.01.01" inputmode="numeric">
@@ -333,6 +342,8 @@ function desenharForm(el) {
     const mudouCodigo = 'codigoServico' in v && v.codigoServico.replace(/\D/g, '') !== String(s.doc.codigoServico || '').replace(/\D/g, '');
     if (e?.target?.name === 'natureza' && v.natureza !== s.natureza) s.naturezaAuto = false;
     if (mudouCodigo || e?.target?.name === 'documento') s.naturezaAuto = e?.target?.name === 'natureza' ? false : true;
+    if(mudouCnpj || mudouCodigo || v.numero !== (s.doc.numero||'') || Number(v.valor||0)!==Number(s.doc.valor||0))
+      s.confirmacoes={}; // Mudança material invalida conferências anteriores.
     s.natureza = v.natureza;
     s.simplesManual = v.simplesManual;
     const ibsAnt = s.doc.ibscbs || {};
@@ -340,6 +351,8 @@ function desenharForm(el) {
     const [cstV, classV] = String(v.cstClass || '').split('/').map(x => x.replace(/\D/g, ''));
     Object.assign(s.doc, {
       cnpj: cnpjNovo, documento: v.documento, numero: v.numero, emissao: v.emissao, valor: n(v.valor),
+      tomadorNome:v.tomadorNome||'',tomadorCnpj:limparCnpj(v.tomadorCnpj),
+      numeroEmpenho:v.numeroEmpenho||'',referenciaAtesto:v.referenciaAtesto||'',
       codigoServico: 'codigoServico' in v ? v.codigoServico : s.doc.codigoServico,
       descricaoServico: 'descricaoServico' in v ? v.descricaoServico : s.doc.descricaoServico,
       localPrestacao: 'localPrestacao' in v ? (v.localPrestacao === 'outro' ? (s.doc.localPrestacao && s.doc.localPrestacao !== MUNICIPIO.ibge ? s.doc.localPrestacao : 'outro') : MUNICIPIO.ibge) : s.doc.localPrestacao,
