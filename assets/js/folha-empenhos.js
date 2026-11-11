@@ -190,6 +190,72 @@ export function analisarResumoVerbas(linhas,{tipo='principal',nome=''}={}){
   const repetidas=new Set();for(const d of dados){if(repetidas.has(d.lotacao))avisos.push('Lotação '+d.lotacao+' repetida: verifique se há lançamentos distintos.');repetidas.add(d.lotacao);}
   return {tipo,competencia:comp,arquivo:nome,registros:dados,avisos,paginas:ultimaPagina,linhasVistas};
 }
+// Detecta o grupo pelo CABEÇALHO do RH, não pelo número da lotação.
+// A mesma lotação pode existir na folha mensal, extra, 13º e rescisão.
+export function tipoDeFolhaCabecalho(linha){
+  const t=norma(linha);
+  if(!/TIPO\s*(?:DE\s*)?CALCULO|TIPO\s*(?:DE\s*)?FOLHA|FOLHA\s*:|RESUMO\s*DE\s*VERBAS/.test(t))
+    return '';
+  if(/RESCIS|RESCIND|TERMINO DE CONTRATO/.test(t))return 'rescisao';
+  if(/13\s*[º°O]?\s*SALARIO|DECIMO\s*TERCEIRO|ADIANTAMENTO\s*(?:DE\s*)?(?:50\s*%|13)/.test(t))return 'decimo';
+  if(/FOLHA\s*EXTRA|EXTRA\s*FOLHA|FOLHA\s*COMPLEMENTAR|03\s*[-–]\s*FOLHA\s*EXTRA/.test(t))return 'extra';
+  if(/FOLHA\s*MENSAL|FOLHA\s*PRINCIPAL|01\s*[-–]\s*FOLHA/.test(t))return 'principal';
+  return '';
+}
+export function analisarResumoConsolidado(linhas,{nome=''}={}){
+  const grupos=[],alertas=[];let tipo='',inicio=[],grupo=null,ultimaPagina=0;
+  const cabecalho=[];
+  const lot=/LOTA[CÇ][AÃ]O\s*\.{0,}\s*:\s*(\d{3}(?:\.\d+){2,})/i;
+  const finalizar=()=>{
+    if(!grupo)return;
+    const tipoAtual=grupo.tipo;
+    const itens=[...grupo.cabecalho,...grupo.linhas];
+    const identificado=analisarResumoVerbas(itens,{tipo:tipoAtual||'principal',nome});
+    if(!tipoAtual)alertas.push('Lotação '+grupo.lotacao+': tipo de folha não identificado no cabeçalho. Classifique antes da conferência.');
+    if(identificado.registros.length){
+      for(const r of identificado.registros){
+        grupos.push({...r,tipo:tipoAtual||'principal',tipoIdentificado:!!tipoAtual});
+      }
+    }else alertas.push('Não foi possível ler os valores da lotação '+grupo.lotacao+' (página '+grupo.pagina+').');
+    alertas.push(...identificado.avisos);
+    grupo=null;
+  };
+  for(const item of linhas){
+    const linha=String(typeof item==='string'?item:item.texto||'').trim();
+    if(!linha)continue;
+    const pag=typeof item==='string'?1:item.pagina||1;
+    ultimaPagina=pag;
+    const classe=tipoDeFolhaCabecalho(linha);
+    if(classe){tipo=classe;cabecalho.push(item);}
+    // Preserva referências e títulos repetidos de páginas do PDF consolidado.
+    if(!grupo && (/RESUMO\s*DE\s*VERBAS|REFER[EÊ]NCIA\s*:|TIPO\s*C[AÁ]LCULO/i.test(linha)))
+      cabecalho.push(item);
+    const chave=linha.match(lot);
+    if(chave){
+      finalizar();
+      grupo={tipo,lotacao:chave[1],pagina:pag,cabecalho:[...cabecalho],linhas:[]};
+      cabecalho.length=0;
+    }
+    if(grupo)grupo.linhas.push(item);
+  }
+  finalizar();
+  // Mesmo número de lotação é válido em tipos diferentes, mas dentro do mesmo
+  // tipo será necessária desambiguação antes de sugerir numeração de empenho.
+  const vistos=new Set();
+  for(const r of grupos){
+    const id=r.tipo+'|'+r.lotacao;
+    if(vistos.has(id))alertas.push('Lotação '+r.lotacao+' repetida na folha '+r.tipo+': confira se é continuação, ou dois lançamentos distintos.');
+    vistos.add(id);
+  }
+  const arquivos=TIPOS_FOLHA.map(t=>{
+    const registros=grupos.filter(r=>r.tipo===t.id);
+    return registros.length?{tipo:t.id,arquivo:nome,competencia:competenciaNoResumo(linhas),
+      registros,avisos:alertas.filter(a=>a.includes('Lotação ')&&registros.some(r=>a.includes(r.lotacao)))||[]} : null;
+  }).filter(Boolean);
+  return {arquivos,avisos:[...new Set(alertas)],quantidade:grupos.length,paginas:ultimaPagina,
+    tipos:Object.fromEntries(arquivos.map(a=>[a.tipo,a.registros.length]))};
+}
+
 export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
   if(!Number.isSafeInteger(Number(primeiro))||Number(primeiro)<1||Number(primeiro)>999999999)
     throw Error('Informe o número inteiro do primeiro empenho.');
@@ -217,6 +283,7 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
     // Somente INSS individual comprovado é transferido ao extraorçamentário.
     const inssExtra=a.confirmado?Number(a.inssExtra)||0:0;
     const problemas=[];
+    if(r.tipoIdentificado===false)problemas.push('Identificar o tipo de folha desta lotação');
     if(!r.secretaria)problemas.push('Classificar secretaria');
     if(!destino.ficha||!destino.fonte||!destino.conta)problemas.push('Informar ficha, fonte e conta bancária');
     if(bruto==null||desconto==null)problemas.push('Total bruto/desconto ilegível');
