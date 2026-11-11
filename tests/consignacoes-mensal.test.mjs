@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { conferenciaMensal, vincularFolha, valorEsperado, rotuloCompetencia, buscarDocumentosDaDiferenca, documentosParaConferencia, reconhecerCodigoCaixaExistente, avisosPendentes, classificarArquivo } from '../assets/js/consignacoes-mensal.js';
+import { conferenciaMensal, vincularFolha, valorEsperado, rotuloCompetencia, buscarDocumentosDaDiferenca, documentosParaConferencia, reconhecerCodigoCaixaExistente, avisosPendentes, classificarArquivo, agruparOPsPorBancoFonte } from '../assets/js/consignacoes-mensal.js';
 import { DESTINOS } from '../assets/js/minuta-pdf.js';
 const [caixa,sicoob,bradesco,pensao]=DESTINOS;
 const arquivo=(destino,valor,numero='2026/1-1')=>({nome:destino+'.pdf',resultado:{avisos:[],registros:[{destino,centavos:valor,numero,data:'28/08/2026',fonte:'1500',fonteCompleta:'1.500.000.0000'}]}});
@@ -66,3 +66,33 @@ const confirmadoManual=classificarArquivo(legadoCaixa,caixa);
 assert.equal(avisosPendentes(confirmadoManual).length,0);
 assert.equal(classificarArquivo(confirmadoManual,'').resultado.registros[0].destino,'');
 console.log('Arquivo Caixa já importado reconhecido, com avisos resolvidos.');
+
+
+// Cada combinação banco + fonte completa deve produzir UMA OP, sem misturar bancos.
+const resumoOP=agruparOPsPorBancoFonte([
+ {nome:'bradesco setembro.pdf',resultado:{registros:[
+   {destino:bradesco,tipo:'Guia',numero:'2026/4548-1',fonte:'1500',fonteCompleta:'1.500.000.0000',fonteNome:'Recursos não vinculados de Impostos',centavos:39483},
+   {destino:bradesco,tipo:'Guia',numero:'2026/4570-1',fonte:'1540',fonteCompleta:'1.540.000.0000',centavos:17230},
+   {destino:bradesco,tipo:'Guia',numero:'2026/4583-1',fonte:'1600',fonteCompleta:'1.600.000.0000',centavos:37391},
+   {destino:bradesco,tipo:'Guia',numero:'2026/4548-1',fonte:'1500',fonteCompleta:'1.500.000.0000',centavos:100}
+ ]}},
+ {nome:'sicoob setembro.pdf',resultado:{registros:[
+   {destino:sicoob,tipo:'Guia',numero:'2026/4529-1',fonte:'1540',fonteCompleta:'1.540.000.0000',centavos:39516},
+   {destino:'',tipo:'Guia',numero:'2026/9999-1',fonte:'1500',fonteCompleta:'1.500.000.0000',centavos:250}
+ ]}}
+]);
+assert.equal(resumoOP.itens.length,4);
+assert.equal(resumoOP.pendentes.length,1);
+assert.equal(resumoOP.totalPendentes,250);
+assert.equal(resumoOP.itens.find(x=>x.destino===bradesco&&x.fonte==='1500').total,39583);
+assert.equal(resumoOP.itens.find(x=>x.destino===bradesco&&x.fonte==='1500').guias,1);
+assert.equal(resumoOP.itens.find(x=>x.destino===bradesco&&x.fonte==='1540').total,17230);
+assert.equal(resumoOP.itens.find(x=>x.destino===bradesco&&x.fonte==='1600').total,37391);
+assert.equal(resumoOP.itens.find(x=>x.destino===sicoob&&x.fonte==='1540').total,39516);
+assert.equal(resumoOP.total,39583+17230+37391+39516);
+const semExtra=agruparOPsPorBancoFonte([{nome:'x',resultado:{registros:[{
+ destino:bradesco,fonte:'1500',fonteCompleta:'1.500.000.0000',numero:'1',tipo:'Guia',centavos:39483
+}]}}]);
+assert.equal(semExtra.total,39483);
+assert.equal(agruparOPsPorBancoFonte([]).itens.length,0);
+console.log('OP extra por banco/fonte: fontes separadas, guias únicas e pendências aprovadas.');
