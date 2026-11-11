@@ -20,7 +20,7 @@ import { telaParametros, telaUsuarios, telaImportar, telaAuditoria, telaConta } 
 import { telaImprimir } from './views/imprimir.js';
 import { telaConferencia } from './views/conferencia.js';
 import { telaRelatorio } from './views/relatorio.js';
-import { telaConsignacoes } from './views/consignacoes.js?v=3.13.0';
+import { telaConsignacoes } from './views/consignacoes.js?v=3.13.1';
 import { telaOrcamento } from './views/orcamento.js';
 import { telaFiscal, telaImprimirFiscal, iniciarWidgetFiscal } from './views/fiscal.js';
 
