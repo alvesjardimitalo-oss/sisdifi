@@ -61,7 +61,7 @@ assert.equal(principal.competencia,'2026-09');
 assert.equal(principal.avisos.length,0,principal.avisos.join('\n'));
 assert.equal(principal.registros[0].valores.bruto,906274);
 assert.equal(principal.registros[0].valores.familia,13508);
-assert.equal(principal.registros[0].bancos.Caixa,101999);
+assert.equal(principal.registros[0].bancos.Caixa,100999);
 assert.equal(principal.registros[0].vinculo,'Efetivos');
 assert.equal(principal.registros[1].valores.maternidade,308944);
 assert.equal(principal.registros[1].bancos.Sicoob,80000);
@@ -115,13 +115,13 @@ const tres=prepararEmpenhos([decimo,principal],5000,mapa2,consolidado.ajustes);
 assert.deepEqual(tres.empenhos.map(x=>x.empenho),[5000,5001,5002]);
 assert.equal(tres.empenhos[2].tipo,'decimo');
 const minuta=[
-{resultado:{registros:[{destino:'Caixa Econômica Federal',centavos:101999},{destino:'Sicoob',centavos:80000}]},nome:'minutas'}
+{resultado:{registros:[{destino:'Caixa Econômica Federal',centavos:100999},{destino:'Sicoob',centavos:80000}]},nome:'minutas'}
 ];
 const conc=conferirConsignadosFolha(prev.empenhos,minuta);
 assert.equal(conc.find(x=>x.banco==='Caixa').diferenca,0);
 assert.equal(conc.find(x=>x.banco==='Sicoob').diferenca,0);
 const troca=conferirConsignadosFolha(prev.empenhos,[{resultado:{registros:[
- {destino:'Caixa Econômica Federal',centavos:101411},{destino:'Sicoob',centavos:80588}
+ {destino:'Caixa Econômica Federal',centavos:100411},{destino:'Sicoob',centavos:80588}
 ]},nome:'trocadas'}]);
 assert.equal(troca.find(x=>x.banco==='Caixa').diferenca,-588);
 assert.equal(troca.find(x=>x.banco==='Sicoob').diferenca,588);
