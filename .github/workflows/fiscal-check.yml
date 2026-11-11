@@ -15,4 +15,5 @@ jobs:
       - run: node --check assets/js/auditoria-fiscal.js && node --check assets/js/fiscal.js
       - run: node tests/fiscal.test.mjs
       - run: node tests/auditoria-fiscal.test.mjs
+      - run: python3 -m py_compile scripts/monitor-legislacao-fiscal.py
       - run: node tests/danfse.test.mjs
