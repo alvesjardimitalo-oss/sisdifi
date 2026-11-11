@@ -1,6 +1,7 @@
 // SISDIFI | Prévia de empenhos da folha. Todas as contas são em centavos.
 // Nenhuma informação é enviada a serviços externos. Ficha/fonte/conta nunca são presumidas.
 // O PDF de RESUMO DE VERBAS contém valores por lotação, não os nomes das servidoras.
+import {avisosPendentes} from './consignacoes-mensal.js';
 export const MESES_FOLHA=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 export const TIPOS_FOLHA=[{id:'principal',nome:'Folha principal'},{id:'decimo',nome:'Adiantamento de 50% do 13º'},{id:'rescisao',nome:'Rescisões contratuais'}];
 const norma=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/\s+/g,' ').trim();
@@ -190,14 +191,14 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
 }
 export function conferirConsignadosFolha(empenhos,arquivosMinuta){
   const calc={Caixa:0,Sicoob:0,Bradesco:0,Pensao:0};
-  empenhos.filter(r=>r.tipo==='principal').forEach(r=>Object.entries(calc).forEach(([b])=>{calc[b]+=r.bancos[b]||0;}));
+  empenhos.forEach(r=>Object.entries(calc).forEach(([b])=>{calc[b]+=r.bancos[b]||0;}));
   const destinos={'Caixa Econômica Federal':'Caixa',Sicoob:'Sicoob',Bradesco:'Bradesco','Pensão alimentícia':'Pensao'};
   const minuta={Caixa:0,Sicoob:0,Bradesco:0,Pensao:0};let semBanco=0,avisos=[];
   for(const a of arquivosMinuta||[]){
     for(const r of a.resultado?.registros||[]){
       const b=destinos[r.destino];if(b)minuta[b]+=r.centavos;else semBanco++;
     }
-    avisos.push(...(a.resultado?.avisos||[]));
+    avisos.push(...avisosPendentes(a));
   }
   return Object.keys(calc).map(b=>({banco:b,esperado:calc[b],minuta:minuta[b],
     diferenca:minuta[b]-calc[b],conferido:!!arquivosMinuta?.length&&!avisos.length&&!semBanco&&minuta[b]===calc[b],
