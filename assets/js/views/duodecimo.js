@@ -1,6 +1,6 @@
 // SISDIFI - Controle do duodécimo da Câmara Municipal.
-// Armazenamento na área compartilhada do exercício financeiro, já sincronizada pelo Firebase.
-// Cada atualização grava SOMENTE o registro alterado, preservando os outros repasses e os campos do exercício.
+// Armazenamento RESTRITO no Firebase, exclusivo de Contabilidade e ADM.
+// Cada atualização grava SOMENTE o registro alterado no documento contábil privado.
 import * as db from '../db.js';
 import { estado, pode } from '../estado.js';
 import { esc, modal, confirmar, toast, mensagemErro, hojeISO } from '../ui.js';
@@ -104,8 +104,8 @@ export function telaDuodecimo(el) {
     if(desinscrever)desinscrever();
     documento=null;erro='';carregando=true;render();mostrarErro('Carregando repasses de '+ano+'…');
     const anoLido=ano;
-    desinscrever=db.ouvirDoc('exercicios',String(ano),doc=>{
-      if(cancelou||ano!==anoLido)return;documento=doc||{ano,duodecimo:{repasses:{}}};
+    desinscrever=db.ouvirDoc('duodecimo_anos',String(ano),doc=>{
+      if(cancelou||ano!==anoLido)return;documento=doc||{ano,repasses:{}};
       erro='';carregando=false;$('#dd-status').textContent='Dados sincronizados com o SISDIFI · exercício '+ano;render();
     }, e=>{if(cancelou||ano!==anoLido)return;carregando=false;mostrarErro('Não foi possível carregar os repasses: '+mensagemErro(e));render();});
   }
@@ -119,7 +119,7 @@ export function telaDuodecimo(el) {
       atualizadoEm:agora,atualizadoPor:estado.sessao.nome,anulado:false};
     ocupada=true;estadoBotoes();
     try {
-      await db.salvar('exercicios',String(ano),{ano,duodecimo:{repasses:{[id]:registro}}});
+      await db.salvar('duodecimo_anos',String(ano),{ano,repasses:{[id]:registro}});
       try{await db.registrarLog(anterior?'duodecimo.op.editar':'duodecimo.op.criar',
         {ano,competencia:registro.competencia,numeroOP:registro.numeroOP,valorCentavos:registro.valorCentavos,dataRepasse:registro.dataRepasse});}
       catch(e){toast('Registro salvo. Não foi possível registrar o log de auditoria.','erro');}
@@ -169,8 +169,8 @@ export function telaDuodecimo(el) {
     ocupada=true;estadoBotoes();
     try {
       const {id: ignorado, ...dadosExistentes} = r;
-      await db.salvar('exercicios',String(ano),{ano,duodecimo:{repasses:{[id]:{...dadosExistentes,anulado:true,
-        anuladoEm:new Date().toISOString(),anuladoPor:estado.sessao.nome}}}});
+      await db.salvar('duodecimo_anos',String(ano),{ano,repasses:{[id]:{...dadosExistentes,anulado:true,
+        anuladoEm:new Date().toISOString(),anuladoPor:estado.sessao.nome}}});
       try{await db.registrarLog('duodecimo.op.anular',{ano,competencia:r.competencia,numeroOP:r.numeroOP,valorCentavos:r.valorCentavos});}
       catch(e){toast('OP anulada. Falha ao registrar log de auditoria.','erro');}
       toast('OP anulada e excluída dos totais.');
@@ -235,11 +235,32 @@ export function telaDuodecimo(el) {
   }
 
   $('#dd-mes').onchange=e=>{mes=e.target.value;render();};
-  $('#dd-ano').onchange=e=>{ano=Number(e.target.value);ouvirAno();};
+  $('#dd-ano').onchange=e=>{ano=Number(e.target.value);inicializar();};
   $('#dd-adicionar').onclick=()=>abrirFormulario();
   $('#dd-csv').onclick=exportarCSV;
   $('#dd-imprimir').onclick=imprimir;
   $('#dd-imprimir-anual').onclick=imprimirAnual;
-  ouvirAno();
+  async function inicializar() {
+    if(cancelou)return;
+    desinscrever?.();desinscrever=null;
+    documento=null;carregando=true;ocupada=false;erro='';render();
+    $('#dd-status').textContent='Validando acesso restrito e migrando registros anteriores…';
+    try {
+      // O acesso ao documento privado deve funcionar ANTES de consultar dados antigos.
+      await db.lerDoc('duodecimo_anos',String(ano));
+      const migracao=await db.migrarDuodecimoLegado();
+      if(cancelou)return;
+      if(migracao.exerciciosMigrados) {
+        await db.registrarLog('duodecimo.migracao_privada',migracao).catch(()=>{});
+      }
+      ouvirAno();
+    } catch(e) {
+      if(cancelou)return;
+      carregando=false;
+      mostrarErro('Não foi possível abrir a área privativa do Duodécimo. Publique as regras de acesso restrito do Firebase e atualize a página. Detalhe: '+mensagemErro(e));
+      render();
+    }
+  }
+  inicializar();
   return {titulo:'Duodécimo da Câmara',limpar:()=>{cancelou=true;desinscrever?.();}};
 }
