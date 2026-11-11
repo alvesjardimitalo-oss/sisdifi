@@ -1,7 +1,7 @@
 // SISDIFI — Folha de pagamentos: geração de relação prévia de empenhos.
 // Exclusivo de Contabilidade/ADM. Não grava dados de folha no Firebase.
 import {estado,pode} from '../estado.js';
-import {consultarFichaOrcamento,alertaNaturezaFicha,FICHAS_PESSOAL_2026} from '../folha-orcamento-2026.js';
+import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,FICHAS_PESSOAL_2026} from '../folha-orcamento-2026.js';
 import {esc,toast} from '../ui.js';
 import {analisarResumoVerbas,analisarResumoConsolidado,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha} from '../folha-empenhos.js';
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
@@ -46,8 +46,9 @@ export function telaFolhaEmpenhos(el){
       if(referencia.acao)novo.lotacaoOrcamentaria=referencia.acao;
       novo.origemFicha=referencia.origem;
       if(referencia.fontes.length===1)novo.fonte=referencia.fontes[0];
-      else if(novo.fonte&&referencia.fontes.length&&!referencia.fontes.includes(novo.fonte))novo.fonte='';
-    }else if(!ficha){
+      else if(novo.fonte&&referencia.fontes.length&&!fonteCompativel(novo.fonte,referencia.fontes))novo.fonte='';
+    }else{
+      // Não manter ação de uma ficha anterior quando a nova ainda não está identificada.
       novo.lotacaoOrcamentaria='';novo.origemFicha='';
     }
     mapa[id]=novo;
@@ -232,7 +233,7 @@ export function telaFolhaEmpenhos(el){
         const avisoNatureza=ref?alertaNaturezaFicha(r.vinculo,ref.naturezas):'';
         const fontes=ref?.fontes||[];
         const avisoFicha=m.ficha&&!ref?'Ficha não localizada no orçamento disponível; confira manualmente.':ref?.ambiguo?'Ficha com correspondências orçamentárias distintas; confira manualmente.':'';
-        const avisoFonte=ref&&fontes.length>1&&!m.fonte?'Selecione uma das fontes permitidas: '+fontes.join(', '):ref&&m.fonte&&fontes.length&&!fontes.includes(m.fonte)?'A fonte informada não corresponde às fontes cadastradas nesta ficha.':'';
+        const avisoFonte=ref&&fontes.length>1&&!m.fonte?'Selecione uma das fontes permitidas: '+fontes.join(', '):ref&&m.fonte&&fontes.length&&!fonteCompativel(m.fonte,fontes)?'A fonte informada não corresponde às fontes cadastradas nesta ficha.':'';
         return '<tr><td><strong>'+r.empenho+'</strong></td><td>'+esc(tipos[r.tipo])+'</td>'+
           '<td><input style="width:170px" data-ref="'+esc(r.id)+'" data-campo="secretaria" value="'+esc(m.secretaria||r.secretaria||'')+'"></td>'+
           '<td><input style="width:115px" data-ref="'+esc(r.id)+'" data-campo="vinculo" value="'+esc(m.vinculo||r.vinculo||'')+'"></td>'+
