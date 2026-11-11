@@ -138,12 +138,13 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
   if(!Number.isSafeInteger(Number(primeiro))||Number(primeiro)<1||Number(primeiro)>999999999)
     throw Error('Informe o número inteiro do primeiro empenho.');
   const todas=arquivos.flatMap(a=>(a?.registros||[]).map(r=>({...r,tipo:a.tipo,competencia:a.competencia})));
+  const destino=r=>mapa[r.tipo+'|'+r.lotacao]||mapa[r.lotacao]||{};
   const ordenadas=todas.sort((a,b)=>{
     const ia=['principal','decimo','rescisao'].indexOf(a.tipo),ib=['principal','decimo','rescisao'].indexOf(b.tipo);
     if(ia!==ib)return ia-ib;
-    const sa=ORGAOS.indexOf(a.secretaria),sb=ORGAOS.indexOf(b.secretaria);
+    const sa=ORGAOS.indexOf(destino(a).secretaria||a.secretaria),sb=ORGAOS.indexOf(destino(b).secretaria||b.secretaria);
     if(sa!==sb)return (sa<0?999:sa)-(sb<0?999:sb);
-    const va=VINCULOS.indexOf(a.vinculo),vb=VINCULOS.indexOf(b.vinculo);
+    const va=VINCULOS.indexOf(destino(a).vinculo||a.vinculo),vb=VINCULOS.indexOf(destino(b).vinculo||b.vinculo);
     if(va!==vb)return (va<0?999:va)-(vb<0?999:vb);
     return a.paginaInicio-b.paginaInicio;
   });
