@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import os
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 
 CATALOGO = Path(__file__).resolve().parents[1] / "assets/data/legislacao-fiscal.json"
@@ -45,16 +46,40 @@ def coletar(url):
     urlparts = urlparse(url)
     if urlparts.scheme != "https" or urlparts.hostname not in HOSTS:
         raise ValueError("URL não autorizada para este monitor")
-    req = Request(url, headers={"User-Agent": "SISDIFI-Legislacao-Fiscal/1.0 (+consulta publica)", "Accept": "text/html,application/pdf"})
-    with urlopen(req, timeout=24) as resp:
+    cabecalhos = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/pdf,text/plain;q=0.8,*/*;q=0.5",
+        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.5"
+    }
+    intermediada = False
+    try:
+        resp = urlopen(Request(url, headers=cabecalhos), timeout=22)
+    except (HTTPError, URLError) as erro:
+        # Portais municipais usam bloqueio anti-bot para IPs do GitHub Actions.
+        # Fallback opcional para leitura de páginas públicas: é um ESPELHO,
+        # jamais prova oficial de vigência, e exigirá revisão humana no SISDIFI.
+        if urlparts.hostname not in ("freiinocencio.mg.gov.br","camarafreiinocencio.mg.gov.br"):
+            raise
+        espelho = "https://r.jina.ai/" + url
+        resp = urlopen(Request(espelho, headers={
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "text/plain",
+            "X-Return-Format": "text"
+        }), timeout=27)
+        intermediada = True
+    with resp:
         ctype = resp.headers.get("Content-Type", "").split(";")[0].strip().lower()
         data = resp.read(750_000)
         if len(data) < 250:
-            raise ValueError("Conteúdo oficial muito curto")
+            raise ValueError("Conteúdo legislativo muito curto")
+        if intermediada:
+            conteudo = data.decode("utf-8", errors="ignore")
+            if urlparts.hostname not in conteudo:
+                raise ValueError("Espelho não indica a origem municipal")
         if ctype == "application/pdf" or data.startswith(b"%PDF"):
             material = data
         else:
-            if ctype not in ("text/html", "text/plain", "application/xhtml+xml"):
+            if ctype not in ("text/html", "text/plain", "text/markdown", "application/xhtml+xml"):
                 raise ValueError("Tipo de conteúdo inesperado")
             parser = TextoOficial()
             parser.feed(data.decode("utf-8", errors="ignore"))
@@ -64,7 +89,7 @@ def coletar(url):
             if len(texto) < 120:
                 raise ValueError("Não foi possível extrair texto legislativo suficiente")
             material = texto.encode("utf-8")
-    return hashlib.sha256(material).hexdigest()
+    return hashlib.sha256(material).hexdigest(), intermediada
 
 def executar():
     catalogo = json.loads(CATALOGO.read_text(encoding="utf-8"))
@@ -74,7 +99,9 @@ def executar():
         else:
             anterior_pendente = False
         try:
-            hash_atual = coletar(fonte["url"])
+            hash_anterior = fonte.get('hashObservado')
+            hash_atual, intermediada = coletar(fonte["url"])
+            fonte["consultaIntermediada"] = intermediada
             fonte["ultimaConsulta"] = HOJE
             fonte["hashObservado"] = hash_atual
             fonte.pop("ultimoErro", None)
@@ -85,7 +112,7 @@ def executar():
                 fonte["referenciaCapturadaEm"] = HOJE
             elif hash_atual != fonte["hashReferencia"]:
                 fonte["estado"] = "mudanca_detectada"
-                if not anterior_pendente:
+                if not anterior_pendente or hash_anterior != hash_atual:
                     fonte["mudancaDetectadaEm"] = HOJE
                     NOVA.append(fonte["titulo"])
             else:
