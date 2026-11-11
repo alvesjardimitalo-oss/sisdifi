@@ -2,6 +2,18 @@
 
 Módulo contábil SISDIFI: `#/folha-empenhos` (menu "Folha de pagamentos", exclusivo ADM e Contabilidade).
 
+## Fluxo de um único PDF (v3.17.0)
+1. Abra **Folha de pagamentos** e escolha um único PDF no campo azul **Escolha um único arquivo do RH (PDF)**. O arquivo ideal é o **Resumo de Verbas consolidado**: a folha nominal isolada não contém os totais orçamentários por lotação.
+2. A competência é identificada pelo cabeçalho do próprio resumo quando não há lançamentos previamente carregados no mês atual; se existirem dados de outra competência, a importação é bloqueada para não misturá-los.
+3. O leitor separa os grupos principal, extra, adiantamento de 13º e rescisões. **Mantém a ordem das lotações tal como aparecem no relatório do RH**, como na última planilha de junho/2026, sem impor ordenação alfabética que deslocaria o número de empenho.
+4. No cabeçalho misto **01-FOLHA MENSAL/05-DÉCIMO**, identifica a rubrica **150 ADIANTAMENTO 13SALARIO**, retira seu valor da parte principal e gera empenho de adiantamento do 13º ao final, com valor bruto e líquido próprios e nenhum desconto inventado. Se a separação não for aritmeticamente segura, gera pendência em vez de criar valor.
+5. Digite o número inicial de empenho. A tabela preenche número sequencial, secretaria, vínculo, lotação, bruto, descontos e líquido. **Ficha e fonte ficam para a Contabilidade preencher**; conta bancária é opcional.
+6. O quadro **VALOR BATEU / VALOR NÃO BATEU** verifica a aritmética entre bruto, desconto e líquido do **próprio Resumo de Verbas**. Não substitui conferência independente com o arquivo nominal nem com extratos/minutas.
+7. O Excel exportado inclui como **primeira aba “Modelo Contabilidade”**, com o mesmo padrão de **14 colunas da planilha de junho**: grupo, empenho, secretaria, ficha, fonte, conta, bruto, desconto, nº da OP extra, bruto e desconto extraorçamentários, adicionais e líquido geral. As demais abas permanecem para composição por rubrica, conferência e justificativas.
+8. Salário-família e maternidade aparecem como OPs extras. O **INSS individual da maternidade não pode ser inferido apenas pelo resumo**: envie a folha nominal se esse dado não estiver no mesmo PDF, confira matrícula e lotação e marque o lançamento como conferido. Sem isso, a versão final continua pendente, mas o Excel de rascunho fica disponível.
+
+**Atenção:** a última planilha de junho serve como referência de organização e colunas, não como tabela automática de correspondência de fichas/fontes. O RH pode alterar lotações e as verbas de uma competência. Não reutilizar números de empenho, fontes ou valores de junho por posição sem identificação inequívoca.
+
 ## Finalidade
 Produzir memória de lançamento com **uma linha por empenho/lotação**, sugerindo números sequenciais a partir do primeiro número informado, respeitando a ordem folha principal → adiantamento de 50% do 13º → rescisões. Dentro de cada grupo, ordena por secretaria e vínculo. A Contabilidade define e confirma **ficha, fonte e conta bancária**; o sistema não as inventa.
 
@@ -26,7 +38,7 @@ Produzir memória de lançamento com **uma linha por empenho/lotação**, sugeri
 - Somente o INSS individual confirmado é realocado do desconto da folha principal para a OP extraorçamentária do salário-maternidade. O total retido no conjunto das operações não é duplicado.
 
 ## Planilha XLSX
-A exportação em rascunho está sempre disponível após importar a folha principal; a versão "conferida" exige mapeamento verificado, salário-maternidade conciliado, composição de descontos sem diferenças e minutas bancárias/pensões conferidas.
+A exportação em rascunho está disponível após importar qualquer Resumo de Verbas válido; a versão "conferida" exige mapeamento verificado, salário-maternidade conciliado, composição de descontos sem diferenças e minutas bancárias/pensões conferidas.
 
 Abas do Excel:
 1. **Empenhos:** uma linha por empenho, colunas individualizadas Caixa, Sicoob, Bradesco, pensões, INSS, IRRF e Outros; bruto, soma automática das rubricas, diferença com RH, INSS maternidade, desconto ajustado e líquido. Fórmulas e valores de cache para abertura correta no Excel.
