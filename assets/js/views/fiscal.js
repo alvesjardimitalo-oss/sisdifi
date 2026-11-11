@@ -389,6 +389,96 @@ function recalcular(el) {
   desenharResultado(el);
 }
 
+// Boletim público atualizado diariamente por GitHub Actions — não altera cálculos.
+const URL_LEIS_ATUALIZADAS = 'https://raw.githubusercontent.com/alvesjardimitalo-oss/sisdifi/main/assets/data/legislacao-fiscal.json';
+async function carregarLegislacao(el, forcar=false) {
+  if(carregandoLegislacao)return carregandoLegislacao;
+  if(!forcar && catalogoFiscal && Date.now()-ultimaLeituraLegislacao<1800000)return;
+  carregandoLegislacao=(async()=>{
+    try {
+      const resposta=await fetch(URL_LEIS_ATUALIZADAS+'?consulta='+Date.now(),{cache:'no-store'});
+      if(!resposta.ok)throw Error('Catálogo indisponível (HTTP '+resposta.status+')');
+      const d=await resposta.json();
+      if(d.schema!==1 || d.codigoIBGE!=='3126901' || !Array.isArray(d.fontes))throw Error('Catálogo de legislação inválido.');
+      catalogoFiscal=d;ultimaLeituraLegislacao=Date.now();erroCatalogoFiscal='';
+    } catch(e) {
+      catalogoFiscal=null;erroCatalogoFiscal=e.message||'Falha de atualização';
+    } finally {
+      carregandoLegislacao=null;
+      if(s.resultado && el?.isConnected)recalcular(el);
+    }
+  })();
+  return carregandoLegislacao;
+}
+const CHECKS_FISCAIS=[
+ ['originalConferido','Conferi o XML/PDF integral ou consultei o documento no portal do emissor'],
+ ['tomadorConfirmado','Confirmei o tomador: Prefeitura Municipal de Frei Inocêncio/MG e seu CNPJ'],
+ ['autenticidadeConfirmada','Verifiquei a autorização e que a nota não está cancelada/substituída'],
+ ['naturezaConfirmada','Conferi a natureza tributária/serviço usada na retenção do IRRF'],
+ ['regimeConfirmado','Conferi o Simples/MEI na data da emissão, quando necessário'],
+ ['localConfirmado','Confirmei o local efetivo da prestação e a incidência de ISS'],
+ ['legislacaoIssConfirmada','Validei alíquota e base de ISS na lei municipal com Tributos'],
+ ['baseEspecialAnalisada','Examinei deduções legais específicas da base do ISS e comprovantes'],
+ ['inssAnalisado','Analisei possível retenção do INSS (não calculada automaticamente)'],
+ ['vinculoEmpenho','Conferi empenho, contrato/ordem de fornecimento e valores'],
+ ['atestoConfirmado','Conferi o atesto de recebimento dos bens ou da execução do serviço']
+];
+function blocoAuditoriaFiscal(el) {
+  const a=s.auditoria;if(!a)return '';
+  const relevantes=new Set(a.pendencias.map(q=>q.id));
+  const perfil=estado.sessao?.perfil;
+  const fontes=a.monitor.fontes;
+  const estadoFonte={monitorado:'Monitorada',mudanca_detectada:'Alteração detectada',erro:'Fonte indisponível',revisao_registrada:'Alteração revisada',nao_verificado:'Aguardando coleta'};
+  let marcacoes='';
+  for(const [id,label] of CHECKS_FISCAIS){
+    const cond={localConfirmado:'local',legislacaoIssConfirmada:'legislacao_iss',baseEspecialAnalisada:'base_especial',inssAnalisado:'inss'};
+    if(cond[id] && !relevantes.has(cond[id]) && !s.confirmacoes[id]) continue;
+    marcacoes+='<label style="display:flex;gap:9px;align-items:flex-start;margin:8px 0"><input type="checkbox" data-fis-confirma="'+id+'" '+(s.confirmacoes[id]?'checked':'')+'><span>'+esc(label)+'</span></label>';
+  }
+  const lembretes=a.pendencias.map(q=>'<li><strong>'+esc(q.titulo)+'</strong>: '+esc(q.pergunta)+(q.base?' <small>('+esc(q.base)+')</small>':'')+'</li>').join('');
+  const impedimentos=a.impedimentos.map(q=>'<li><strong>'+esc(q.titulo)+'</strong>: '+esc(q.pergunta)+'</li>').join('');
+  const fontesHtml=fontes.length?fontes.map(f=>{
+    const aprovar=perfil==='admin' && f.estado==='mudanca_detectada' && f.hashObservado;
+    return '<li style="margin:8px 0"><strong>'+esc(f.titulo)+'</strong> — '+esc(estadoFonte[f.estado]||f.estado)+
+      ' · <a href="'+esc(f.url)+'" target="_blank" rel="noopener noreferrer">Norma oficial</a>'+
+      (f.ultimaConsulta?' · <small>Última coleta: '+esc(new Date(f.ultimaConsulta).toLocaleDateString('pt-BR'))+'</small>':'')+
+      (aprovar?'<button type="button" class="btn btn-sec" data-fis-aprovar-lei="'+esc(f.id)+'">Registrar revisão</button>':'')+'</li>';
+  }).join(''):'<li>Boletim oficial ainda não carregado. Conferência de vigência obrigatória.</li>';
+  const situacaoTxt={bloqueada:'NÃO LIQUIDAR — divergência identificada',pendente:'AGUARDAR CONFERÊNCIAS E DOCUMENTOS',conferida_para_revisao:'PRÉ-AUDITORIA CONCLUÍDA — decisão humana obrigatória'}[a.situacao];
+  return '<section class="cartao" style="border-left:4px solid '+(a.situacao==='bloqueada'?'#b84040':a.situacao==='pendente'?'#c39131':'#2c885b')+'">'+
+    '<h3>Auditoria da Prefeitura de Frei Inocêncio</h3><p><strong>'+esc(situacaoTxt)+'</strong></p>'+
+    '<p class="dica">'+esc(a.resumo)+' O sistema não acessa nem bloqueia a liquidação no software contábil externo.</p>'+
+    (s.doc.tomadorNome||s.doc.tomadorCnpj?'<p><strong>Tomador lido da nota:</strong> '+esc(s.doc.tomadorNome||'Não identificado')+
+      (s.doc.tomadorCnpj?' · CNPJ '+esc(formatarCnpj(s.doc.tomadorCnpj)):'')+'</p>':'')+
+    (impedimentos?'<h4>Inconsistências impeditivas</h4><ul class="fiscal-problemas">'+impedimentos+'</ul>':'')+
+    '<details open><summary><strong>Confirmações do processo administrativo</strong></summary><div style="padding:10px 0">'+marcacoes+'</div></details>'+
+    (lembretes?'<details open><summary><strong>Perguntas e informações pendentes ('+a.pendencias.length+')</strong></summary><ul class="fiscal-problemas">'+lembretes+'</ul></details>':'')+
+    '<details><summary><strong>Atualizador de legislação · '+esc(VERSAO_POLITICA_FISCAL)+'</strong> '+(a.monitor.pendentes.length?' · ALTERAÇÕES PARA REVISÃO':'')+'</summary>'+
+      '<p class="dica">As fontes oficiais são consultadas diariamente. Mudanças no texto geram revisão; nunca alteram automaticamente ISS, IRRF ou outros parâmetros da liquidação.</p>'+
+      '<p><strong>Última varredura:</strong> '+esc(a.monitor.ultimo||'Ainda não realizada')+(erroCatalogoFiscal?' · '+esc(erroCatalogoFiscal):'')+
+      ' · <strong>'+a.monitor.pendentes.length+'</strong> alteração(ões) em análise</p><ul>'+fontesHtml+'</ul>'+
+      '<button class="btn btn-sec" type="button" data-fis-atualizar-lei>Recarregar boletim legislativo</button></details></section>';
+}
+async function aprovarLegislacao(el,id) {
+  if(estado.sessao?.perfil!=='admin')return toast('A aprovação é exclusiva do administrador.','erro');
+  const fonte=catalogoFiscal?.fontes?.find(f=>f.id===id);
+  if(!fonte || fonte.estado!=='mudanca_detectada' || !fonte.hashObservado)return;
+  const observacao=window.prompt('Depois de ler a fonte oficial, registre o impacto tributário e a providência (mínimo 20 caracteres). Não significa aplicar uma alíquota automaticamente.');
+  if(observacao==null)return;
+  if(observacao.trim().length<20)return toast('Informe a conclusão da análise e a providência (mínimo 20 caracteres).','erro');
+  if(!window.confirm('Confirma que revisou a norma e registrou a consequência para o SISDIFI? A revisão ficará no registro de auditoria.'))return;
+  try {
+    const db=await import('../db.js');
+    const aprovacao={hash:fonte.hashObservado,quando:new Date().toISOString(),por:estado.sessao.nome||estado.sessao.uid,observacao:observacao.trim(),fonte:fonte.url};
+    await db.salvar('config','fiscal',{legislacaoAprovada:{[id]:aprovacao}});
+    await db.registrarLog('fiscal.legislacao.revisada',{fonte:id,hash:fonte.hashObservado,observacao:observacao.trim()});
+    parametrosFiscais={...(parametrosFiscais||{}),legislacaoAprovada:{...(parametrosFiscais?.legislacaoAprovada||{}),[id]:aprovacao}};
+    toast('Revisão legislativa registrada. Nenhuma alíquota foi alterada.');
+    recalcular(el);
+  } catch(e){toast('Não foi possível registrar a análise: '+(e.message||e),'erro');}
+}
+
+
 // ---------------- Resultado ----------------
 const SIT = {
   ok: ['fiscal-ok', 'Cálculo tributário sem divergências detectadas — confira a auditoria documental'],
@@ -475,6 +565,12 @@ ${blocoFornecedor(cad, '<span class="fiscal-num">3</span> ')}
         <div><strong>${esc(l.titulo)}</strong><small>${esc(l.detalhe)}</small></div></li>`).join('')}</ul>
     </div>` : ''}
     <div class="fiscal-proxima"><button type="button" class="btn btn-sec fiscal-limpar" data-limpar>Limpar consulta e conferir outra nota</button></div>`;
+  box.querySelectorAll('[data-fis-confirma]').forEach(cb=>cb.onchange=()=>{
+    s.confirmacoes[cb.dataset.fisConfirma]=cb.checked;
+    recalcular(el);
+  });
+  box.querySelector('[data-fis-atualizar-lei]')?.addEventListener('click',()=>carregarLegislacao(el,true));
+  box.querySelectorAll('[data-fis-aprovar-lei]').forEach(b=>b.onclick=()=>aprovarLegislacao(el,b.dataset.fisAprovarLei));
   box.querySelector('[data-limpar]').onclick = () => limparConsulta(el);
   box.querySelector('[data-mensagem]').onclick = () => abrirMensagem();
 }
