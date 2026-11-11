@@ -54,7 +54,8 @@ export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',co
     'Caixa R$','Sicoob R$','Bradesco R$','Pensão R$','INSS R$','IRRF R$','Outros descontos R$',
     'Desconto total RH R$','Soma das rubricas R$','Diferença de descontos R$',
     'INSS realocado maternidade R$','Desconto a liquidar R$','Líquido R$',
-    'Salário-família R$','Salário-maternidade R$','Situação','Origem PDF','Ficha/Fonte confirmadas','Liquidação/Observações','Bruto RH sem ajuste R
+    'Salário-família R$','Salário-maternidade R$','Situação','Origem PDF','Ficha/Fonte confirmadas','Liquidação/Observações',
+    'Bruto RH antes do ajuste R$','Incentivo federal enfermagem R$','Incentivo incluído no bruto RH?','INSS da folha extra R$','Nota sobre INSS']];
   const composicoes=[['Empenho','Grupo','Secretaria','Vínculo','Lotação RH','Categoria do desconto',
     'Código da rubrica RH','Descrição da rubrica RH','Valor R$','Página do PDF','Arquivo de origem']];
   for(const r of previsao.empenhos) {
