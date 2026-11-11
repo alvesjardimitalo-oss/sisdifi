@@ -74,4 +74,6 @@ assert.match(view,/db\.salvar\('exercicios'/);
 assert.match(view,/dataRepasse/);
 assert.match(view,/dd-csv/);
 assert.match(view,/dd-imprimir/);
+assert.match(view,/dd-imprimir-anual/);
+assert.match(view,/imprimirAnual/);
 console.log('Duodécimo: 12 meses, R$ 140 mil, OPs parceladas, competência e data real, saldo, anulação, integração ao SISDIFI: OK.');
