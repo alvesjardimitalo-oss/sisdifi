@@ -37,6 +37,11 @@ Abas do Excel:
 
 O comparativo de banco/pensão **por total** não comprova o vínculo correto de cada guia com seu empenho. As diferenças entre guias precisam de conferência na aba de consignações.
 
+## Resumo de Verbas consolidado por lotação
+O sistema permite importar **um único PDF com resumos da folha principal, folha extra, 13º e rescisões**. Cada conjunto é classificado pelo tipo do cabeçalho e pelo código completo da lotação; uma mesma lotação pode aparecer em diferentes tipos sem ser misturada. Quando o cabeçalho não indica o tipo ou há uma lotação duplicada dentro do mesmo tipo, a importação registra pendência e bloqueia a exportação conferida. A folha nominal também pode ser enviada em um PDF único.
+
+A rubrica 163 (salário-maternidade) é extraída da coluna de proventos, e a 201 (INSS) da coluna de descontos, **mesmo quando ambas estão marcadas com a letra P no RH**. O cruzamento entre folha nominal e Resumo de Verbas usa a lotação completa e a matrícula da servidora, e exige conferência do usuário antes de redistribuir o INSS para a OP extraorçamentária. O caso de teste utiliza exatamente R$ 1.782,37 de salário-maternidade e R$ 136,09 de INSS.
+
 ## Segurança e limites
 PDFs não são enviados ao GitHub/Firebase pelo módulo. As extrações e mapeamentos ficam no IndexedDB do navegador, segmentados pelo UID da conta, **não criptografados em repouso pelo módulo**. Utilize dispositivo institucional e evite computadores compartilhados. A planilha exportada contém dados financeiros e deve permanecer em local autorizado.
 
