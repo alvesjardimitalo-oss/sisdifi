@@ -198,26 +198,31 @@ export function telaFolhaEmpenhos(el){
         '<td class="fe-status">'+esc(r.problemas.join('; ')||'Pronto para conferir')+'</td></tr>';
       }).join('')+'</tbody></table>';
     }else{
-      const cabecalhos=['Empenho','Secretaria / vínculo','Lotação','Caixa','Sicoob','Bradesco','Pensão',
-        'INSS','Imposto de Renda','Outros','Soma das rubricas','Desconto do RH','Diferença','Rubricas de origem'];
+      const cabecalhos=['Empenho','Secretaria / vínculo','Lotação','Bruto','Caixa','Sicoob','Bradesco','Pensão',
+        'INSS original','Imposto de Renda','Outros','Soma das rubricas','Desconto do RH','Diferença',
+        'INSS maternidade para OP extra','Desconto a liquidar','Líquido','Rubricas de origem'];
       const linhas=registros.map(r=>{
         const c=r.composicao||{};
         const detalhes=(r.rubricasDesconto||[]).map(v=>
           '<li><strong>'+esc(v.codigo)+' — '+esc(v.descricao)+'</strong> · '+esc(v.categoria)+
           ' · '+dinheiroFolha(v.valor)+' <small>(p. '+esc(v.pagina||r.pagina)+')</small></li>').join('');
-        return '<tr><td><strong>'+r.empenho+'</strong></td><td>'+esc(r.secretaria)+'<br><small>'+esc(r.vinculo)+'</small></td><td>'+esc(r.lotacao)+'</td>'+
+        return '<tr><td><strong>'+r.empenho+'</strong></td><td>'+esc(r.secretaria)+'<br><small>'+esc(r.vinculo)+'</small></td><td>'+esc(r.lotacao)+'</td>'+ 
+          '<td class="fe-money"><strong>'+dinheiroFolha(r.bruto||0)+'</strong></td>'+
           ['Caixa','Sicoob','Bradesco','Pensao','INSS','IRRF','Outros'].map(cat=>
             '<td class="fe-money">'+dinheiroFolha(c[cat]||0)+'</td>').join('')+
           '<td class="fe-money"><strong>'+dinheiroFolha(r.composicaoTotal||0)+'</strong></td>'+
           '<td class="fe-money">'+dinheiroFolha(r.descontoRH||0)+'</td>'+
           '<td class="fe-money" style="'+(r.diferencaComposicao?'color:#b53c30;font-weight:700':'color:#287746')+'">'+
-          (r.diferencaComposicao==null?'Pendente':dinheiroFolha(r.diferencaComposicao))+'</td>'+
+          (r.diferencaComposicao==null?'Pendente':dinheiroFolha(r.diferencaComposicao))+'</td>'+ 
+          '<td class="fe-money">'+dinheiroFolha(r.maisInssExtra)+'</td>'+ 
+          '<td class="fe-money">'+dinheiroFolha(r.descontoAjustado||0)+'</td>'+ 
+          '<td class="fe-money"><strong>'+dinheiroFolha(r.liquido||0)+'</strong></td>'+
           '<td><details><summary>Ver ('+(r.rubricasDesconto||[]).length+')</summary>'+
           '<ul style="min-width:270px;padding-left:18px">'+(detalhes||'<li>Não foi identificado o bloco de descontos do RH.</li>')+
           '</ul><small>Origem: '+esc(r.arquivo)+' · lotação '+esc(r.lotacao)+'</small></details></td></tr>';
       }).join('');
       $('#fe-tabela').innerHTML='<table><thead><tr>'+cabecalhos.map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+
-        (linhas||'<tr><td colspan="14">Nenhum empenho neste filtro.</td></tr>')+'</tbody></table>';
+        (linhas||'<tr><td colspan="18">Nenhum empenho neste filtro.</td></tr>')+'</tbody></table>';
     }
     $('#fe-tabela').querySelectorAll('[data-ref]').forEach(input=>input.onchange=()=>{
       const k=input.dataset.ref,campo=input.dataset.campo;
