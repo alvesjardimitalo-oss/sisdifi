@@ -154,7 +154,7 @@ assert.match(excelExtra,/Incentivo federal enfermagem/);
 assert.match(excelExtra,/INSS da folha extra/);
 
 // PDF único com tipo de cálculo variando entre lotações do mesmo número:
-const consolidado=analisarResumoConsolidado([
+const pdfConsolidado=analisarResumoConsolidado([
   {pagina:1,texto:'RESUMO DE VERBAS'}, {pagina:1,texto:'TIPO CÁLCULO: 01-FOLHA MENSAL'},
   {pagina:1,texto:'REFERENCIA: SETEMBRO/2026'},
   {pagina:1,texto:'LOTAÇÃO...: 002.004.215.00001'},
@@ -173,13 +173,13 @@ const consolidado=analisarResumoConsolidado([
   {pagina:2,texto:'VALOR LIQUIDO DO EMPENHO...........: 500,00'}
 ],{nome:'resumo-unico.pdf'});
 assert.equal(tipoDeFolhaCabecalho('TIPO CÁLCULO: 13 - ADIANTAMENTO 50% DO 13º SALARIO'),'decimo');
-assert.equal(consolidado.quantidade,2);
-assert.deepEqual(consolidado.tipos,{principal:1,decimo:1});
-assert.equal(consolidado.arquivos[0].registros[0].lotacao,'002.004.215.00001');
-assert.equal(consolidado.arquivos[1].registros[0].lotacao,'002.004.215.00001');
-assert.equal(consolidado.arquivos[0].registros[0].valores.bruto,100000);
-assert.equal(consolidado.arquivos[1].registros[0].valores.bruto,50000);
-assert.ok(!consolidado.avisos.some(a=>a.includes('repetida')));
+assert.equal(pdfConsolidado.quantidade,2);
+assert.deepEqual(pdfConsolidado.tipos,{principal:1,decimo:1});
+assert.equal(pdfConsolidado.arquivos[0].registros[0].lotacao,'002.004.215.00001');
+assert.equal(pdfConsolidado.arquivos[1].registros[0].lotacao,'002.004.215.00001');
+assert.equal(pdfConsolidado.arquivos[0].registros[0].valores.bruto,100000);
+assert.equal(pdfConsolidado.arquivos[1].registros[0].valores.bruto,50000);
+assert.ok(!pdfConsolidado.avisos.some(a=>a.includes('repetida')));
 const semTipo=analisarResumoConsolidado([
  'RESUMO DE VERBAS','LOTAÇÃO...: 002.004.215.00003',
  'SECRETARIA DE EDUCACAO','PESSOAL EFETIVO','CLASSIFICAÇÃO CONTÁBIL: 0 - FIXA',
@@ -219,7 +219,7 @@ assert.equal(pessoa.achados[0].inss,25000);
 assert.equal(pessoa.achados[0].beneficio,308944);
 const confirmados=[{...pessoa.achados[0],confirmado:true}];
 const consolidado=consolidarMaternidade(confirmados,[principal]);
-assert.deepEqual(consolidado.avisos,[]);
+assert.deepEqual(pdfConsolidado.avisos,[]);
 assert.equal(consolidado.ajustes['principal|002.004.215.00001'].inssExtra,25000);
 const mapa={
  'principal|002.002.204.00002':{ficha:'56',fonte:'1500',conta:'26538-1'},
