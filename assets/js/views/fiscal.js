@@ -441,7 +441,7 @@ function blocoAuditoriaFiscal(el) {
   const relevantes=new Set(a.pendencias.map(q=>q.id));
   const perfil=estado.sessao?.perfil;
   const fontes=a.monitor.fontes;
-  const estadoFonte={monitorado:'Monitorada',mudanca_detectada:'Alteração detectada',erro:'Fonte indisponível',revisao_registrada:'Alteração revisada',nao_verificado:'Aguardando coleta'};
+  const estadoFonte={monitorado:'Monitorada',mudanca_detectada:'Alteração detectada',erro:'Fonte indisponível',consulta_intermediada:'Consulta por espelho — revisão obrigatória',verificacao_manual:'Conferência manual válida por 7 dias',revisao_registrada:'Alteração revisada',nao_verificado:'Aguardando coleta'};
   let marcacoes='';
   for(const [id,label] of CHECKS_FISCAIS){
     const cond={localConfirmado:'local',legislacaoIssConfirmada:'legislacao_iss',baseEspecialAnalisada:'base_especial',inssAnalisado:'inss'};
@@ -451,7 +451,7 @@ function blocoAuditoriaFiscal(el) {
   const lembretes=a.pendencias.map(q=>'<li><strong>'+esc(q.titulo)+'</strong>: '+esc(q.pergunta)+(q.base?' <small>('+esc(q.base)+')</small>':'')+'</li>').join('');
   const impedimentos=a.impedimentos.map(q=>'<li><strong>'+esc(q.titulo)+'</strong>: '+esc(q.pergunta)+'</li>').join('');
   const fontesHtml=fontes.length?fontes.map(f=>{
-    const aprovar=perfil==='admin' && f.estado==='mudanca_detectada' && f.hashObservado;
+    const aprovar=perfil==='admin' && ['mudanca_detectada','erro','consulta_intermediada'].includes(f.estado);
     return '<li style="margin:8px 0"><strong>'+esc(f.titulo)+'</strong> — '+esc(estadoFonte[f.estado]||f.estado)+
       ' · <a href="'+esc(f.url)+'" target="_blank" rel="noopener noreferrer">Norma oficial</a>'+
       (f.ultimaConsulta?' · <small>Última coleta: '+esc(new Date(f.ultimaConsulta).toLocaleDateString('pt-BR'))+'</small>':'')+
@@ -475,18 +475,18 @@ function blocoAuditoriaFiscal(el) {
 async function aprovarLegislacao(el,id) {
   if(estado.sessao?.perfil!=='admin')return toast('A aprovação é exclusiva do administrador.','erro');
   const fonte=catalogoFiscal?.fontes?.find(f=>f.id===id);
-  if(!fonte || fonte.estado!=='mudanca_detectada' || !fonte.hashObservado)return;
+  if(!fonte || !['mudanca_detectada','erro','monitorado'].includes(fonte.estado) || (fonte.estado==='monitorado'&&!fonte.consultaIntermediada))return;
   const observacao=window.prompt('Depois de ler a fonte oficial, registre o impacto tributário e a providência (mínimo 20 caracteres). Não significa aplicar uma alíquota automaticamente.');
   if(observacao==null)return;
   if(observacao.trim().length<20)return toast('Informe a conclusão da análise e a providência (mínimo 20 caracteres).','erro');
   if(!window.confirm('Confirma que revisou a norma e registrou a consequência para o SISDIFI? A revisão ficará no registro de auditoria.'))return;
   try {
     const db=await import('../db.js');
-    const aprovacao={hash:fonte.hashObservado,quando:new Date().toISOString(),por:estado.sessao.nome||estado.sessao.uid,observacao:observacao.trim(),fonte:fonte.url};
+    const aprovacao={hash:fonte.estado==='erro'?'':fonte.hashObservado,quando:new Date().toISOString(),verificacaoManualEm:new Date().toISOString(),por:estado.sessao.nome||estado.sessao.uid,observacao:observacao.trim(),fonte:fonte.url};
     await db.salvar('config','fiscal',{legislacaoAprovada:{[id]:aprovacao}});
-    await db.registrarLog('fiscal.legislacao.revisada',{fonte:id,hash:fonte.hashObservado,observacao:observacao.trim()});
+    await db.registrarLog('fiscal.legislacao.revisada',{fonte:id,hash:fonte.hashObservado||null,verificacaoManual:fonte.estado==='erro'||!!fonte.consultaIntermediada,observacao:observacao.trim()});
     parametrosFiscais={...(parametrosFiscais||{}),legislacaoAprovada:{...(parametrosFiscais?.legislacaoAprovada||{}),[id]:aprovacao}};
-    toast('Revisão legislativa registrada. Nenhuma alíquota foi alterada.');
+    toast('Revisão legislativa registrada (fontes indisponíveis/espelhadas exigem nova checagem em 7 dias). Nenhuma alíquota foi alterada.');
     recalcular(el);
   } catch(e){toast('Não foi possível registrar a análise: '+(e.message||e),'erro');}
 }
