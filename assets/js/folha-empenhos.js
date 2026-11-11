@@ -3,7 +3,7 @@
 // O PDF de RESUMO DE VERBAS contém valores por lotação, não os nomes das servidoras.
 import {avisosPendentes} from './consignacoes-mensal.js';
 export const MESES_FOLHA=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-export const TIPOS_FOLHA=[{id:'principal',nome:'Folha principal'},{id:'decimo',nome:'Adiantamento de 50% do 13º'},{id:'rescisao',nome:'Rescisões contratuais'}];
+export const TIPOS_FOLHA=[{id:'principal',nome:'Folha principal'},{id:'extra',nome:'Folha extra · incentivo enfermagem'},{id:'decimo',nome:'Adiantamento de 50% do 13º'},{id:'rescisao',nome:'Rescisões contratuais'}];
 const norma=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/\s+/g,' ').trim();
 const numeroSeguro=n=>Number.isSafeInteger(n)&&n>=0;
 export const dinheiroFolha=c=>(c/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
@@ -60,6 +60,7 @@ export function vinculoDaLotacao(s=''){
 }
 const VINCULOS=['Comissionados','Efetivos','Contratados','Agentes políticos','Inativos/pensionistas','Conselho tutelar','Outros'];
 const codBeneficio={familia:'164',maternidade:'163'};
+const ehIncentivoEnfermagem=descricao=>/COMP\s*FED\.?\s*PIS\s*SAL\s*ENFERMAGEM|INCENTIVO\s*(?:DO\s*)?(?:GOVERNO\s*)?FEDERAL|COMPLEMENTA[CÇ][AÃ]O\s*(?:DO\s*)?PISO\s*(?:DA\s*)?ENFERMAGEM|ASSISTENCIA\s*FINANCEIRA\s*COMPLEMENTAR.*ENFERMAGEM/.test(norma(descricao));
 const moeda=/(-?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2})\s*$/;
 const rubrica=/^\s*(\d{2,4})\s+(.+?)\s+(-?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2})\s*$/;
 const resumo=/^\s*(TOTAL BRUTO DE PROVENTOS|TOTAL BRUTO DE DESCONTOS|TOTAL L[IÍ]QUIDO|VALOR BRUTO DO EMPENHO|VALOR DO DESCONTO NA LIQUIDA[CÇ][ÃA]O|VALOR L[IÍ]QUIDO DO EMPENHO|SALARIO FAMILIA|SALARIO MATERNIDADE INSS|COMP FED\.PIS SAL ENFERMAGEM)\.{2,}\s*:\s*([-\d.,]+)\s*$/i;
@@ -104,7 +105,7 @@ function selecionarBlocosDeDesconto(blocos,valorRH) {
 }
 const possuiTipo=t=>/TIPO C[AÁ]LCULO|RESUMO DE VERBAS/i.test(t);
 export function analisarResumoVerbas(linhas,{tipo='principal',nome=''}={}){
-  if(!['principal','decimo','rescisao'].includes(tipo))throw Error('Tipo de folha inválido.');
+  if(!['principal','extra','decimo','rescisao'].includes(tipo))throw Error('Tipo de folha inválido.');
   const texto=linhas.map(l=>typeof l==='string'?l:l.texto).join('\n');
   if(!possuiTipo(texto))throw Error('O arquivo não parece ser um Resumo de Verbas do RH.');
   const comp=competenciaNoResumo(linhas),avisos=[],dados=[];
@@ -118,9 +119,18 @@ export function analisarResumoVerbas(linhas,{tipo='principal',nome=''}={}){
       'VALOR LIQUIDO DO EMPENHO':'liquido','TOTAL BRUTO DE PROVENTOS':'proventos',
       'TOTAL BRUTO DE DESCONTOS':'totalDescontos','TOTAL LIQUIDO':'totalLiquido',
       'SALARIO FAMILIA':'familia','SALARIO MATERNIDADE INSS':'maternidade',
-      'COMP FED.PIS SAL ENFERMAGEM':'enfermagem'
+      'COMP FED.PIS SAL ENFERMAGEM':'enfermagem',
+      'INCENTIVO GOVERNO FEDERAL':'enfermagem',
+      'INCENTIVO FEDERAL ENFERMAGEM':'enfermagem'
     };
     for(const [k,v] of Object.entries(grupo.resumos))if(map[k])grupo.valores[map[k]]=v;
+    // A identificação do incentivo é feita por campo próprio ou rubrica (sem somar duas vezes).
+    const encontrados=rubricas.filter(r=>ehIncentivoEnfermagem(r.descricao));
+    grupo.rubricasEnfermagem=encontrados;
+    const incentivoRubricas=encontrados.reduce((n,r)=>n+r.valor,0);
+    if(grupo.valores.enfermagem==null && incentivoRubricas)grupo.valores.enfermagem=incentivoRubricas;
+    if(grupo.valores.enfermagem!=null && incentivoRubricas && grupo.valores.enfermagem!==incentivoRubricas)
+      avisos.push('Lotação '+grupo.lotacao+': incentivo federal do resumo difere da soma das rubricas. Verifique antes de empenhar.');
     for(const [campo,cod] of Object.entries(codBeneficio)){
       const informado=grupo.valores[campo];
       const calculado=rubricas.filter(r=>r.codigo===cod).reduce((s,r)=>s+r.valor,0);
@@ -186,7 +196,7 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
   const todas=arquivos.flatMap(a=>(a?.registros||[]).map(r=>({...r,tipo:a.tipo,competencia:a.competencia})));
   const destino=r=>mapa[r.tipo+'|'+r.lotacao]||mapa[r.lotacao]||{};
   const ordenadas=todas.sort((a,b)=>{
-    const ia=['principal','decimo','rescisao'].indexOf(a.tipo),ib=['principal','decimo','rescisao'].indexOf(b.tipo);
+    const ia=['principal','extra','decimo','rescisao'].indexOf(a.tipo),ib=['principal','extra','decimo','rescisao'].indexOf(b.tipo);
     if(ia!==ib)return ia-ib;
     const sa=ORGAOS.indexOf(destino(a).secretaria||a.secretaria),sb=ORGAOS.indexOf(destino(b).secretaria||b.secretaria);
     if(sa!==sb)return (sa<0?999:sa)-(sb<0?999:sb);
@@ -197,7 +207,12 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
   const empenhos=ordenadas.map((r,i)=>{
     const destino=mapa[r.tipo+'|'+r.lotacao]||mapa[r.lotacao]||{};
     const a=ajustes[r.tipo+'|'+r.lotacao]||{};
-    const bruto=r.valores.bruto??null,desconto=r.valores.desconto??null;
+    const brutoRH=r.valores.bruto??null,desconto=r.valores.desconto??null;
+    const incentivo=r.valores.enfermagem||0;
+    // Situação precisa ser confirmada: não presumir que o incentivo esteja fora do bruto.
+    const decisao=destino.incentivoNoBruto;
+    const incentivoPendente=r.tipo==='extra' && incentivo>0 && !['sim','nao'].includes(decisao);
+    const bruto=brutoRH==null?null:brutoRH+(r.tipo==='extra' && incentivo>0 && decisao==='nao'?incentivo:0);
     const maternidade=r.valores.maternidade||0,familia=r.valores.familia||0;
     // Somente INSS individual comprovado é transferido ao extraorçamentário.
     const inssExtra=a.confirmado?Number(a.inssExtra)||0:0;
@@ -207,7 +222,11 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
     if(bruto==null||desconto==null)problemas.push('Total bruto/desconto ilegível');
     if(!r.classificacaoDescontosIdentificada||r.diferencaComposicao!==0)problemas.push('Composição dos descontos divergente do Resumo de Verbas');
     if(maternidade && !a.confirmado)problemas.push('Conferir servidoras do salário-maternidade e INSS individual');
-    if(r.valores.enfermagem)problemas.push('Complementação federal da enfermagem fora do empenho principal: conferir classificação e lançamento próprio');
+    if(incentivoPendente)problemas.push('Confirmar se incentivo federal já integra o bruto do RH');
+    if(r.tipo==='extra' && (r.composicao?.INSS||0)>0)
+      problemas.push('Folha extra contém desconto INSS; conferir competência e não transferir automaticamente');
+    if(r.tipo==='principal' && incentivo>0)
+      problemas.push('Complementação federal da enfermagem identificada: conferir classificação e lançamento próprio');
     if(!numeroSeguro(inssExtra)||inssExtra>r.inss||inssExtra>desconto)
       problemas.push('INSS do salário-maternidade inválido');
     const descontoAjustado=desconto!=null&&numeroSeguro(inssExtra)?desconto-inssExtra:null;
@@ -217,7 +236,8 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
       id:r.tipo+'|'+r.lotacao,empenho:Number(primeiro)+i,tipo:r.tipo,lotacao:r.lotacao,
       secretaria:destino.secretaria||r.secretaria,vinculo:destino.vinculo||r.vinculo,
       ficha:String(destino.ficha||''),fonte:String(destino.fonte||''),conta:String(destino.conta||''),
-      bruto,descontoRH:desconto,descontoAjustado,liquido,maisInssExtra:inssExtra,
+      bruto,brutoRH,incentivo,enfermagemIncluidaNoBruto:decisao||'',
+      descontoRH:desconto,descontoAjustado,liquido,maisInssExtra:inssExtra,
       familia,maternidade,beneficiosOutros:r.valores.enfermagem||0,
       bancos:r.bancos,inssOriginal:r.inss,composicao:r.composicao,
       rubricasDesconto:r.rubricasDesconto,diferencaComposicao:r.diferencaComposicao,

@@ -54,13 +54,14 @@ export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',co
     'Caixa R$','Sicoob R$','Bradesco R$','Pensão R$','INSS R$','IRRF R$','Outros descontos R$',
     'Desconto total RH R$','Soma das rubricas R$','Diferença de descontos R$',
     'INSS realocado maternidade R$','Desconto a liquidar R$','Líquido R$',
-    'Salário-família R$','Salário-maternidade R$','Situação','Origem PDF','Ficha/Fonte confirmadas','Liquidação/Observações']];
+    'Salário-família R$','Salário-maternidade R$','Situação','Origem PDF','Ficha/Fonte confirmadas','Liquidação/Observações',
+    'Bruto RH antes do ajuste R$','Incentivo federal enfermagem R$','Incentivo incluído no bruto RH?','INSS da folha extra R$','Nota sobre INSS']];
   const composicoes=[['Empenho','Grupo','Secretaria','Vínculo','Lotação RH','Categoria do desconto',
     'Código da rubrica RH','Descrição da rubrica RH','Valor R$','Página do PDF','Arquivo de origem']];
   for(const r of previsao.empenhos) {
     const n=emp.length+1;
     const c=r.composicao||{},cent=k=>({centavos:c[k]||0});
-    emp.push([r.empenho,{principal:'Folha principal',decimo:'Adiantamento 13º',rescisao:'Rescisões'}[r.tipo],
+    emp.push([r.empenho,{principal:'Folha principal',extra:'Folha extra · incentivo federal',decimo:'Adiantamento 13º',rescisao:'Rescisões'}[r.tipo],
       r.secretaria,r.vinculo,r.lotacao,r.ficha,r.fonte,r.conta,
       r.bruto==null?'':{centavos:r.bruto},
       cent('Caixa'),cent('Sicoob'),cent('Bradesco'),cent('Pensao'),cent('INSS'),cent('IRRF'),cent('Outros'),
@@ -72,7 +73,11 @@ export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',co
       r.bruto==null||r.descontoAjustado==null?'':{formula:'I'+n+'-U'+n,moeda:true,cache:r.liquido},
       {centavos:r.familia},{centavos:r.maternidade},
       r.problemas.length?'PENDENTE: '+r.problemas.join(' / '):status,
-      r.arquivo+' · p. '+r.pagina,aprovouMapa?'SIM':'NÃO','']);
+      r.arquivo+' · p. '+r.pagina,aprovouMapa?'SIM':'NÃO','',
+      r.brutoRH==null?'':{centavos:r.brutoRH},{centavos:r.incentivo||0},
+      r.enfermagemIncluidaNoBruto==='sim'?'SIM':r.enfermagemIncluidaNoBruto==='nao'?'NÃO — SOMADO':'NÃO CONFERIDO',
+      {centavos:r.tipo==='extra'?(r.composicao?.INSS||0):0},
+      r.tipo==='extra'?'INSS pode ser descontado na folha seguinte; não criar desconto por presunção':'']);
     for(const rubrica of r.rubricasDesconto||[]){
       composicoes.push([r.empenho,r.tipo,r.secretaria,r.vinculo,r.lotacao,
         rubrica.categoria,rubrica.codigo,rubrica.descricao,{centavos:rubrica.valor},
@@ -109,7 +114,9 @@ export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',co
     ['8. Caso o RH apresente compensações externas não analisadas, não presumir total líquido final.'],
     ['9. A aba Composição discrimina rubrica, código, categoria e página do PDF do RH para cada desconto.'],
     ['10. Divergência entre soma das rubricas e desconto RH BLOQUEIA a exportação da relação conferida.'],
-    ['11. Este Excel é memória de apoio, não emite empenho, liquidação ou OP no sistema contábil.']];
+    ['11. Folha extra do dia 10: incentivo da enfermagem SOMENTE é somado ao bruto do RH após confirmação de que não está incluído.'],
+    ['12. INSS da folha extra: não criar desconto automático; conferir na folha da competência seguinte e evitar duplicidade.'],
+    ['13. Este Excel é memória de apoio, não emite empenho, liquidação ou OP no sistema contábil.']];
   const nomes=['Empenhos','Composição','OPs Extras','Conferência','Orientações'],dados=[emp,composicoes,extra,conf,notas];
   const header='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
   const workbook=header+'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'+
@@ -125,3 +132,4 @@ export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',co
   const styles=header+'<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="&quot;R$ &quot;#,##0.00"/></numFmts><fonts count="2"><font><sz val="10"/><name val="Aptos"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="10"/><name val="Aptos"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF164A70"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="1" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs></styleSheet>';
   return criarZIP([['[Content_Types].xml',contentTypes],['_rels/.rels',rels],['xl/workbook.xml',workbook],['xl/_rels/workbook.xml.rels',relaciones],['xl/styles.xml',styles],...dados.map((v,i)=>['xl/worksheets/sheet'+(i+1)+'.xml',folhaXML(v)])]);
 }
+

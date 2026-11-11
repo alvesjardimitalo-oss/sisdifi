@@ -41,3 +41,13 @@ O comparativo de banco/pensão **por total** não comprova o vínculo correto de
 PDFs não são enviados ao GitHub/Firebase pelo módulo. As extrações e mapeamentos ficam no IndexedDB do navegador, segmentados pelo UID da conta, **não criptografados em repouso pelo módulo**. Utilize dispositivo institucional e evite computadores compartilhados. A planilha exportada contém dados financeiros e deve permanecer em local autorizado.
 
 **Não emite empenhos, OPs nem liquidações oficiais.** O resultado depende da conferência humana, especialmente onde os resumos do RH apresentarem campos ilegíveis, divergências e benefícios especiais.
+
+## Folha extra do dia 10 — incentivo federal da enfermagem
+
+A aba aceita um quarto resumo de verbas: **Folha extra · incentivo federal (dia 10)**. Pode ser processado mesmo antes da folha principal. Pagamentos de diferenças salariais e acertos diversos da mesma folha permanecem na sua respectiva lotação e composição.
+
+O parser reconhece a rubrica ou resumo `COMP FED.PIS SAL ENFERMAGEM` e descrições de incentivo federal/complementação do piso da enfermagem. **O valor não é somado automaticamente ao bruto**: a Contabilidade deve informar por lotação se o incentivo já está incluído no `VALOR BRUTO DO EMPENHO` informado pelo RH. Se sim, mantém o bruto original; se não, soma o incentivo identificado, mantendo o valor original, o incentivo e a decisão registrados na planilha exportada. O sistema sinaliza como pendente até a decisão.
+
+O INSS da folha extra não é projetado nem descontado por presunção. Se houver desconto de INSS na própria extra, gera alerta; se for recolhido/descontado na folha posterior, deverá ser acompanhado na competência de desconto, sem dupla retenção. Isso descreve o fluxo informado pela Contabilidade e **não é uma validação automática da legislação previdenciária**.
+
+A exportação em rascunho e conferida inclui colunas: bruto original RH, incentivo federal, tratamento adotado e observação sobre INSS da extra. Uma folha extra sem consignados/pensões pode ter conferência final sem a minuta da folha principal; existindo descontos bancários/pensão ou folha principal, as verificações anteriores continuam exigidas.
