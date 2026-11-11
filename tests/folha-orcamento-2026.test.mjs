@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {FICHAS_PESSOAL_2026,consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel} from '../assets/js/folha-orcamento-2026.js';
+import {FICHAS_PESSOAL_2026,consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificacaoPessoal} from '../assets/js/folha-orcamento-2026.js';
 
 assert.equal(FICHAS_PESSOAL_2026.length,77,'Catálogo da LOA deve conter as 77 fichas de pessoal');
 const fichas=new Set(FICHAS_PESSOAL_2026.map(x=>x.ficha));
@@ -23,3 +23,14 @@ const importada=consultarFichaOrcamento('174',2026,[{ficha:'174',ano:2026,unidad
 assert.equal(importada.acao,'AÇÃO IMPORTADA','Orçamento cadastrado tem prioridade');
 assert.equal(importada.fontes[0],'1.540.000.0000');
 console.log('Fichas da LOA 2026: 77 registros únicos, secretaria, ação, fonte e natureza verificadas.');
+
+// Classificações conforme os demonstrativos da LOA 2026.
+assert.deepEqual(classificacaoPessoal(['3.1.90.11.00']),{
+ codigo:'3.1.90.11.00',titulo:'Vencimentos e Vantagens Fixas — Pessoal Civil',conflito:false
+});
+assert.deepEqual(classificacaoPessoal(['3.1.90.04.00']),{
+ codigo:'3.1.90.04.00',titulo:'Pessoal Contratado — Contratação por Tempo Determinado',conflito:false
+});
+assert.equal(classificacaoPessoal(contratados.naturezas).codigo,'3.1.90.04.00');
+assert.equal(classificacaoPessoal(gabinete.naturezas).codigo,'3.1.90.11.00');
+assert.equal(classificacaoPessoal(['3.1.90.04.00','3.1.90.11.00']).conflito,true);
