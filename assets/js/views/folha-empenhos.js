@@ -2,7 +2,7 @@
 // Exclusivo de Contabilidade/ADM. Não grava dados de folha no Firebase.
 import {estado,pode} from '../estado.js';
 import {esc,toast} from '../ui.js';
-import {analisarResumoVerbas,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha} from '../folha-empenhos.js';
+import {analisarResumoVerbas,analisarResumoConsolidado,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha} from '../folha-empenhos.js';
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade} from '../folha-maternidade.js';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js';
@@ -33,7 +33,7 @@ export function telaFolhaEmpenhos(el){
   const uid=estado.sessao?.uid;
   let competencia=new Date().getFullYear()+'-'+String(new Date().getMonth()+1).padStart(2,'0');
   let primeiro=5000,arquivos={},pessoas=[],mapa={},aprovouMapa=false,aprovouConsignados=false;
-  let minutas=[],alertas=[],origemIndividual='',filtro='todos',visao='composicao',carregando=false,ativa=true,filaDeSalvamento=Promise.resolve();
+  let minutas=[],alertas=[],nomeConsolidado='',origemIndividual='',filtro='todos',visao='composicao',carregando=false,ativa=true,filaDeSalvamento=Promise.resolve();
   const $=sel=>el.querySelector(sel);
   const estilo='<style>'+
     '.fe{max-width:1350px;margin:0 auto;color:#233e58}.fe h1{color:#174366;font-size:1.55rem;margin:0 0 8px}.fe h2{font-size:1.12rem;color:#174366;margin:0 0 12px}'+
@@ -59,11 +59,12 @@ export function telaFolhaEmpenhos(el){
       '<label class="campo"><span>Filtrar empenhos</span><select id="fe-filtro"><option value="todos">Todos</option><option value="pendentes">Com pendências</option><option value="principal">Folha principal</option><option value="decimo">13º adiantamento</option><option value="rescisao">Rescisões</option></select></label>'+
     '</div><p id="fe-status" class="fe-muted" role="status" aria-live="polite"></p></section>'+
     '<section class="fe-card"><h2>1 · Arquivos do RH</h2><div class="fe-files">'+
+      '<label class="fe-file" style="border-color:#3d89bd;background:#eff8ff"><strong>Resumo de Verbas consolidado · todos os tipos</strong><small>Preferencial: um único PDF contendo folha principal, extra, 13º e rescisões. Separa pelo tipo de folha do cabeçalho e pela lotação completa.</small><input data-importar="consolidado" type="file" accept=".pdf"><span id="fe-nome-consolidado" class="fe-muted">Não enviado</span></label>'+
       '<label class="fe-file"><strong>Resumo de Verbas da folha principal</strong><small>Dados por lotação, rubricas e totais da liquidação.</small><input data-importar="principal" type="file" accept=".pdf"><span id="fe-nome-principal" class="fe-muted">Não enviado</span></label>'+
       '<label class="fe-file"><strong>Resumo de Verbas · Folha extra do dia 10</strong><small>Incentivo da enfermagem e eventuais diferenças salariais. Informe se o incentivo já compõe o bruto do RH.</small><input data-importar="extra" type="file" accept=".pdf"><span id="fe-nome-extra" class="fe-muted">Não enviado</span></label>'+ 
       '<label class="fe-file"><strong>Resumo do adiantamento de 50% do 13º</strong><small>Opcional, quando houver na competência.</small><input data-importar="decimo" type="file" accept=".pdf"><span id="fe-nome-decimo" class="fe-muted">Não enviado</span></label>'+
       '<label class="fe-file"><strong>Resumo de Verbas das rescisões</strong><small>Opcional, quando houver rescisões.</small><input data-importar="rescisao" type="file" accept=".pdf"><span id="fe-nome-rescisao" class="fe-muted">Não enviado</span></label>'+
-      '<label class="fe-file"><strong>Folha principal nominal · salário-maternidade</strong><small>Para identificar matrícula, servidora, rubrica 163 e INSS (201). Confirmação individual obrigatória.</small><input data-importar="nominal" type="file" accept=".pdf"><span id="fe-nome-nominal" class="fe-muted">Não enviado</span></label>'+
+      '<label class="fe-file"><strong>Folha nominal consolidada · identificação das servidoras</strong><small>Para identificar matrícula, servidora, rubrica 163 e INSS (201). Confirmação individual obrigatória.</small><input data-importar="nominal" type="file" accept=".pdf"><span id="fe-nome-nominal" class="fe-muted">Não enviado</span></label>'+
     '</div><div id="fe-avisos"></div></section>'+
     '<section class="fe-card"><div class="fe-actions"><h2>2 · Servidoras com salário-maternidade</h2><button id="fe-nova-servidora" type="button" class="btn btn-sec">+ Adicionar registro</button></div>'+
       '<p class="fe-muted">O INSS individual confirmado é retirado do desconto do empenho principal e transferido para a retenção da OP extraorçamentária. A rubrica 229 (prorrogação) não é convertida automaticamente. Se o layout nominal não for reconhecido, preencha manualmente com base no contracheque.</p>'+
@@ -90,14 +91,14 @@ export function telaFolhaEmpenhos(el){
   const status=t=>{$('#fe-status').textContent=t;};
   const arquivosLista=()=>Object.values(arquivos);
   const montar=()=>{
-    if(!arquivos.principal&&!arquivos.extra)return null;
-    const maternidade=consolidarMaternidade(pessoas,[arquivos.principal]);
+    if(!Object.values(arquivos).some(x=>x?.registros?.length))return null;
+    const maternidade=consolidarMaternidade(pessoas,[arquivos.principal].filter(Boolean));
     return {maternidade,previsao:prepararEmpenhos(arquivosLista(),primeiro,mapa,maternidade.ajustes)};
   };
   function persistir(){
     if(!uid||!ativa||carregando)return Promise.resolve();
     const compAtual=competencia;
-    const mensal=structuredClone({primeiro,arquivos,pessoas,aprovouMapa,aprovouConsignados,origemIndividual});
+    const mensal=structuredClone({primeiro,arquivos,pessoas,aprovouMapa,aprovouConsignados,origemIndividual,nomeConsolidado});
     const mapaAtual=structuredClone(mapa);
     filaDeSalvamento=filaDeSalvamento.catch(()=>{}).then(async()=>{
       await salvarRegistroFolha(uid,compAtual,mensal);
@@ -111,7 +112,7 @@ export function telaFolhaEmpenhos(el){
       const [mensal,reusavel]=await Promise.all([carregarRegistroFolha(uid,alvo),carregarRegistroFolha(uid,'mapa-lotacoes')]);
       if(!ativa||alvo!==competencia)return;
       primeiro=mensal?.primeiro||5000;arquivos=mensal?.arquivos||{};pessoas=mensal?.pessoas||[];
-      aprovouMapa=!!mensal?.aprovouMapa;aprovouConsignados=!!mensal?.aprovouConsignados;origemIndividual=mensal?.origemIndividual||'';
+      aprovouMapa=!!mensal?.aprovouMapa;aprovouConsignados=!!mensal?.aprovouConsignados;origemIndividual=mensal?.origemIndividual||'';nomeConsolidado=mensal?.nomeConsolidado||'';
       mapa=reusavel||{};
       $('#fe-inicio').value=primeiro;$('#fe-confirmar-mapa').checked=aprovouMapa;$('#fe-confirmar-bancos').checked=aprovouConsignados;
       minutas=[];status('Dados deste mês carregados. Consulte as minutas para verificar os descontos.');
@@ -120,7 +121,7 @@ export function telaFolhaEmpenhos(el){
   }
   const conciliar=x=>conferirConsignadosFolha(x.previsao.empenhos,minutas);
   function finalPossivel(x){
-    if(!x||(!arquivos.principal&&!arquivos.extra)||alertas.length||x.maternidade.avisos.length||x.previsao.pendentes.length||!aprovouMapa)return false;
+    if(!x||!Object.values(arquivos).some(a=>a?.registros?.length)||alertas.length||x.maternidade.avisos.length||x.previsao.pendentes.length||!aprovouMapa)return false;
     const contemBancoOuPensao=x.previsao.empenhos.some(e=>Object.values(e.bancos||{}).some(v=>v>0));
     if((arquivos.principal||contemBancoOuPensao) && (!minutas.length||!aprovouConsignados))return false;
     if(arquivosLista().some(f=>f.avisos?.length))return false;
@@ -158,6 +159,7 @@ export function telaFolhaEmpenhos(el){
   }
   function render(){
     if(!ativa)return;
+    $('#fe-nome-consolidado').textContent=nomeConsolidado||'Não enviado';
     for(const tipo of Object.keys(tipos)){
       $('#fe-nome-'+tipo).textContent=arquivos[tipo]?arquivos[tipo].arquivo+' ('+arquivos[tipo].registros.length+' lotações)':'Não enviado';
     }
@@ -259,11 +261,22 @@ export function telaFolhaEmpenhos(el){
   el.querySelectorAll('[data-importar]').forEach(input=>input.onchange=async()=>{
     const f=input.files?.[0],tipo=input.dataset.importar;
     if(!f)return;
-    if(!/\.pdf$/i.test(f.name)||f.size>30*1024*1024){toast('Informe PDF de até 30 MB.','erro');return;}
+    if(!/\.pdf$/i.test(f.name)||f.size>90*1024*1024){toast('Informe PDF de até 90 MB.','erro');return;}
     status('Lendo '+f.name+'…');input.disabled=true;
     try{
       const linhas=await extrairLinhasDaFolha(await f.arrayBuffer());
-      if(tipo==='nominal'){
+      if(tipo==='consolidado'){
+        const analisado=analisarResumoConsolidado(linhas,{nome:f.name});
+        if(!analisado.quantidade)throw Error('Nenhuma lotação legível encontrada no Resumo de Verbas.');
+        const comp=analisado.arquivos.find(a=>a.competencia)?.competencia;
+        if(comp&&comp!==competencia)throw Error('Competência do documento ('+comp+') diferente da selecionada ('+competencia+').');
+        // Cada grupo substitui a versão anterior; nunca duplica o mesmo lote.
+        for(const a of analisado.arquivos)arquivos[a.tipo]=a;
+        nomeConsolidado=f.name;alertas=[...analisado.avisos];
+        aprovouMapa=false;aprovouConsignados=false;
+        $('#fe-confirmar-mapa').checked=false;$('#fe-confirmar-bancos').checked=false;
+        status('Resumo consolidado: '+analisado.quantidade+' lotações. Grupos: '+Object.entries(analisado.tipos).map(([k,n])=>k+' '+n).join(', ')+'.');
+      } else if(tipo==='nominal'){
         const candidatos=sugerirMaternidadesDaFolha(linhas);
         const existentes=new Set(pessoas.map(p=>p.matricula+'|'+p.lotacao));
         pessoas.push(...candidatos.achados.filter(c=>!existentes.has(c.matricula+'|'+c.lotacao)));
@@ -337,7 +350,7 @@ export function telaFolhaEmpenhos(el){
   };
   function exportar(conferida=false){
     const pacote=montar();
-    if(!pacote){toast('Importe a folha principal.','erro');return;}
+    if(!pacote){toast('Importe um Resumo de Verbas.','erro');return;}
     if(conferida&&!finalPossivel(pacote)){toast('Há pendências. Exporte apenas o rascunho.','erro');return;}
     const blob=gerarPlanilhaFolha(pacote.previsao,{competencia,
       status:conferida?'CONFERIDA PELA CONTABILIDADE':'RASCUNHO — PENDENTE',
