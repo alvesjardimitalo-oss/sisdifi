@@ -4,6 +4,7 @@ import { estado } from '../estado.js';
 import { esc, $, toast, dataBR, hojeISO } from '../ui.js';
 import { cabecalho } from './comum.js';
 import { lerDanfsePDF } from '../danfse-pdf.js';
+import { auditoriaNota, monitorFiscalSituacao, VERSAO_POLITICA_FISCAL, FONTES_LEGISLATIVAS } from '../auditoria-fiscal.js?v=3.15.0';
 import {
   lerCodigo, lerXML, consultarCnpj, conferir, sugerirNatureza, descreverTributacao, NATUREZAS, MUNICIPIO, ISS, MINIMO_RETENCAO_IR,
   formatarCnpj, limparCnpj, cnpjValido, moeda, aliquotaIss, mensagemFornecedor
@@ -28,12 +29,13 @@ const CHAVE_HIST = 'sisdifi.fiscal.historico';
 // Estado da tela (fica entre as navegações)
 const s = {
   codigo: '', leitura: null, doc: {}, consulta: null, consultando: false, natureza: '', naturezaAuto: true,
-  simplesManual: '', resultado: null, conf: 0, tipo: lerTipoSalvo()
+  simplesManual: '', resultado: null, auditoria:null, confirmacoes:{}, conf: 0, tipo: lerTipoSalvo()
 };
 function lerTipoSalvo() { try { return localStorage.getItem('sisdifi.fiscal.tipo') || ''; } catch { return ''; } }
 const TIPOS = [['', 'Automático'], ['nfe', 'NF-e / NFC-e / CT-e (44)'], ['nfse', 'NFS-e Nacional (50)'], ['cnpj', 'CNPJ (14)']];
 const TAMANHO = { nfe: 44, nfse: 50, cnpj: 14 };
-export const ultimaConferencia = { r: null, s: null, quando: null };
+export const ultimaConferencia = { r: null, s: null, auditoria:null, quando: null };
+let catalogoFiscal=null, ultimaLeituraLegislacao=0, carregandoLegislacao=null, erroCatalogoFiscal='';
 
 // Nome do município pelo código IBGE (lista local do sistema)
 let mapaMunicipios = null;
@@ -64,8 +66,8 @@ const idNota = () => s.doc.chave || (s.doc.cnpj && s.doc.numero ? `${limparCnpj(
 export function telaFiscal(el) {
   const compacto = el.classList.contains('fiscal-compacto');
   el.innerHTML = `
-    ${compacto ? '' : cabecalho('Conferência fiscal de notas', '', `Notas de fornecedores antes da liquidação: Simples Nacional, IRRF, ISSQN de ${esc(MUNICIPIO.nome)}, CBS/IBS e natureza do serviço.`)}
-    ${compacto ? '' : `<ol class="fiscal-etapas"><li class="${s.codigo || s.doc.cnpj ? 'feita' : 'atual'}"><b>1</b> Ler a nota</li><li class="${s.resultado && s.doc.valor ? 'feita' : s.codigo || s.doc.cnpj ? 'atual' : ''}"><b>2</b> Conferir os dados</li><li class="${s.resultado && s.doc.valor ? 'atual' : ''}"><b>3</b> Liquidar e comunicar</li></ol>`}
+    ${compacto ? '' : cabecalho('Auditoria fiscal pré-liquidação', '', `Tomador: Prefeitura Municipal de ${esc(MUNICIPIO.nome)}/${MUNICIPIO.uf}. Conferência de NF-e/NFS-e, retenções e legislação atualizada, com diligências antes da liquidação.`)}
+    ${compacto ? '' : `<p class="alerta alerta-info">O código da nota identifica o documento, mas não fornece sozinho todos os itens, retenções ou a autorização. Para auditoria completa, abra o XML/PDF e confirme os dados e o atesto. O SISDIFI não liquida notas no sistema contábil.</p><ol class="fiscal-etapas"><li class="${s.codigo || s.doc.cnpj ? 'feita' : 'atual'}"><b>1</b> Ler a nota</li><li class="${s.resultado && s.doc.valor ? 'feita' : s.codigo || s.doc.cnpj ? 'atual' : ''}"><b>2</b> Conferir os dados</li><li class="${s.resultado && s.doc.valor ? 'atual' : ''}"><b>3</b> Liquidar e comunicar</li></ol>`}
     <div class="cartao fiscal-leitura">
       <label class="campo"><span>Código de barras, chave de acesso, QR Code ou CNPJ</span>
         <div class="fiscal-linha">
@@ -134,6 +136,7 @@ export function telaFiscal(el) {
   $('#fis-xml', el).onchange = e => { const a = e.target.files?.[0]; e.target.value = ''; if (a && /\.pdf$/i.test(a.name)) abrirPDF(el, a); else abrirXML(el, a); };
   $('#fis-aliquotas', el).onclick = () => abrirAliquotas(el);
   carregarParametros(el);
+  carregarLegislacao(el);
   $('#fis-limpar', el).onclick = () => limparConsulta(el);
   $('#fis-x', el).onclick = () => { inp.value = ''; $('#fis-x', el).hidden = true; inp.focus(); };
   inp.addEventListener('input', () => { $('#fis-x', el).hidden = !inp.value; });
@@ -148,7 +151,7 @@ const temConsulta = () => !!(s.codigo || s.doc.cnpj || s.doc.valor || s.resultad
 
 /** Apaga a nota, a consulta do CNPJ e o resultado, e deixa o leitor pronto para a próxima nota. */
 function limparConsulta(el) {
-  Object.assign(s, { codigo: '', leitura: null, doc: {}, consulta: null, consultando: false, natureza: '', naturezaAuto: true, simplesManual: '', resultado: null, repetida: null, conf: 0 });
+  Object.assign(s, { codigo: '', leitura: null, doc: {}, consulta: null, consultando: false, natureza: '', naturezaAuto: true, simplesManual: '', resultado: null, auditoria:null, confirmacoes:{}, repetida: null, conf: 0 });
   ultimaConferencia.r = null; ultimaConferencia.s = null;
   ultimaLeitura = { texto: '', quando: 0 };
   telaFiscal(el);
@@ -177,6 +180,7 @@ async function processarCodigo(el, texto) {
   s.leitura = l; s.conf = Date.now();
   // mantém o que veio do XML se for a mesma nota
   if (!(s.doc.origem === 'xml' && s.doc.chave === l.chave)) {
+    s.confirmacoes = {};
     s.doc = { origem: 'leitura', cnpj: l.cnpj, documento: l.tipo === 'chave' ? l.documento : '', modelo: l.modelo || '', chave: l.chave || '', numero: l.numero || '', serie: l.serie || '',
       municipioEmissor: l.municipio || '', servico: l.modelo === 'nfse', emissao: l.anoMes ? l.anoMes + '-01' : '' };
     s.naturezaAuto = true;
@@ -194,7 +198,7 @@ async function abrirPDF(el, arquivo) {
     d.municipioEmissor = d.municipioEmissorIbge || codigoMunicipio(d.municipioEmissorTexto);
     d.localPrestacao = codigoMunicipio(d.localPrestacaoTexto) || (d.localPrestacaoTexto ? 'outro' : '');
     d.incidencia = d.incidenciaIbge || codigoMunicipio(d.incidenciaTexto) || (d.incidenciaTexto ? 'outro' : '');
-    s.doc = d; s.naturezaAuto = true; s.simplesManual = ''; s.conf = Date.now();
+    s.doc = d; s.naturezaAuto = true; s.simplesManual = ''; s.confirmacoes={}; s.conf = Date.now();
     s.leitura = d.chave ? lerCodigo(d.chave) : (d.cnpj ? lerCodigo(d.cnpj) : null);
     s.codigo = d.chave || formatarCnpj(d.cnpj);
     telaFiscal(el);
@@ -208,7 +212,7 @@ async function abrirXML(el, arquivo) {
   try {
     const texto = await arquivo.text();
     const d = lerXML(texto);
-    s.doc = d; s.naturezaAuto = true; s.simplesManual = ''; s.conf = Date.now();
+    s.doc = d; s.naturezaAuto = true; s.simplesManual = ''; s.confirmacoes={}; s.conf = Date.now();
     s.leitura = d.chave ? lerCodigo(d.chave) : (d.cnpj ? lerCodigo(d.cnpj) : null);
     s.codigo = d.chave || formatarCnpj(d.cnpj);
     telaFiscal(el);
@@ -363,6 +367,10 @@ function recalcular(el) {
   if (s.doc.municipioEmissor) s.doc.municipioEmissorNome = nomeMunicipio(s.doc.municipioEmissor);
   s.doc.incidenciaNome = s.doc.incidencia ? nomeMunicipio(s.doc.incidencia) : '';
   s.resultado = temDados ? conferir({ doc: s.doc, cadastro: s.consulta?.cadastro || null, naturezaId: s.natureza, simplesManual: s.simplesManual, hoje: hojeISO(), chave: s.leitura?.tipo === 'chave' ? s.leitura : null, parametros: parametrosFiscais }) : null;
+  s.auditoria = s.resultado ? auditoriaNota({
+    doc:s.doc,cadastro:s.consulta?.cadastro||null,resultado:s.resultado,contexto:s.confirmacoes,
+    catalogo:catalogoFiscal,aprovacoes:parametrosFiscais?.legislacaoAprovada||{},hoje:hojeISO()
+  }) : null;
   if (s.resultado && s.doc.valor) {
     const id = idNota();
     if (id) {
@@ -377,13 +385,13 @@ function recalcular(el) {
     const passo = s.resultado && s.doc.valor ? 3 : (s.codigo || s.doc.cnpj) ? 2 : 1;
     etapas.forEach((li, i) => { li.className = i + 1 < passo ? 'feita' : i + 1 === passo ? 'atual' : ''; });
   }
-  ultimaConferencia.r = s.resultado; ultimaConferencia.s = structuredClone({ doc: s.doc, consulta: s.consulta, leitura: s.leitura }); ultimaConferencia.quando = new Date();
+  ultimaConferencia.r = s.resultado; ultimaConferencia.s = structuredClone({ doc: s.doc, consulta: s.consulta, leitura: s.leitura }); ultimaConferencia.auditoria = s.auditoria ? structuredClone(s.auditoria) : null; ultimaConferencia.quando = new Date();
   desenharResultado(el);
 }
 
 // ---------------- Resultado ----------------
 const SIT = {
-  ok: ['fiscal-ok', 'Nota conferida — pode seguir para a liquidação'],
+  ok: ['fiscal-ok', 'Cálculo tributário sem divergências detectadas — confira a auditoria documental'],
   alerta: ['fiscal-alerta', 'Atenção — confira os avisos antes de liquidar'],
   erro: ['fiscal-erro', 'Há erros na nota — resolva antes de liquidar']
 };
@@ -407,7 +415,10 @@ function desenharResultado(el) {
     <li>Preencha o valor, o código de tributação e o que está impresso na nota (regime, ISS retido, IRRF).</li>
     <li>Veja aqui o que reter, o valor líquido e cada erro da nota com a solução.</li>
     <li>Imprima a ficha de conferência e junte ao processo de liquidação.</li></ol></div>`; return; }
-  const [cls, txt] = SIT[r.situacao];
+  const a=s.auditoria;
+  const [cls, txt] = a?.situacao==='bloqueada'?['fiscal-erro','NÃO LIQUIDAR — divergências materiais na nota']:
+    a?.situacao==='pendente'?['fiscal-alerta','NÃO LIQUIDAR AINDA — informações ou validações pendentes']:
+    a?.situacao==='conferida_para_revisao'?['fiscal-ok','Pré-auditoria concluída — encaminhar para conferência e liquidação pelo responsável']:SIT[r.situacao];
   const qtd = n => r.problemas.filter(p => p.nivel === n).length;
   box.innerHTML = `
     <div class="cartao fiscal-resumo ${cls}">
@@ -424,6 +435,7 @@ function desenharResultado(el) {
         ${linkPortal('Portal do Simples', 'btn btn-sec')}
       </div>
     </div>
+    ${blocoAuditoriaFiscal(el)}
     ${s.repetida ? `<div class="alerta">Esta nota já foi conferida neste computador em ${esc(new Date(s.repetida.quando).toLocaleString('pt-BR'))}${s.repetida.por ? ' por ' + esc(s.repetida.por) : ''}. Confira se não é pagamento em duplicidade.</div>` : ''}
     <div class="cartao">
       <h3><span class="fiscal-num">1</span> Erros e soluções</h3>
@@ -438,7 +450,7 @@ function desenharResultado(el) {
         ${r.comparativo.map(l => `<tr class="${l.total ? 'fiscal-total' : ''} ${Math.abs(l.diferenca) >= 0.01 ? 'fiscal-difere' : ''}"><td>${l.total ? '' : '(−) '}${esc(l.item)}${l.notaAliq != null || l.conferidoAliq != null ? ` <span class="muted">${l.notaAliq != null ? pctTxt(l.notaAliq) : '—'} → ${l.conferidoAliq != null ? pctTxt(l.conferidoAliq) : '—'}</span>` : ''}</td>
           <td class="num">${moeda(l.nota)}</td><td class="num"><strong>${moeda(l.conferido)}</strong></td><td class="num">${Math.abs(l.diferenca) >= 0.01 ? (l.diferenca > 0 ? '+' : '−') + moeda(Math.abs(l.diferenca)) : '✓'}</td></tr>`).join('')}
       </tbody></table>
-      <p class="dica">Pague o valor da coluna <b>Conferido</b>.${r.ir.reter ? ` IRRF ${pctTxt(r.ir.aliquota)} — ${esc(r.natureza.texto)}.` : ''}</p>`
+      <p class="dica">Valor líquido <b>estimado</b>, sujeito à conferência documental, INSS e demais hipóteses legais. Não liquidar enquanto houver pendências. ${r.ir.reter ? ` IRRF ${pctTxt(r.ir.aliquota)} — ${esc(r.natureza.texto)}.` : ''}</p>`
       : `<table class="tabela tabela-peq fiscal-liq"><tbody>
         <tr><td>Valor bruto da nota</td><td class="num">${moeda(r.valor)}</td></tr>
         <tr><td>(−) IRRF ${r.ir.reter ? `${pctTxt(r.ir.aliquota)} · ${esc(r.natureza.texto)}` : ''}</td><td class="num">${moeda(r.ir.reter ? r.ir.valor : 0)}</td></tr>
