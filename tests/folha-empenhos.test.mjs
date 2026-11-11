@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync,writeFileSync} from 'node:fs';
 import {
-  analisarResumoVerbas,prepararEmpenhos,conferirConsignadosFolha,
+  analisarResumoVerbas,analisarResumoConsolidado,tipoDeFolhaCabecalho,prepararEmpenhos,conferirConsignadosFolha,
   centavosFolha,dinheiroFolha,competenciaNoResumo
 } from '../assets/js/folha-empenhos.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade} from '../assets/js/folha-maternidade.js';
@@ -152,6 +152,59 @@ const excelExtra=new TextDecoder().decode(new Uint8Array(await gerarPlanilhaFolh
 assert.match(excelExtra,/Folha extra/);
 assert.match(excelExtra,/Incentivo federal enfermagem/);
 assert.match(excelExtra,/INSS da folha extra/);
+
+// PDF único com tipo de cálculo variando entre lotações do mesmo número:
+const consolidado=analisarResumoConsolidado([
+  {pagina:1,texto:'RESUMO DE VERBAS'}, {pagina:1,texto:'TIPO CÁLCULO: 01-FOLHA MENSAL'},
+  {pagina:1,texto:'REFERENCIA: SETEMBRO/2026'},
+  {pagina:1,texto:'LOTAÇÃO...: 002.004.215.00001'},
+  {pagina:1,texto:'SECRETARIA MUNIC. DE EDUCACAO'}, {pagina:1,texto:'PESSOAL EFETIVO'},
+  {pagina:1,texto:'CLASSIFICAÇÃO CONTÁBIL: 0 - FIXA'}, {pagina:1,texto:'100 VENCIMENTO 1.000,00'},
+  {pagina:1,texto:'CLASSIFICAÇÃO CONTÁBIL: 2 - OUTRAS'}, {pagina:1,texto:'201 I.N.S.S. 90,00'},
+  {pagina:1,texto:'VALOR BRUTO DO EMPENHO.............: 1.000,00'},
+  {pagina:1,texto:'VALOR DO DESCONTO NA LIQUIDAÇÃO....: 90,00'},
+  {pagina:1,texto:'VALOR LIQUIDO DO EMPENHO...........: 910,00'},
+  {pagina:2,texto:'RESUMO DE VERBAS'}, {pagina:2,texto:'TIPO CÁLCULO: 13 - ADIANTAMENTO 50% DO 13º SALARIO'},
+  {pagina:2,texto:'REFERENCIA: SETEMBRO/2026'}, {pagina:2,texto:'LOTAÇÃO: 002.004.215.00001'},
+  {pagina:2,texto:'SECRETARIA MUNIC. DE EDUCACAO'}, {pagina:2,texto:'PESSOAL EFETIVO'},
+  {pagina:2,texto:'CLASSIFICAÇÃO CONTÁBIL: 0 - FIXA'}, {pagina:2,texto:'100 ADIANTAMENTO 500,00'},
+  {pagina:2,texto:'VALOR BRUTO DO EMPENHO.............: 500,00'},
+  {pagina:2,texto:'VALOR DO DESCONTO NA LIQUIDAÇÃO....: 0,00'},
+  {pagina:2,texto:'VALOR LIQUIDO DO EMPENHO...........: 500,00'}
+],{nome:'resumo-unico.pdf'});
+assert.equal(tipoDeFolhaCabecalho('TIPO CÁLCULO: 13 - ADIANTAMENTO 50% DO 13º SALARIO'),'decimo');
+assert.equal(consolidado.quantidade,2);
+assert.deepEqual(consolidado.tipos,{principal:1,decimo:1});
+assert.equal(consolidado.arquivos[0].registros[0].lotacao,'002.004.215.00001');
+assert.equal(consolidado.arquivos[1].registros[0].lotacao,'002.004.215.00001');
+assert.equal(consolidado.arquivos[0].registros[0].valores.bruto,100000);
+assert.equal(consolidado.arquivos[1].registros[0].valores.bruto,50000);
+assert.ok(!consolidado.avisos.some(a=>a.includes('repetida')));
+const semTipo=analisarResumoConsolidado([
+ 'RESUMO DE VERBAS','LOTAÇÃO...: 002.004.215.00003',
+ 'SECRETARIA DE EDUCACAO','PESSOAL EFETIVO','CLASSIFICAÇÃO CONTÁBIL: 0 - FIXA',
+ '100 VENCIMENTO 100,00','VALOR BRUTO DO EMPENHO.............: 100,00',
+ 'VALOR DO DESCONTO NA LIQUIDAÇÃO....: 0,00','VALOR LIQUIDO DO EMPENHO...........: 100,00'
+],{nome:'sem-tipo.pdf'});
+assert.equal(semTipo.arquivos[0].registros[0].tipoIdentificado,false);
+assert.ok(semTipo.avisos.some(x=>x.includes('tipo de folha não identificado')));
+// Layout real mostrado pelo usuário: na coluna P os proventos 163/164;
+// a rubrica 201 do INSS também tem flag P mas é desconto na última coluna.
+const michele=sugerirMaternidadesDaFolha([
+ {pagina:3,texto:'LOTAÇÃO:'},
+ {pagina:3,texto:'002.004.215.00002 - EDUCACAO CONTRATADOS'},
+ {pagina:3,texto:'005054 / 1 MICHELE LOPES GONCALVES 1_20 / 0073 - MONITOR (SALA DE AULA) 01/01/2026 CONTRATADO'},
+ {pagina:3,texto:'163 P SALARIO MATERNIDADE 30,00 1.782,37'},
+ {pagina:3,texto:'164 P SALARIO FAMILIA 2,00 135,08'},
+ {pagina:3,texto:'201 P I.N.S.S. 136,09'},
+ {pagina:3,texto:'384 P RETRO DIF DE SAL DO 3,00 182,64'}
+]);
+assert.equal(michele.achados.length,1);
+assert.equal(michele.achados[0].nome,'MICHELE LOPES GONCALVES');
+assert.equal(michele.achados[0].lotacao,'002.004.215.00002');
+assert.equal(michele.achados[0].beneficio,178237);
+assert.equal(michele.achados[0].inss,13609);
+assert.equal(michele.achados[0].pagina,3);
 
 const pessoa=sugerirMaternidadesDaFolha([
 'LOTAÇÃO:',
