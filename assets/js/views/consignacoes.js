@@ -65,7 +65,7 @@ export function telaConsignacoes(el) {
   $('#mi-status').insertAdjacentElement('afterend',$('#mi-op-painel'));
   $('#mi-mes').value=competencia.slice(5);$('#mi-ano').value=competencia.slice(0,4);
   const todos=()=>arquivos.flatMap(a=>a.resultado.registros.map(r=>({...r,arquivo:a.nome})));
-  const filtrados=()=>todos().filter(r=>(!$('#mi-destino').value||(r.destino||'Não classificado')===$('#mi-destino').value)&&(!$('#mi-fonte').value||r.fonte===$('#mi-fonte').value)&&String(r.numero||'').toLowerCase().includes($('#mi-busca').value.trim().toLowerCase()));
+  const filtrados=()=>todos().filter(r=>(!$('#mi-destino').value||(r.destino||'Não classificado')===$('#mi-destino').value)&&(!$('#mi-fonte').value||r.fonteCompleta===$('#mi-fonte').value)&&String(r.numero||'').toLowerCase().includes($('#mi-busca').value.trim().toLowerCase()));
   const status=t=>{if(ativo)$('#mi-status').textContent=t;};
   function travar(valor) {
     ocupado=valor;
@@ -152,7 +152,7 @@ export function telaConsignacoes(el) {
       if(!g)return;
       alternarModoOP(false);
       $('#mi-destino').value=g.destino;
-      $('#mi-fonte').value=g.fonte;
+      $('#mi-fonte').value=g.fonteCompleta;
       $('#mi-busca').value='';
       render();
       $('#mi-resultado').scrollIntoView({behavior:'smooth',block:'start'});
@@ -209,7 +209,7 @@ export function telaConsignacoes(el) {
   function atualizar() {
     $('#mi-revisado').checked=false;
     const anterior=$('#mi-fonte').value;
-    $('#mi-fonte').innerHTML='<option value="">Todas</option>'+[...new Set(todos().map(r=>r.fonte))].sort().map(f=>`<option>${esc(f)}</option>`).join('');
+    $('#mi-fonte').innerHTML='<option value="">Todas</option>'+[...new Set(todos().map(r=>r.fonteCompleta).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR',{numeric:true})).map(f=>`<option value="${esc(f)}">${esc(f.replace(/\\D/g,'').slice(0,4))} · ${esc(f)}</option>`).join('');
     $('#mi-fonte').value=[...$('#mi-fonte').options].some(o=>o.value===anterior)?anterior:'';
     render();
   }
