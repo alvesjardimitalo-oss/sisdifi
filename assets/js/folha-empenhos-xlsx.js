@@ -100,7 +100,7 @@ export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',co
       r.enfermagemIncluidaNoBruto==='sim'?'SIM':r.enfermagemIncluidaNoBruto==='nao'?'NÃO — SOMADO':'NÃO CONFERIDO',
       {centavos:r.tipo==='extra'?(r.composicao?.INSS||0):0},
       r.tipo==='extra'?'INSS pode ser descontado na folha seguinte; não criar desconto por presunção':'',
-      r.lotacaoOrcamentaria||'']);
+      r.lotacaoOrcamentaria||'',r.classificacaoOrcamentaria||'',r.codigoNatureza||'']);
     for(const rubrica of r.rubricasDesconto||[]){
       composicoes.push([r.empenho,r.tipo,r.secretaria,r.vinculo,r.lotacao,
         rubrica.categoria,rubrica.codigo,rubrica.descricao,{centavos:rubrica.valor},
@@ -336,7 +336,7 @@ export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',co
   return criarZIP([['[Content_Types].xml',contentTypes],['_rels/.rels',rels],['xl/workbook.xml',workbook],['xl/_rels/workbook.xml.rels',relaciones],['xl/styles.xml',styles],...dados.map((v,i)=>['xl/worksheets/sheet'+(i+1)+'.xml',folhaXML(v)])]);
 }
 
-,'Nota sobre INSS','Ação / lotação do orçamento']];
+,'Nota sobre INSS','Ação / lotação do orçamento','Natureza da despesa','Elemento da despesa']];
   const composicoes=[['Empenho','Grupo','Secretaria','Vínculo','Lotação RH','Categoria do desconto',
     'Código da rubrica RH','Descrição da rubrica RH','Valor R$','Página do PDF','Arquivo de origem']];
   for(const r of previsao.empenhos) {
