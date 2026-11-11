@@ -110,3 +110,16 @@ const fontesDiferentes=agruparOPsPorBancoFonte([{nome:'teste',resultado:{registr
 ]}}]);
 assert.equal(fontesDiferentes.itens.length,2);
 console.log('OP extra por banco/fonte: fontes separadas, guias únicas e pendências aprovadas.');
+
+
+// Regressão visual: não permitir retorno da memória esticada, com fontes minúsculas.
+const { readFileSync } = await import('node:fs');
+const viewOP = readFileSync(new URL('../assets/js/views/consignacoes.js',import.meta.url),'utf8');
+assert.match(viewOP, /@page\{size:A4 portrait;margin:0\}/);
+assert.match(viewOP, /\.paper\{width:210mm;min-height:297mm/);
+assert.match(viewOP, /font:13px\/1\.46 Arial/);
+assert.match(viewOP, /class="paper"/);
+assert.match(viewOP, /assets\/img\/brasao\.png/);
+assert.match(viewOP, /mi-op-print-again/);
+assert.doesNotMatch(viewOP, /font:10\.5px\/1\.45/);
+console.log('Memória OP: página A4 real, preview legível e reimpressão mantidos.');
