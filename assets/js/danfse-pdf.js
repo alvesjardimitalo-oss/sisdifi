@@ -120,6 +120,8 @@ export function lerDanfse(itens) {
     numero: (v(/^numero da nfs/) || '').replace(/\D/g, '') || '',
     emissao: dataISO(emissaoTxt),
     cnpj: cnpj.replace(/[^0-9A-Za-z]/g, ''), nome: v('nome / nome empresarial', { depoisDe: blocoPrest, antesDe: blocoTom }),
+    tomadorCnpj: (v('cnpj / cpf / nif', { depoisDe: blocoTom, antesDe: blocoServ }) || '').replace(/[^0-9A-Za-z]/g, ''),
+    tomadorNome: v('nome / nome empresarial', { depoisDe: blocoTom, antesDe: blocoServ }),
     email: v(/^e-mail/, { depoisDe: blocoPrest, antesDe: blocoTom }),
     municipioEmissorTexto: v('municipio / sigla uf', { depoisDe: blocoPrest, antesDe: blocoTom }),
     municipioEmissorIbge: (v(/^codigo ibge/, { depoisDe: blocoPrest, antesDe: blocoTom }).match(/\d{7}/) || [])[0] || '',
