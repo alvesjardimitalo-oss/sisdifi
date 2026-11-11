@@ -112,52 +112,61 @@ export function telaConsignacoes(el) {
     const nomeBanco = individual ? g.destino : (bancos.length===1?bancos[0]:'Vários bancos');
     const situacao = c.conferido ? 'Valores mensais conciliados com os totais esperados' : 'Conferência mensal pendente / incompleta';
     const css = [
-      '@page{size:A4 portrait;margin:13mm 14mm 13mm 14mm}',
-      '*{box-sizing:border-box}html,body{margin:0;background:#fff;color:#17283d}',
-      'body{font:10.5px/1.45 Arial,Helvetica,sans-serif}',
+      // A impressão física usa folha A4 verdadeira; a visualização na tela simula a folha.
+      '@page{size:A4 portrait;margin:0}',
+      '*{box-sizing:border-box}',
+      'html{margin:0;padding:0}',
+      'body{margin:0;background:#e8edf3;color:#172c42;font:13px/1.46 Arial,Helvetica,sans-serif}',
       'h1,h2,h3,p{margin:0}strong{font-weight:700}',
-      '.barra{height:4px;background:linear-gradient(90deg,#154e7e 0 74%,#2c8253 74%);margin:12px 0 21px}',
-      '.topo{display:flex;align-items:center;justify-content:space-between;gap:14px}',
+      '.barra{height:5px;background:linear-gradient(90deg,#14517c 0 74%,#33844c 74%);margin:15px 0 24px}',
+      '.toolbar{width:210mm;max-width:calc(100% - 24px);margin:18px auto 0;display:flex;align-items:center;justify-content:space-between;gap:12px;color:#33526c;font-size:13px}',
+      '.toolbar b{font-size:13px}.toolbar .acoes{display:flex;gap:8px;align-items:center}',
+      '.toolbar button{background:#155078;border:1px solid #155078;color:#fff;border-radius:6px;font:600 13px Arial;padding:10px 14px;cursor:pointer}',
+      '.toolbar button.fechar{background:#fff;color:#204765;border-color:#b9cbd9}',
+      '.paper{width:210mm;min-height:297mm;margin:14px auto 36px;padding:14mm 15mm 13mm;background:#fff;box-shadow:0 9px 28px rgba(21,48,74,.18)}',
+      '.topo{display:flex;align-items:center;justify-content:space-between;gap:15px}',
       '.marca{display:flex;gap:13px;align-items:center;min-width:0}',
-      '.brasao{width:64px;height:64px;object-fit:contain;flex-shrink:0}',
-      '.orgao{border-left:2px solid #2a8a59;padding-left:12px}',
-      '.orgao h2{font-size:15px;letter-spacing:.15px;line-height:1.14;color:#143e66}',
-      '.orgao p{font-size:10px;line-height:1.5;color:#536679}',
-      '.sistema{border-left:1px solid #c5d3dd;padding-left:13px;text-align:right;white-space:nowrap}',
-      '.sistema b{font-size:17px;color:#123f67;letter-spacing:1.5px}',
-      '.sistema span{display:block;font-size:9px;color:#596c7d}',
-      '.titulo{text-align:center;margin:0 0 18px}.titulo h1{font-size:21px;letter-spacing:.65px;color:#153f66}',
-      '.titulo p{display:inline-block;margin-top:7px;padding:6px 18px;background:#eaf3ee;color:#226145;font-size:10px;font-weight:700;letter-spacing:.35px;border-bottom:2px solid #2e8859}',
-      '.resumo{display:grid;grid-template-columns:1.2fr 1.1fr .66fr 1.05fr;gap:0;border:1px solid #cddde8;border-radius:7px;overflow:hidden;margin-bottom:16px}',
-      '.resumo .item{padding:10px 11px;background:#f4f8fc;border-right:1px solid #dbe5ed}',
-      '.resumo .item:last-child{border:0;background:#e9f5ec}',
-      '.resumo small{display:block;color:#526879;font-size:9px;letter-spacing:.2px}',
-      '.resumo strong{display:block;font-size:12px;line-height:1.4;margin-top:3px;color:#183a5b}',
-      '.resumo .total strong{font-size:15px;color:#14633b;white-space:nowrap}',
-      '.op-bloco{border:1px solid #cbdbe6;border-radius:7px;overflow:hidden;margin:0 0 14px}',
-      '.op-cab{display:flex;align-items:center;justify-content:space-between;background:#e9f1f8;border-bottom:1px solid #cbdbe6;padding:11px 13px;gap:12px}',
-      '.op-cab .rotulo{font-size:9px;color:#49647e;text-transform:uppercase;font-weight:700;letter-spacing:.45px}',
-      '.op-cab h2{font-size:15px;color:#17486f;margin:2px 0}',
-      '.op-cab p{color:#506579;font-size:10px}',
-      '.op-cab .valor{text-align:right;white-space:nowrap}',
-      '.op-cab .valor strong{font-size:19px;color:#123e64}',
+      '.brasao{width:66px;height:69px;object-fit:contain;flex-shrink:0}',
+      '.orgao{border-left:3px solid #33844c;padding-left:12px}',
+      '.orgao h2{font-size:17px;letter-spacing:.1px;line-height:1.2;color:#123e64}',
+      '.orgao p{font-size:11px;line-height:1.55;margin-top:5px;color:#53687b}',
+      '.sistema{border-left:1px solid #b7cbd9;padding-left:12px;text-align:right;flex-shrink:0;white-space:nowrap}',
+      '.sistema b{font-size:19px;color:#123f67;letter-spacing:1.4px}',
+      '.sistema span{display:block;font-size:10px;color:#5c7080}',
+      '.titulo{text-align:center;margin:0 0 20px}',
+      '.titulo h1{font-size:25px;letter-spacing:.7px;color:#123f66;line-height:1.2}',
+      '.titulo p{display:inline-block;margin-top:9px;padding:8px 17px;background:#eaf3eb;color:#205a3e;font-size:11px;font-weight:700;letter-spacing:.35px;border-bottom:2px solid #328c56}',
+      '.resumo{display:grid;grid-template-columns:1.25fr 1.2fr .6fr 1fr;border:1px solid #c8d8e4;border-radius:8px;overflow:hidden;margin-bottom:18px}',
+      '.resumo .item{min-width:0;padding:13px 10px;background:#f4f8fb;border-right:1px solid #dbe4eb}',
+      '.resumo .item:last-child{border-right:0;background:#e8f4eb}',
+      '.resumo small{display:block;color:#5c7284;font-size:10px;font-weight:700;letter-spacing:.2px}',
+      '.resumo strong{display:block;font-size:13px;line-height:1.45;margin-top:5px;color:#173e61;overflow-wrap:anywhere}',
+      '.resumo .total strong{font-size:18px;color:#14633b;white-space:nowrap}',
+      '.op-bloco{border:1px solid #cadbe6;border-radius:8px;overflow:hidden;margin:0 0 17px}',
+      '.op-cab{display:flex;align-items:center;justify-content:space-between;background:#eaf2f8;border-bottom:1px solid #cadbe6;padding:15px;gap:12px}',
+      '.op-cab .rotulo{font-size:10px;color:#4e677c;text-transform:uppercase;font-weight:700;letter-spacing:.5px}',
+      '.op-cab h2{font-size:17px;color:#17486f;margin:5px 0}',
+      '.op-cab p{color:#4e6375;font-size:11px;line-height:1.5;max-width:440px}',
+      '.op-cab .valor{text-align:right;white-space:nowrap;flex-shrink:0}',
+      '.op-cab .valor strong{font-size:22px;color:#123e64}',
       '.mi-tab{width:100%;border-collapse:collapse;table-layout:auto}',
-      '.mi-tab th{background:#f4f7fa;text-align:left;font-size:9px;color:#3c5971;text-transform:uppercase;letter-spacing:.22px}',
-      '.mi-tab th,.mi-tab td{padding:7px 10px;border-bottom:1px solid #e1e8ee}',
-      '.mi-tab tbody tr:nth-child(even){background:#f9fbfd}',
+      '.mi-tab th{background:#f7f9fb;text-align:left;font-size:10px;color:#38576f;text-transform:uppercase;letter-spacing:.25px}',
+      '.mi-tab th,.mi-tab td{padding:9px 11px;border-bottom:1px solid #dce5ed;font-size:12px}',
+      '.mi-tab tbody tr:nth-child(even){background:#f8fafc}',
       '.mi-tab tbody tr:last-child td{border-bottom:0}',
       '.mi-tab td.valor,.mi-tab th.valor{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}',
-      '.mi-tab td.cod{white-space:nowrap;font-weight:600}',
-      '.mi-tab tfoot td{font-weight:700;color:#17486f;background:#eef5fa;border-top:1px solid #cbdbe6}',
-      '.quadro-total{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#eaf5ec;border:1px solid #a6ccb0;border-radius:7px;padding:11px 14px;color:#1b5635;margin-top:14px}',
-      '.quadro-total span{font-size:11px;font-weight:700}.quadro-total strong{font-size:18px;white-space:nowrap}',
-      '.situacao{border-left:3px solid '+(c.conferido?'#34845c':'#c89544')+';padding:8px 11px;background:'+(c.conferido?'#f0f7f2':'#fff9ed')+';color:#435568;margin:14px 0;font-size:10px}',
-      '.nota{margin-top:16px;color:#4a5a6b;font-size:9px;line-height:1.55}',
-      '.assinaturas{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;margin-top:40px;text-align:center;color:#43546a;font-size:9px}',
-      '.assinaturas span{display:block;border-top:1px solid #6d8396;padding-top:5px}',
-      '.rodape{border-top:1px solid #ccdae5;margin-top:23px;padding-top:8px;display:flex;justify-content:space-between;gap:12px;color:#7a8792;font-size:8px}',
-      'section,.op-bloco,.quadro-total,.assinaturas{break-inside:avoid;page-break-inside:avoid}',
-      '@media print{*{-webkit-print-color-adjust:exact;print-color-adjust:exact}body{margin:0}thead{display:table-header-group}tr{break-inside:avoid}}'
+      '.mi-tab td.cod{white-space:nowrap;font-weight:700;color:#244964}',
+      '.mi-tab tfoot td{font-weight:700;font-size:12px;color:#15476d;background:#edf4f9;border-top:1px solid #cbdbe6}',
+      '.quadro-total{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#edf7ee;border:1px solid #92c3a0;border-radius:8px;padding:14px 15px;color:#1b5c39;margin-top:17px}',
+      '.quadro-total span{font-size:12px;font-weight:700;letter-spacing:.2px}.quadro-total strong{font-size:21px;white-space:nowrap}',
+      '.situacao{border-left:4px solid '+(c.conferido?'#328457':'#c89544')+';padding:10px 12px;background:'+(c.conferido?'#f1f8f2':'#fff9ed')+';color:#43566a;margin:18px 0 0;font-size:11px}',
+      '.nota{margin-top:15px;color:#526578;font-size:11px;line-height:1.55}',
+      '.assinaturas{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;margin-top:50px;text-align:center;color:#465d72;font-size:10px}',
+      '.assinaturas span{display:block;border-top:1px solid #70899d;padding-top:7px}',
+      '.rodape{border-top:1px solid #d1dce6;margin-top:26px;padding-top:9px;display:flex;justify-content:space-between;gap:12px;color:#748493;font-size:10px}',
+      '.op-bloco,.quadro-total,.assinaturas{break-inside:avoid;page-break-inside:avoid}',
+      '@media screen and (max-width:850px){.paper{max-width:calc(100% - 20px);padding:20px}.resumo{grid-template-columns:1fr 1fr}.resumo .item:nth-child(2){border-right:0}.resumo .item:nth-child(-n+2){border-bottom:1px solid #dbe4eb}.topo{flex-wrap:wrap}.toolbar{flex-wrap:wrap}.mi-tab th,.mi-tab td{padding:7px 6px}}',
+      '@media print{*{-webkit-print-color-adjust:exact;print-color-adjust:exact}html,body{background:#fff!important;width:210mm}.toolbar{display:none!important}.paper{width:210mm;min-height:0;max-width:none;margin:0;padding:14mm 15mm 13mm;box-shadow:none}.resumo{grid-template-columns:1.25fr 1.2fr .6fr 1fr}.resumo .item:nth-child(-n+2){border-bottom:0}.topo{flex-wrap:nowrap}thead{display:table-header-group}tr{break-inside:avoid}.op-bloco,.assinaturas{page-break-inside:avoid}}'
     ].join('');
     const tabelaIndividual = g => {
       const linhas = g.registros.map(r => '<tr><td class="cod">'+esc((r.tipo||'Guia')+' '+r.numero)+'</td><td>'+esc(r.data||'—')+
@@ -178,9 +187,12 @@ export function telaConsignacoes(el) {
       '</tbody></table></section>';
     const corpo = individual ? memoriaIndividual(g) : memoriaResumo(grupos);
     const html = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+
-      '<title>Memória de cálculo · '+esc(competencia)+'</title><style>'+css+'</style></head><body>'+
+      '<title>Memória de cálculo · '+esc(competencia)+'</title><style>'+css+'</style></head><body>'+ 
+      '<div class="toolbar"><span><b>Visualização A4</b> · Memória de cálculo para OP extraorçamentária</span>'+
+      '<div class="acoes"><button type="button" onclick="window.print()">Imprimir / Salvar em PDF</button><button type="button" class="fechar" onclick="window.close()">Fechar</button></div></div>'+
+      '<main class="paper">'+
       '<header class="topo"><div class="marca"><img id="mi-logo-prefeitura" class="brasao" src="'+esc(logoUrl)+'" alt="Brasão do Município de Frei Inocêncio">'+
-      '<div class="orgao"><h2>PREFEITURA MUNICIPAL DE<br>FREI INOCÊNCIO</h2><p>Estado de Minas Gerais · CNPJ 16.945.990/0001-70<br>Secretaria Municipal da Fazenda · Setor de Contabilidade</p></div></div>'+
+      '<div class="orgao"><h2>PREFEITURA MUNICIPAL DE<br>FREI INOCÊNCIO</h2><p>Estado de Minas Gerais<br>Secretaria Municipal da Fazenda · Setor de Contabilidade</p></div></div>'+
       '<div class="sistema"><b>SISDIFI</b><span>Conferência de consignações</span></div></header><div class="barra"></div>'+
       '<div class="titulo"><h1>'+titulo+'</h1><p>'+esc(subtitulo)+'</p></div>'+
       '<div class="resumo"><div class="item"><small>COMPETÊNCIA DA FOLHA</small><strong>'+esc(rotuloCompetencia(competencia))+
@@ -192,7 +204,7 @@ export function telaConsignacoes(el) {
       '. Este impresso apresenta a memória de cálculo; não substitui a OP do sistema contábil.</div>'+
       '<p class="nota">Documento de apoio à emissão de ordem de pagamento extraorçamentária. Valores apurados das minutas de arrecadação da competência informada. Conferir banco, fonte de recurso, valores e documentos originais antes da emissão.</p>'+
       '<div class="assinaturas"><span>Responsável pela conferência</span><span>Setor de Contabilidade</span><span>Autorização</span></div>'+
-      '<footer class="rodape"><span>Prefeitura Municipal de Frei Inocêncio · SISDIFI</span><span>Memória emitida em '+esc(emissao)+'</span></footer>'+
+      '<footer class="rodape"><span>Prefeitura Municipal de Frei Inocêncio · SISDIFI</span><span>Memória emitida em '+esc(emissao)+'</span></footer></main>'+
       '</body></html>';
     w.document.write(html);
     w.document.close();
