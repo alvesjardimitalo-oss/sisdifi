@@ -1,5 +1,10 @@
 name: SISDIFI — Atualizador de legislação fiscal
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/monitor-legislacao-fiscal.py'
+      - '.github/workflows/monitor-legislacao-fiscal.yml'
   schedule:
     - cron: '17 10 * * *' # Diário, 07h17 em Minas Gerais (UTC-3)
   workflow_dispatch:
