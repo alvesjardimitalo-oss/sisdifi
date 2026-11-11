@@ -63,17 +63,16 @@ const codBeneficio={familia:'164',maternidade:'163'};
 const moeda=/(-?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2})\s*$/;
 const rubrica=/^\s*(\d{2,4})\s+(.+?)\s+(-?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2})\s*$/;
 const resumo=/^\s*(TOTAL BRUTO DE PROVENTOS|TOTAL BRUTO DE DESCONTOS|TOTAL L[IÍ]QUIDO|VALOR BRUTO DO EMPENHO|VALOR DO DESCONTO NA LIQUIDA[CÇ][ÃA]O|VALOR L[IÍ]QUIDO DO EMPENHO|SALARIO FAMILIA|SALARIO MATERNIDADE INSS|COMP FED\.PIS SAL ENFERMAGEM)\.{2,}\s*:\s*([-\d.,]+)\s*$/i;
-const possuiTipo=t=>/TIPO C[AÁ]LCULO|RESUMO DE VERBAS/i.test(t);
 // Códigos e descrições de descontos identificados no Resumo de Verbas.
 // As rubricas de provento (inclusive salário-família, maternidade e diárias)
 // NUNCA são deduções apenas por aparecerem na classificação "2 - OUTRAS".
 export const CATEGORIAS_DESCONTOS=['Caixa','Sicoob','Bradesco','Pensao','INSS','IRRF','Outros'];
 export function categoriaRubricaDesconto(r) {
   const descricao=norma(r?.descricao||'');
-  if(r.codigo==='201'||/^(I\\.?N\\.?S\\.?S\\.?|INSS)(?:\\s|$)/.test(descricao))return 'INSS';
+  if(r.codigo==='201'||/^(I\.?N\.?S\.?S\.?|INSS)(?:\s|$)/.test(descricao))return 'INSS';
   if(r.codigo==='204'||/IMPOSTO DE RENDA|IRRF/.test(descricao))return 'IRRF';
   if(/EMPRESTIMO/.test(descricao)){
-    if(/CAIXA|\\bCEF\\b/.test(descricao))return 'Caixa';
+    if(/CAIXA|\bCEF\b/.test(descricao))return 'Caixa';
     if(/SICOOB/.test(descricao))return 'Sicoob';
     if(/BRADESCO/.test(descricao))return 'Bradesco';
   }
