@@ -209,7 +209,7 @@ export function telaConsignacoes(el) {
   function atualizar() {
     $('#mi-revisado').checked=false;
     const anterior=$('#mi-fonte').value;
-    $('#mi-fonte').innerHTML='<option value="">Todas</option>'+[...new Set(todos().map(r=>r.fonteCompleta).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR',{numeric:true})).map(f=>`<option value="${esc(f)}">${esc(f.replace(/\\D/g,'').slice(0,4))} · ${esc(f)}</option>`).join('');
+    $('#mi-fonte').innerHTML='<option value="">Todas</option>'+[...new Set(todos().map(r=>r.fonteCompleta).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR',{numeric:true})).map(f=>`<option value="${esc(f)}">${esc(f.replace(/\D/g,'').slice(0,4))} · ${esc(f)}</option>`).join('');
     $('#mi-fonte').value=[...$('#mi-fonte').options].some(o=>o.value===anterior)?anterior:'';
     render();
   }
