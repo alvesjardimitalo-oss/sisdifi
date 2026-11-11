@@ -50,6 +50,28 @@ function folhaXML(tabela){
   '</sheetData><autoFilter ref="A1:'+letra(cab.length-1)+tabela.length+'"/></worksheet>';
 }
 export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',conciliacao=[],aprovouMapa=false}={}){
+  // Primeira aba espelha as 14 colunas da última planilha municipal de junho,
+  // sem copiar fichas/fontes de competências anteriores e sem inventar nº de OP.
+  const modelo=[['Grupo de folha','Empenho','Secretaria','Ficha','Fonte de Recursos','Conta Bancária',
+    'Valor Bruto','Desconto Liquidação','Nº OP Extra','Bruto Extraorçamentário',
+    'Desconto Extraorçamentário','Outros Brutos','Outros Descontos','Valor Líquido Geral']];
+  const nomeGrupo={principal:'FOLHA DE PAGAMENTO',extra:'EXTRA FOLHA · INCENTIVO FEDERAL',
+    decimo:'ADIANTAMENTO DE 50% DO 13º SALÁRIO',rescisao:'RESCISÃO CONTRATUAL'};
+  let grupoAnterior='';
+  for(const r of previsao.empenhos){
+    const linha=modelo.length+1;
+    const opBruto=(r.familia||0)+(r.maternidade||0);
+    const opInss=r.maisInssExtra||0;
+    const cacheLiquido=(r.bruto||0)-(r.descontoAjustado||0)+opBruto-opInss;
+    modelo.push([r.tipo!==grupoAnterior?nomeGrupo[r.tipo]:'',
+      r.empenho,r.secretaria,r.ficha||'',r.fonte||'',r.conta||'',
+      r.bruto==null?'':{centavos:r.bruto},
+      r.descontoAjustado==null?'':{centavos:r.descontoAjustado},'',
+      {centavos:opBruto},{centavos:opInss},
+      '', '',{formula:'G'+linha+'-H'+linha+'+J'+linha+'-K'+linha+'+L'+linha+'-M'+linha,
+        moeda:true,cache:cacheLiquido}]);
+    grupoAnterior=r.tipo;
+  }
   const emp=[['Empenho','Grupo','Secretaria','Vínculo','Lotação RH','Ficha','Fonte','Conta bancária','Bruto R$',
     'Caixa R$','Sicoob R$','Bradesco R$','Pensão R$','INSS R$','IRRF R$','Outros descontos R$',
     'Desconto total RH R$','Soma das rubricas R$','Diferença de descontos R$',
@@ -99,13 +121,19 @@ export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',co
     ['Diferença RH x composição',{centavos:previsao.empenhos.reduce((a,r)=>a+(r.diferencaComposicao||0),0)}],
     ['Desconto ajustado do INSS maternidade',{centavos:previsao.totalDescontoAjustado}],
     ['Líquido orçamentário ajustado',{centavos:previsao.totalLiquido}],
+    ['Líquido do RH (somatório das lotações)',{centavos:previsao.totalLiquidoRH}],
+    ['Líquido base calculado (bruto RH - descontos)',{centavos:previsao.totalLiquidoBase}],
+    ['Diferença calculado x RH',{centavos:previsao.diferencaTotalRH}],
+    ['Conferência global',previsao.diferencaTotalRH===0?'VALOR BATEU':'VALOR NÃO BATEU'],
     ['OPs extraorçamentárias',previsao.extras.length],
     ['Atenção','Documento de apoio, não efetua empenho, liquidação ou OP oficial. Conferir ficha, fonte e todos os descontos.'],
     ['Banco','Desconto RH','Minuta','Diferença','Situação']];
   for(const r of conciliacao)conf.push([r.banco,{centavos:r.esperado},{centavos:r.minuta},{centavos:r.diferenca},r.conferido?'CONFERIDO':'PENDENTE']);
   const notas=[['Regras de conferência e preenchimento'],
     ['1. A numeração dos empenhos é sequencial e provisória a partir do primeiro informado.'],
-    ['2. A ordenação é folha principal por secretaria/vínculo, depois 13º e rescisões.'],
+    ['2. A ordem dentro da folha principal segue o PDF original do RH, como na planilha de junho, depois extra, 13º e rescisões.'],
+    ['2A. A primeira aba reproduz as colunas da planilha da Contabilidade. Ficha, fonte, conta, nº OP e ajustes adicionais ficam editáveis.'],
+    ['2B. A aba Conferência apresenta VALOR BATEU ou VALOR NÃO BATEU para bruto menos desconto versus líquido original do RH.'],
     ['3. O resumo de verbas informa valores por lotação, não os nomes das servidoras.'],
     ['4. Salário-família gera indicação de OP extra pelo valor do resumo.'],
     ['5. Salário-maternidade exige folha individual, matrícula, rubrica 163 e INSS 201 com conferência humana.'],
@@ -116,8 +144,10 @@ export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',co
     ['10. Divergência entre soma das rubricas e desconto RH BLOQUEIA a exportação da relação conferida.'],
     ['11. Folha extra do dia 10: incentivo da enfermagem SOMENTE é somado ao bruto do RH após confirmação de que não está incluído.'],
     ['12. INSS da folha extra: não criar desconto automático; conferir na folha da competência seguinte e evitar duplicidade.'],
-    ['13. Este Excel é memória de apoio, não emite empenho, liquidação ou OP no sistema contábil.']];
-  const nomes=['Empenhos','Composição','OPs Extras','Conferência','Orientações'],dados=[emp,composicoes,extra,conf,notas];
+    ['13. Outros brutos/descontos da planilha original só podem ser informados após comprovação, sem criação automática de valores.'],
+    ['14. O líquido do Modelo Contabilidade inclui OPs extras; no Empenhos, o líquido representa somente a parte orçamentária ajustada.'],
+    ['15. Este Excel é memória de apoio, não emite empenho, liquidação ou OP no sistema contábil.']];
+  const nomes=['Modelo Contabilidade','Empenhos','Composição','OPs Extras','Conferência','Orientações'],dados=[modelo,emp,composicoes,extra,conf,notas];
   const header='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
   const workbook=header+'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'+
     nomes.map((n,i)=>'<sheet name="'+xml(n)+'" sheetId="'+(i+1)+'" r:id="rId'+(i+1)+'"/>').join('')+'</sheets><calcPr fullCalcOnLoad="1"/></workbook>';

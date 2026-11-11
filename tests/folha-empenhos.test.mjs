@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync,writeFileSync} from 'node:fs';
 import {
-  analisarResumoVerbas,analisarResumoConsolidado,tipoDeFolhaCabecalho,prepararEmpenhos,conferirConsignadosFolha,
+  analisarResumoVerbas,analisarResumoConsolidado,tipoDeFolhaCabecalho,separarAdiantamentoDecimo,prepararEmpenhos,conferirConsignadosFolha,
   centavosFolha,dinheiroFolha,competenciaNoResumo
 } from '../assets/js/folha-empenhos.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade} from '../assets/js/folha-maternidade.js';
@@ -318,4 +318,52 @@ assert.match(view,/fe-visao/);
 assert.match(view,/Rubricas de origem/);
 assert.match(view,/diferencaComposicao/);
 assert.match(view,/conferirConsignadosFolha/);
+// O PDF real do RH combina no cabeçalho 01-FOLHA MENSAL/05-DÉCIMO,
+// mas parte do bruto é provento 150 e deve sair num empenho 13º ao final.
+assert.equal(tipoDeFolhaCabecalho('TIPO CÁLCULO: 01-FOLHA MENSAL/05-DÉCIMO'),'principal');
+const misto=analisarResumoConsolidado([
+ 'RESUMO DE VERBAS','TIPO CÁLCULO: 01-FOLHA MENSAL/05-DÉCIMO',
+ 'ENTIDADE: PREFEITURA MUNICIPAL REFERENCIA: OUTUBRO/2026',
+ 'LOTAÇÃO...: 002.001.201',
+ 'GABINETE DO PREFEITO','MANUT. DO GAB. E SECRET. DE GOVERNO',
+ 'CLASSIFICAÇÃO CONTÁBIL: 0 - FIXA',
+ '103 SUBSIDIO 17.000,00',
+ '150 ADIANTAMENTO 13SALARIO 8.500,00',
+ 'CLASSIFICAÇÃO CONTÁBIL: 2 - OUTRAS',
+ '201 I.N.S.S. 988,07','204 IMPOSTO DE RENDA 3.494,55','226 EMPRÉSTIMO SICOOB 3.759,32',
+ 'VALOR BRUTO DO EMPENHO.............: 25.500,00',
+ 'VALOR DO DESCONTO NA LIQUIDAÇÃO....: 8.241,94',
+ 'VALOR LIQUIDO DO EMPENHO...........: 17.258,06',
+ 'RESUMO DE VERBAS','TIPO CÁLCULO: 01-FOLHA MENSAL/05-DÉCIMO',
+ 'LOTAÇÃO...: 002.001.201.00005','GABINETE DO PREFEITO','VICE PREFEITO',
+ 'CLASSIFICAÇÃO CONTÁBIL: 0 - FIXA','103 SUBSIDIO 8.500,00',
+ 'CLASSIFICAÇÃO CONTÁBIL: 2 - OUTRAS','201 I.N.S.S. 988,07',
+ 'VALOR BRUTO DO EMPENHO.............: 8.500,00',
+ 'VALOR DO DESCONTO NA LIQUIDAÇÃO....: 988,07',
+ 'VALOR LIQUIDO DO EMPENHO...........: 7.511,93'
+],{nome:'resumo-combinado-outubro.pdf'});
+assert.equal(misto.quantidade,3);
+assert.deepEqual(misto.tipos,{principal:2,decimo:1});
+assert.equal(misto.arquivos[0].registros[0].valores.bruto,1700000);
+assert.equal(misto.arquivos[0].registros[0].valores.desconto,824194);
+assert.equal(misto.arquivos[1].registros[0].valores.bruto,850000);
+assert.equal(misto.arquivos[1].registros[0].valores.desconto,0);
+const empenhosMistos=prepararEmpenhos(misto.arquivos,5000,{
+ 'principal|002.001.201':{ficha:'39',fonte:'1500'},
+ 'principal|002.001.201.00005':{ficha:'39',fonte:'1500'},
+ 'decimo|002.001.201':{ficha:'39',fonte:'1500'}
+});
+assert.deepEqual(empenhosMistos.empenhos.map(r=>[r.tipo,r.lotacao,r.empenho]),[
+ ['principal','002.001.201',5000],
+ ['principal','002.001.201.00005',5001],
+ ['decimo','002.001.201',5002]
+]);
+assert.equal(empenhosMistos.totalBruto,2550000+850000);
+assert.equal(empenhosMistos.totalDescontoRH,824194+98807);
+assert.equal(empenhosMistos.empenhos[0].liquido,875806);
+assert.ok(!empenhosMistos.empenhos[0].problemas.some(v=>/conta bancária/.test(v)));
+const uiNovo=readFileSync(new URL('../assets/js/views/folha-empenhos.js',import.meta.url),'utf8');
+assert.match(uiNovo,/data-importar="automatico"/);
+assert.match(uiNovo,/Preencha ficha e fonte de recursos/);
+
 console.log('Folha: resumo, INSS individual, família, matrícula, ordenação, consignações e XLSX: OK.');

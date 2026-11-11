@@ -196,12 +196,41 @@ export function tipoDeFolhaCabecalho(linha){
   const t=norma(linha);
   if(!/TIPO\s*(?:DE\s*)?CALCULO|TIPO\s*(?:DE\s*)?FOLHA|FOLHA\s*:|RESUMO\s*DE\s*VERBAS/.test(t))
     return '';
+  // O RH usa o cabeçalho COMBINADO "01-FOLHA MENSAL/05-DÉCIMO"
+  // em todas as páginas. NÃO classificar a folha inteira como 13º:
+  // a verba 150 será desmembrada em um empenho de adiantamento separado.
+  if(/01\s*[-–]\s*FOLHA MENSAL\s*\/\s*05\s*[-–]\s*DECIMO/.test(t))return 'principal';
   if(/RESCIS|RESCIND|TERMINO DE CONTRATO/.test(t))return 'rescisao';
   if(/13\s*[º°O]?\s*SALARIO|DECIMO\s*TERCEIRO|ADIANTAMENTO\s*(?:DE\s*)?(?:50\s*%|13)/.test(t))return 'decimo';
   if(/FOLHA\s*EXTRA|EXTRA\s*FOLHA|FOLHA\s*COMPLEMENTAR|03\s*[-–]\s*FOLHA\s*EXTRA/.test(t))return 'extra';
   if(/FOLHA\s*MENSAL|FOLHA\s*PRINCIPAL|01\s*[-–]\s*FOLHA/.test(t))return 'principal';
   return '';
 }
+export function separarAdiantamentoDecimo(registro,{cabecalho='',tipo='principal'}={}){
+  const conjunto=/01\s*[-–]\s*FOLHA MENSAL\s*\/\s*05\s*[-–]\s*DECIMO/.test(norma(cabecalho));
+  if(!conjunto||tipo!=='principal')return {principal:registro,decimo:null,avisos:[]};
+  const rubricas=(registro.rubricas||[]).filter(r=>r.codigo==='150'&&/ADIANTAMENTO\s*13|DECIMO\s*TERCEIRO/.test(norma(r.descricao)));
+  const soma=rubricas.reduce((v,r)=>v+r.valor,0);
+  if(!soma)return {principal:registro,decimo:null,avisos:[]};
+  const bruto=registro.valores?.bruto,desconto=registro.valores?.desconto,liquido=registro.valores?.liquido;
+  if(!Number.isSafeInteger(bruto)||!Number.isSafeInteger(desconto)||!Number.isSafeInteger(liquido)||
+     soma<=0||soma>bruto||bruto-desconto!==liquido){
+    return {principal:registro,decimo:null,
+      avisos:['Lotação '+registro.lotacao+': adiantamento de 13º detectado, porém os totais não permitem separar com segurança.']};
+  }
+  const v=bruto-soma;
+  const mensal={...registro,valores:{...registro.valores,bruto:v,liquido:v-desconto},
+    rubricas:(registro.rubricas||[]).filter(r=>!rubricas.includes(r)),
+    adiantamentoSeparado:soma,origemMista:true};
+  const categorias=Object.fromEntries(CATEGORIAS_DESCONTOS.map(k=>[k,0]));
+  const decimo={...registro,tipo:'decimo',tipoIdentificado:true,
+    valores:{bruto:soma,desconto:0,liquido:soma,familia:0,maternidade:0,enfermagem:0},
+    rubricas,rubricasDesconto:[],composicao:categorias,composicaoTotal:0,diferencaComposicao:0,
+    classificacaoDescontosIdentificada:true,inss:0,bancos:{Caixa:0,Sicoob:0,Bradesco:0,Pensao:0},
+    adiantamentoOrigem:registro.lotacao,origemMista:true};
+  return {principal:mensal,decimo,avisos:[]};
+}
+
 export function analisarResumoConsolidado(linhas,{nome=''}={}){
   const grupos=[],alertas=[];let tipo='',inicio=[],grupo=null,ultimaPagina=0;
   const cabecalho=[];
@@ -214,7 +243,11 @@ export function analisarResumoConsolidado(linhas,{nome=''}={}){
     if(!tipoAtual)alertas.push('Lotação '+grupo.lotacao+': tipo de folha não identificado no cabeçalho. Classifique antes da conferência.');
     if(identificado.registros.length){
       for(const r of identificado.registros){
-        grupos.push({...r,tipo:tipoAtual||'principal',tipoIdentificado:!!tipoAtual});
+        const referencia=grupo.cabecalho.map(x=>typeof x==='string'?x:x.texto).join(' ');
+        const par=separarAdiantamentoDecimo(r,{cabecalho:referencia,tipo:tipoAtual});
+        grupos.push({...par.principal,tipo:tipoAtual||'principal',tipoIdentificado:!!tipoAtual});
+        if(par.decimo)grupos.push(par.decimo);
+        alertas.push(...par.avisos);
       }
     }else alertas.push('Não foi possível ler os valores da lotação '+grupo.lotacao+' (página '+grupo.pagina+').');
     alertas.push(...identificado.avisos);
@@ -259,16 +292,18 @@ export function analisarResumoConsolidado(linhas,{nome=''}={}){
 export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
   if(!Number.isSafeInteger(Number(primeiro))||Number(primeiro)<1||Number(primeiro)>999999999)
     throw Error('Informe o número inteiro do primeiro empenho.');
+  // A ordem de impressão do RH reproduz a sequência histórica do modelo
+  // de junho: secretaria e vínculo são intercalados na origem; reordenar
+  // alfabética/heuristicamente trocaria os empenhos de lotação.
   const todas=arquivos.flatMap(a=>(a?.registros||[]).map(r=>({...r,tipo:a.tipo,competencia:a.competencia})));
   const destino=r=>mapa[r.tipo+'|'+r.lotacao]||mapa[r.lotacao]||{};
+  // Grupos sempre nessa ordem; dentro de cada grupo respeita a posição
+  // no PDF do RH, inclusive com vínculo especial ou secretaria específica.
+  const ordem=['principal','extra','decimo','rescisao'];
   const ordenadas=todas.sort((a,b)=>{
-    const ia=['principal','extra','decimo','rescisao'].indexOf(a.tipo),ib=['principal','extra','decimo','rescisao'].indexOf(b.tipo);
-    if(ia!==ib)return ia-ib;
-    const sa=ORGAOS.indexOf(destino(a).secretaria||a.secretaria),sb=ORGAOS.indexOf(destino(b).secretaria||b.secretaria);
-    if(sa!==sb)return (sa<0?999:sa)-(sb<0?999:sb);
-    const va=VINCULOS.indexOf(destino(a).vinculo||a.vinculo),vb=VINCULOS.indexOf(destino(b).vinculo||b.vinculo);
-    if(va!==vb)return (va<0?999:va)-(vb<0?999:vb);
-    return a.paginaInicio-b.paginaInicio;
+    const ga=ordem.indexOf(a.tipo),gb=ordem.indexOf(b.tipo);
+    if(ga!==gb)return ga-gb;
+    return (a.paginaInicio||0)-(b.paginaInicio||0);
   });
   const empenhos=ordenadas.map((r,i)=>{
     const destino=mapa[r.tipo+'|'+r.lotacao]||mapa[r.lotacao]||{};
@@ -285,7 +320,7 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
     const problemas=[];
     if(r.tipoIdentificado===false)problemas.push('Identificar o tipo de folha desta lotação');
     if(!r.secretaria)problemas.push('Classificar secretaria');
-    if(!destino.ficha||!destino.fonte||!destino.conta)problemas.push('Informar ficha, fonte e conta bancária');
+    if(!destino.ficha||!destino.fonte)problemas.push('Informar ficha e fonte de recursos');
     if(bruto==null||desconto==null)problemas.push('Total bruto/desconto ilegível');
     if(!r.classificacaoDescontosIdentificada||r.diferencaComposicao!==0)problemas.push('Composição dos descontos divergente do Resumo de Verbas');
     if(maternidade && !a.confirmado)problemas.push('Conferir servidoras do salário-maternidade e INSS individual');
@@ -325,6 +360,14 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
     totalDescontoRH:empenhos.reduce((s,r)=>s+(r.descontoRH||0),0),
     totalDescontoAjustado:empenhos.reduce((s,r)=>s+(r.descontoAjustado||0),0),
     totalLiquido:empenhos.reduce((s,r)=>s+(r.liquido||0),0),
+    totalLiquidoRH:ordenadas.reduce((s,r)=>s+(Number.isSafeInteger(r.valores?.liquido)?r.valores.liquido:0),0),
+    totalLiquidoBase:ordenadas.reduce((s,r)=>s+(
+      Number.isSafeInteger(r.valores?.bruto)&&Number.isSafeInteger(r.valores?.desconto)
+        ?r.valores.bruto-r.valores.desconto:0),0),
+    diferencaTotalRH:ordenadas.reduce((s,r)=>s+(
+      Number.isSafeInteger(r.valores?.bruto)&&Number.isSafeInteger(r.valores?.desconto)
+        &&Number.isSafeInteger(r.valores?.liquido)
+        ?r.valores.bruto-r.valores.desconto-r.valores.liquido:0),0),
     pendentes:empenhos.filter(r=>r.problemas.length)};
 }
 export function conferirConsignadosFolha(empenhos,arquivosMinuta){
