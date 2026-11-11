@@ -152,6 +152,37 @@ export async function ultimosLogs(n = 200) {
   return snap.docs.map(d => ({ id: d.id, ...d.data(), em: d.data().em?.toDate?.() || null }));
 }
 
+// Migração atômica da versão inicial do Duodécimo: retiramos os registros
+// de exercicios/{ano}, que é legível para outros perfis, e movemos para
+// duodecimo_anos/{ano}, protegido pelas regras para admin/operador.
+// Só começa a escrever quando as regras da coleção privada estiverem publicadas.
+export async function migrarDuodecimoLegado() {
+  if (!sessao || !['admin','operador'].includes(sessao.perfil)) throw Error('Acesso restrito à Contabilidade e ADM.');
+  const snap = await getDocs(collection(fs,'exercicios'));
+  let migrados = 0, exerciciosMigrados = 0;
+  for (const item of snap.docs) {
+    if (!Object.prototype.hasOwnProperty.call(item.data(),'duodecimo')) continue;
+    const refOrigem = doc(fs,'exercicios',item.id);
+    const refDestino = doc(fs,'duodecimo_anos',item.id);
+    const quantidade = await runTransaction(fs,async tx=>{
+      const antigo = await tx.get(refOrigem);
+      if (!antigo.exists() || !Object.prototype.hasOwnProperty.call(antigo.data(),'duodecimo')) return 0;
+      const reservado = await tx.get(refDestino);
+      const antigos = antigo.data().duodecimo?.repasses || {};
+      const existentes = reservado.exists() ? (reservado.data().repasses || {}) : {};
+      // A versão privada prevalece sobre uma cópia antiga se ambas existirem.
+      const unificados = { ...antigos, ...existentes };
+      tx.set(refDestino,{ano:Number(item.id),repasses:unificados,
+        migradoEm:new Date().toISOString()},{merge:true});
+      tx.update(refOrigem,{duodecimo:deleteField()});
+      return Object.keys(antigos).length;
+    });
+    exerciciosMigrados++;
+    migrados += quantidade;
+  }
+  return {migrados,exerciciosMigrados};
+}
+
 // ---------------- Escrita ----------------
 /**
  * Servidores: CPF e chave Pix vão para "servidores_privado"; o índice "cpfs/{cpf}" aponta para o servidor.

@@ -5,6 +5,8 @@ on:
       - 'assets/js/duodecimo.js'
       - 'assets/js/views/duodecimo.js'
       - 'assets/js/app.js'
+      - 'assets/js/db.js'
+      - 'firestore.rules'
       - 'tests/duodecimo.test.mjs'
       - '.github/workflows/duodecimo-check.yml'
   pull_request:

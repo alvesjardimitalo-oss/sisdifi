@@ -209,10 +209,19 @@ service cloud.firestore {
       allow write: if operador();
     }
 
-    // Exercícios (ano do orçamento): todos leem; a Contabilidade abre e registra as respostas.
+    // Exercícios: documentos gerais são lidos por usuários ativos. Duodécimo nunca
+    // deve ser armazenado aqui porque esse documento é compartilhado com outros perfis.
     match /exercicios/{ano} {
       allow read: if ativo();
-      allow write: if operador();
+      allow create, update: if operador()
+        && !request.resource.data.keys().hasAny(['duodecimo']);
+      allow delete: if operador();
+    }
+
+    // Duodécimo da Câmara: LEITURA e ESCRITA somente para ADM e Contabilidade.
+    // Perfil operador() = ['admin', 'operador'] com conta ativa.
+    match /duodecimo_anos/{ano} {
+      allow read, write: if operador();
     }
 
     // Numeração: quem solicita só avança o contador de 1 em 1 (dentro da transação de criação).

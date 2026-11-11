@@ -48,7 +48,7 @@ export function validarRepasse(dados, ano) {
     dataRepasse:dados.dataRepasse||'', valorCentavos, observacao };
 }
 export function repassesAtivos(documento) {
-  return Object.entries(documento?.duodecimo?.repasses || {}).filter(([,r])=>r && !r.anulado)
+  return Object.entries(documento?.repasses || {}).filter(([,r])=>r && !r.anulado)
     .map(([id,r])=>({ id,...r })).filter(r=>/^(?:19|20|21)\d{2}-(0[1-9]|1[0-2])$/.test(r.competencia));
 }
 export function resumoDuodecimo(repasses, metaMensal = META_MENSAL_PADRAO, ano) {
