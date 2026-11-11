@@ -50,15 +50,34 @@ function folhaXML(tabela){
   '</sheetData><autoFilter ref="A1:'+letra(cab.length-1)+tabela.length+'"/></worksheet>';
 }
 export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',conciliacao=[],aprovouMapa=false}={}){
-  const emp=[['Empenho','Grupo','Secretaria','Vínculo','Lotação RH','Ficha','Fonte','Conta bancária','Bruto R$','Descontos RH R$','INSS deslocado R$','Desconto ajustado R$','Líquido R$','Salário-família R$','Salário-maternidade R$','Situação','Origem PDF','Ficha/Fonte confirmadas','Liquidação/Observações']];
+  const emp=[['Empenho','Grupo','Secretaria','Vínculo','Lotação RH','Ficha','Fonte','Conta bancária','Bruto R$',
+    'Caixa R$','Sicoob R$','Bradesco R$','Pensão R$','INSS R$','IRRF R$','Outros descontos R$',
+    'Desconto total RH R$','Soma das rubricas R$','Diferença de descontos R$',
+    'INSS realocado maternidade R$','Desconto a liquidar R$','Líquido R$',
+    'Salário-família R$','Salário-maternidade R$','Situação','Origem PDF','Ficha/Fonte confirmadas','Liquidação/Observações']];
+  const composicoes=[['Empenho','Grupo','Secretaria','Vínculo','Lotação RH','Categoria do desconto',
+    'Código da rubrica RH','Descrição da rubrica RH','Valor R$','Página do PDF','Arquivo de origem']];
   for(const r of previsao.empenhos) {
     const n=emp.length+1;
-    emp.push([r.empenho,{principal:'Folha principal',decimo:'Adiantamento 13º',rescisao:'Rescisões'}[r.tipo],r.secretaria,r.vinculo,r.lotacao,
-      r.ficha,r.fonte,r.conta,r.bruto==null?'':{centavos:r.bruto},r.descontoRH==null?'':{centavos:r.descontoRH},
-      {centavos:r.maisInssExtra}, {formula:'J'+n+'-K'+n,moeda:true,cache:r.descontoAjustado},{formula:'I'+n+'-L'+n,moeda:true,cache:r.liquido},
+    const c=r.composicao||{},cent=k=>({centavos:c[k]||0});
+    emp.push([r.empenho,{principal:'Folha principal',decimo:'Adiantamento 13º',rescisao:'Rescisões'}[r.tipo],
+      r.secretaria,r.vinculo,r.lotacao,r.ficha,r.fonte,r.conta,
+      r.bruto==null?'':{centavos:r.bruto},
+      cent('Caixa'),cent('Sicoob'),cent('Bradesco'),cent('Pensao'),cent('INSS'),cent('IRRF'),cent('Outros'),
+      r.descontoRH==null?'':{centavos:r.descontoRH},
+      {formula:'SUM(J'+n+':P'+n+')',moeda:true,cache:r.composicaoTotal},
+      r.descontoRH==null?'':{formula:'Q'+n+'-R'+n,moeda:true,cache:r.diferencaComposicao},
+      {centavos:r.maisInssExtra},
+      r.descontoRH==null?'':{formula:'Q'+n+'-T'+n,moeda:true,cache:r.descontoAjustado},
+      r.bruto==null||r.descontoAjustado==null?'':{formula:'I'+n+'-U'+n,moeda:true,cache:r.liquido},
       {centavos:r.familia},{centavos:r.maternidade},
-      r.problemas.length?'PENDENTE: '+r.problemas.join(' / '):status,r.arquivo+' · p. '+r.pagina,
-      aprovouMapa?'SIM':'NÃO','']);
+      r.problemas.length?'PENDENTE: '+r.problemas.join(' / '):status,
+      r.arquivo+' · p. '+r.pagina,aprovouMapa?'SIM':'NÃO','']);
+    for(const rubrica of r.rubricasDesconto||[]){
+      composicoes.push([r.empenho,r.tipo,r.secretaria,r.vinculo,r.lotacao,
+        rubrica.categoria,rubrica.codigo,rubrica.descricao,{centavos:rubrica.valor},
+        rubrica.pagina||r.pagina,r.arquivo]);
+    }
   }
   const extra=[['Tipo de OP extraorçamentária','Empenho referência','Lotação','Ficha','Fonte','Conta bancária','Bruto R$','INSS a reter R$','Líquido R$','Situação','Observações']];
   for(const x of previsao.extras){
@@ -71,6 +90,8 @@ export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',co
     ['Competência',competencia],['Situação',status],['Primeiro empenho',previsao.primeiro],['Último empenho',previsao.ultimo],
     ['Quantidade de empenhos',previsao.empenhos.length],['Empenhos com pendências',previsao.pendentes.length],
     ['Bruto orçamentário',{centavos:previsao.totalBruto}],['Desconto do RH',{centavos:previsao.totalDescontoRH}],
+    ['Soma dos descontos discriminados',{centavos:previsao.empenhos.reduce((a,r)=>a+(r.composicaoTotal||0),0)}],
+    ['Diferença RH x composição',{centavos:previsao.empenhos.reduce((a,r)=>a+(r.diferencaComposicao||0),0)}],
     ['Desconto ajustado do INSS maternidade',{centavos:previsao.totalDescontoAjustado}],
     ['Líquido orçamentário ajustado',{centavos:previsao.totalLiquido}],
     ['OPs extraorçamentárias',previsao.extras.length],
@@ -86,8 +107,10 @@ export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',co
     ['6. O INSS confirmado da maternidade é removido do desconto da folha principal e retido na OP extra.'],
     ['7. Descontos de bancos e pensões são comparados com minutas por TOTAL; o vínculo de cada guia com empenho precisa revisão.'],
     ['8. Caso o RH apresente compensações externas não analisadas, não presumir total líquido final.'],
-    ['9. Este Excel é uma memória para a Contabilidade, não emite ordens de pagamento/inscrição contábil.']];
-  const nomes=['Empenhos','OPs Extras','Conferência','Orientações'],dados=[emp,extra,conf,notas];
+    ['9. A aba Composição discrimina rubrica, código, categoria e página do PDF do RH para cada desconto.'],
+    ['10. Divergência entre soma das rubricas e desconto RH BLOQUEIA a exportação da relação conferida.'],
+    ['11. Este Excel é memória de apoio, não emite empenho, liquidação ou OP no sistema contábil.']];
+  const nomes=['Empenhos','Composição','OPs Extras','Conferência','Orientações'],dados=[emp,composicoes,extra,conf,notas];
   const header='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
   const workbook=header+'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'+
     nomes.map((n,i)=>'<sheet name="'+xml(n)+'" sheetId="'+(i+1)+'" r:id="rId'+(i+1)+'"/>').join('')+'</sheets><calcPr fullCalcOnLoad="1"/></workbook>';
