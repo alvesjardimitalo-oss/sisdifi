@@ -189,7 +189,7 @@ export function telaConsignacoes(el) {
     const html = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+
       '<title>Memória de cálculo · '+esc(competencia)+'</title><style>'+css+'</style></head><body>'+ 
       '<div class="toolbar"><span><b>Visualização A4</b> · Memória de cálculo para OP extraorçamentária</span>'+
-      '<div class="acoes"><button type="button" onclick="window.print()">Imprimir / Salvar em PDF</button><button type="button" class="fechar" onclick="window.close()">Fechar</button></div></div>'+
+      '<div class="acoes"><button id="mi-op-print-again" type="button">Imprimir / Salvar em PDF</button><button id="mi-op-close" type="button" class="fechar">Fechar</button></div></div>'+
       '<main class="paper">'+
       '<header class="topo"><div class="marca"><img id="mi-logo-prefeitura" class="brasao" src="'+esc(logoUrl)+'" alt="Brasão do Município de Frei Inocêncio">'+
       '<div class="orgao"><h2>PREFEITURA MUNICIPAL DE<br>FREI INOCÊNCIO</h2><p>Estado de Minas Gerais<br>Secretaria Municipal da Fazenda · Setor de Contabilidade</p></div></div>'+
@@ -208,6 +208,8 @@ export function telaConsignacoes(el) {
       '</body></html>';
     w.document.write(html);
     w.document.close();
+    w.document.getElementById('mi-op-print-again')?.addEventListener('click',()=>w.print());
+    w.document.getElementById('mi-op-close')?.addEventListener('click',()=>w.close());
     const imprimir = () => { try { w.focus(); w.print(); } catch (e) { status('Não foi possível abrir a impressão.'); } };
     const logo = w.document.getElementById('mi-logo-prefeitura');
     if (logo && !logo.complete) {
