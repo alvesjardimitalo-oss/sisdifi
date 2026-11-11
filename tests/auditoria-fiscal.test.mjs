@@ -67,3 +67,16 @@ assert.match(workflow,/schedule/);
 assert.match(workflow,/scripts\/monitor-legislacao-fiscal\.py/);
 assert.match(workflow,/contents: write/);
 console.log('Pré-auditoria municipal: perguntas, bloqueios, leis especiais e monitoramento com aprovação: OK.');
+
+
+// Fontes municipais que recusam robôs não podem ser consideradas automaticamente verificadas.
+const proxied={...catalogo,fontes:[{...catalogo.fontes[0],consultaIntermediada:true,estado:'monitorado'}]};
+assert.equal(monitorFiscalSituacao(proxied,'2026-11-11').requerRevisao,true);
+assert.ok(monitorFiscalSituacao(proxied,'2026-11-11').indisponiveis.length);
+const manualFonte={lei_966_2023:{hash:'ABC',verificacaoManualEm:'2026-11-11T10:00:00Z',observacao:'Lei municipal consultada em portal oficial'}};
+assert.equal(monitorFiscalSituacao(proxied,'2026-11-11',manualFonte).requerRevisao,false);
+assert.equal(monitorFiscalSituacao(proxied,'2026-11-20',manualFonte).requerRevisao,true);
+const erroFonte={...catalogo,fontes:[{...catalogo.fontes[0],estado:'erro',hashObservado:null}]};
+assert.equal(monitorFiscalSituacao(erroFonte,'2026-11-11').requerRevisao,true);
+assert.equal(monitorFiscalSituacao(erroFonte,'2026-11-11',{lei_966_2023:{verificacaoManualEm:'2026-11-11T10:00:00Z',observacao:'verificação no portal municipal'}}).requerRevisao,false);
+console.log('Portal municipal com erro 403 e espelho exigem revisão humana válida por 7 dias.');
