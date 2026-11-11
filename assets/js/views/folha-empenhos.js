@@ -1,7 +1,7 @@
 // SISDIFI — Folha de pagamentos: geração de relação prévia de empenhos.
 // Exclusivo de Contabilidade/ADM. Não grava dados de folha no Firebase.
 import {estado,pode} from '../estado.js';
-import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,FICHAS_PESSOAL_2026} from '../folha-orcamento-2026.js';
+import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificacaoPessoal,FICHAS_PESSOAL_2026} from '../folha-orcamento-2026.js';
 import {esc,toast} from '../ui.js';
 import {analisarResumoVerbas,analisarResumoConsolidado,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha} from '../folha-empenhos.js';
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
@@ -95,7 +95,7 @@ export function telaFolhaEmpenhos(el){
       '<div id="fe-pessoas"></div></section>'+
     '<section class="fe-card"><h2>3 · Preencha ficha e fonte de recursos</h2>'+
       '<p class="fe-muted">Na folha extra, se o incentivo federal estiver informado fora do bruto do RH, escolha <strong>Somar ao bruto</strong> na respectiva lotação. Se já estiver incluído, escolha <strong>Já incluído</strong>. Não haverá INSS automático na extra: eventual desconto na folha seguinte será conferido separadamente.</p>'+
-      '<p class="fe-muted">Ao informar uma ficha, o SISDIFI identifica a secretaria/unidade e a ação (lotação orçamentária) pelo orçamento vigente cadastrado ou, para 2026, pela referência da LOA. O código da lotação RH, extraído do PDF, permanece inalterado. Se a ficha permitir mais de uma fonte, escolha a fonte manualmente. Todos os campos permanecem editáveis.</p>'+
+      '<p class="fe-muted">Ao informar a ficha, o SISDIFI identifica a secretaria, a ação e a natureza da despesa, conforme a LOA: <strong>3.1.90.11.00 — Vencimentos e Vantagens Fixas — Pessoal Civil</strong> ou <strong>3.1.90.04.00 — Pessoal Contratado (Contratação por Tempo Determinado)</strong>. O vínculo e a lotação do RH permanecem separados. Ficha, secretaria, ação e fonte continuam editáveis; a natureza acompanha a ficha do orçamento.</p>'+
       '<div class="fe-actions"><button class="btn btn-sec" id="fe-baixar-mapa" type="button">Baixar modelo CSV</button>'+
       '<label class="btn btn-sec" style="cursor:pointer">Importar mapa CSV <input id="fe-ler-mapa" type="file" accept=".csv,text/csv" style="display:none"></label>'+
       '<label><input type="checkbox" id="fe-confirmar-mapa"> Conferi as fichas e fontes na LOA</label></div><div id="fe-mapa-notas"></div></section>'+
@@ -122,7 +122,14 @@ export function telaFolhaEmpenhos(el){
       const ref=localizarFicha(m.ficha);
       return [chave,{...m,secretaria:m.secretaria||ref?.unidade||'',lotacaoOrcamentaria:m.lotacaoOrcamentaria||ref?.acao||''}];
     }));
-    return {maternidade,previsao:prepararEmpenhos(arquivosLista(),primeiro,mapaConsulta,maternidade.ajustes)};
+    const previsao=prepararEmpenhos(arquivosLista(),primeiro,mapaConsulta,maternidade.ajustes);
+    for(const emp of previsao.empenhos){
+      const ref=localizarFicha(emp.ficha);
+      const tipo=classificacaoPessoal(ref?.naturezas||[]);
+      emp.classificacaoOrcamentaria=tipo.codigo?tipo.titulo:'';
+      emp.codigoNatureza=tipo.codigo;
+    }
+    return {maternidade,previsao};
   };
   function persistir(){
     if(!uid||!ativa||carregando)return Promise.resolve();
@@ -231,13 +238,14 @@ export function telaFolhaEmpenhos(el){
       '<p class="fe-muted">A igualdade do total por banco não prova que cada guia está vinculada à lotação correta.</p>';
     const registros=p.empenhos.filter(e=>filtro==='todos'||filtro==='pendentes'&&e.problemas.length||e.tipo===filtro);
     if(visao==='resumo'){
-    $('#fe-tabela').innerHTML='<table><thead><tr><th>Empenho</th><th>Grupo</th><th>Secretaria/unidade</th><th>Vínculo</th><th>Lotação RH</th><th>Lotação orçamentária (ação)</th><th>Ficha</th><th>Fonte</th><th>Conta</th><th class="fe-money">Bruto</th><th class="fe-money">Desconto RH</th><th class="fe-money">INSS extra</th><th class="fe-money">Líquido</th><th>Pendências</th></tr></thead><tbody>'+
+    $('#fe-tabela').innerHTML='<table><thead><tr><th>Empenho</th><th>Grupo</th><th>Secretaria/unidade</th><th>Vínculo</th><th>Lotação RH</th><th>Lotação orçamentária (ação)</th><th>Ficha</th><th>Natureza da despesa</th><th>Fonte</th><th>Conta</th><th class="fe-money">Bruto</th><th class="fe-money">Desconto RH</th><th class="fe-money">INSS extra</th><th class="fe-money">Líquido</th><th>Pendências</th></tr></thead><tbody>'+
       registros.map(r=>{
         const m=mapa[r.id]||mapa[r.lotacao]||{};
         const ref=localizarFicha(m.ficha||r.ficha);
+        const classe=classificacaoPessoal(ref?.naturezas||[]);
         const avisoNatureza=ref?alertaNaturezaFicha(r.vinculo,ref.naturezas):'';
         const fontes=ref?.fontes||[];
-        const avisoFicha=m.ficha&&!ref?'Ficha não localizada no orçamento disponível; confira manualmente.':ref?.ambiguo?'Ficha com correspondências orçamentárias distintas; confira manualmente.':'';
+        const avisoFicha=m.ficha&&!ref?'Ficha não localizada no orçamento disponível; confira manualmente.':ref?.ambiguo?'Ficha com correspondências orçamentárias distintas; confira manualmente.':classe.conflito?'Ficha possui natureza orçamentária ambígua; conferir.':'';
         const avisoFonte=ref&&fontes.length>1&&!m.fonte?'Selecione uma das fontes permitidas: '+fontes.join(', '):ref&&m.fonte&&fontes.length&&!fonteCompativel(m.fonte,fontes)?'A fonte informada não corresponde às fontes cadastradas nesta ficha.':'';
         return '<tr><td><strong>'+r.empenho+'</strong></td><td>'+esc(tipos[r.tipo])+'</td>'+
           '<td><input style="width:170px" data-ref="'+esc(r.id)+'" data-campo="secretaria" value="'+esc(m.secretaria||r.secretaria||'')+'"></td>'+
@@ -245,6 +253,7 @@ export function telaFolhaEmpenhos(el){
         '<td><strong>'+esc(r.lotacao)+'</strong></td>'+
         '<td><input style="width:225px" data-ref="'+esc(r.id)+'" data-campo="lotacaoOrcamentaria" value="'+esc(m.lotacaoOrcamentaria||ref?.acao||'')+'"><small style="display:block;color:#526b80">'+esc(ref?.origem||'Edição manual')+'</small></td>'+
         '<td><input style="width:88px" list="fe-fichas-2026" data-ref="'+esc(r.id)+'" data-campo="ficha" value="'+esc(m.ficha||'')+'"></td>'+
+        '<td style="min-width:225px"><strong>'+esc(classe.titulo)+'</strong>'+(classe.codigo?'<small style="display:block;color:#526b80">'+esc(classe.codigo)+'</small>':'')+'</td>'+
         '<td><input style="width:132px" data-ref="'+esc(r.id)+'" data-campo="fonte" value="'+esc(m.fonte||'')+'"></td>'+
         '<td><input data-ref="'+esc(r.id)+'" data-campo="conta" value="'+esc(m.conta||'')+'"></td>'+
         '<td class="fe-money">'+dinheiroFolha(r.bruto||0)+(r.tipo==='extra'&&r.incentivo?'<small style="display:block;color:#506d82">Incentivo: '+dinheiroFolha(r.incentivo)+'</small>':'')+'</td><td class="fe-money">'+dinheiroFolha(r.descontoRH||0)+'</td>'+
