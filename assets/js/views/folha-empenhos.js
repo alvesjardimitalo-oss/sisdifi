@@ -184,7 +184,7 @@ export function telaFolhaEmpenhos(el){
     $('#fe-kpis').innerHTML=campos.map(x=>'<div><small>'+x[0]+'</small><strong>'+x[1]+'</strong></div>').join('');
     const bateu=p.diferencaTotalRH===0;
     const faixa='<div class="'+(bateu?'fe-ok':'fe-danger')+'" style="display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap">'+
-      '<strong>'+(bateu?'VALOR BATEU':'VALOR NÃO BATEU')+'</strong>'+
+      '<strong>'+(bateu?'VALOR BATEU':'VALOR NÃO BATEU')+' · Conferência aritmética do Resumo de Verbas</strong>'+
       '<span>Líquido informado pelo RH: '+dinheiroFolha(p.totalLiquidoRH)+
       ' · Líquido base calculado: '+dinheiroFolha(p.totalLiquidoBase)+
       ' · Diferença: '+dinheiroFolha(p.diferencaTotalRH)+'</span></div>';
@@ -288,7 +288,11 @@ export function telaFolhaEmpenhos(el){
           status('Competência identificada automaticamente no PDF: '+comp+'.');
         }
         // Importação única substitui os grupos anteriores, evitando contagem dupla.
-        if(tipo==='automatico')arquivos={};
+        if(tipo==='automatico'){
+          arquivos={};
+          // Reimportação não herda servidores confirmados de outro mês/arquivo.
+          pessoas=[];origemIndividual='';
+        }
         for(const a of analisado.arquivos)arquivos[a.tipo]=a;
         nomeConsolidado=f.name;alertas=[...analisado.avisos];
         $('#fe-nome-automatico').textContent=f.name+' · '+analisado.quantidade+' lançamentos identificados';
