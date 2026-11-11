@@ -152,6 +152,45 @@ export function conferenciaMensal(arquivos, esperados = {}) {
     diferenca:completo?blocos.reduce((s,b)=>s+b.diferenca,0):null,
     conferido:completo && blocos.every(b=>b.arquivos>0 && b.diferenca===0) && !naoClassificados.length && !arquivos.some(a=>avisosPendentes(a).length)};
 }
+// Cada OP extraorçamentária corresponde a um destino (banco/desconto) e UMA fonte completa.
+// A soma usa centavos dos registros da minuta, nunca totais repetidos no rodapé do PDF.
+export function agruparOPsPorBancoFonte(arquivos) {
+  const mapa = new Map(), pendentes = [];
+  for (const arquivo of arquivos) {
+    for (const r of arquivo.resultado?.registros || []) {
+      const destino = r.destino || '';
+      const fonteCompleta = String(r.fonteCompleta || '').trim();
+      const fonte = String(r.fonte || fonteCompleta.replace(/\D/g, '').slice(0,4)).trim();
+      if (!DESTINOS.includes(destino) || !fonteCompleta || !/^\d{4}$/.test(fonte)) {
+        pendentes.push({ ...r, arquivo: arquivo.nome });
+        continue;
+      }
+      // O nome de arquivo e a guia não fazem parte da chave: distintas guias
+      // na mesma combinação banco + fonte pertencem à mesma memória de OP.
+      const chave = JSON.stringify([destino, fonteCompleta]);
+      if (!mapa.has(chave)) mapa.set(chave, {
+        destino, fonte, fonteCompleta, fonteNome: r.fonteNome || '',
+        total: 0, registros: [], guias: 0
+      });
+      const g = mapa.get(chave);
+      g.total += r.centavos;
+      g.registros.push({ ...r, arquivo: arquivo.nome });
+    }
+  }
+  const itens = [...mapa.values()].sort((a,b) =>
+    DESTINOS.indexOf(a.destino) - DESTINOS.indexOf(b.destino)
+    || a.fonteCompleta.localeCompare(b.fonteCompleta,'pt-BR',{numeric:true}));
+  for (const g of itens) {
+    g.guias = new Set(g.registros.map(r => JSON.stringify([r.arquivo,r.tipo,r.numero]))).size;
+  }
+  return {
+    itens,
+    pendentes,
+    total: itens.reduce((s,g)=>s+g.total,0),
+    totalPendentes: pendentes.reduce((s,r)=>s+r.centavos,0)
+  };
+}
+
 // Histórico local separado por usuário e competência. PDFs ficam no IndexedDB, nunca no repositório.
 function abrir() {
   return new Promise((resolve,reject)=>{
