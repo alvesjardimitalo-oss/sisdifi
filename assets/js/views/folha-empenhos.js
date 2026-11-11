@@ -33,7 +33,7 @@ export function telaFolhaEmpenhos(el){
   const uid=estado.sessao?.uid;
   let competencia=new Date().getFullYear()+'-'+String(new Date().getMonth()+1).padStart(2,'0');
   let primeiro=5000,arquivos={},pessoas=[],mapa={},aprovouMapa=false,aprovouConsignados=false;
-  let minutas=[],alertas=[],nomeConsolidado='',origemIndividual='',filtro='todos',visao='composicao',carregando=false,ativa=true,filaDeSalvamento=Promise.resolve();
+  let minutas=[],alertas=[],nomeConsolidado='',origemIndividual='',filtro='todos',visao='resumo',carregando=false,ativa=true,filaDeSalvamento=Promise.resolve();
   const $=sel=>el.querySelector(sel);
   const estilo='<style>'+
     '.fe{max-width:1350px;margin:0 auto;color:#233e58}.fe h1{color:#174366;font-size:1.55rem;margin:0 0 8px}.fe h2{font-size:1.12rem;color:#174366;margin:0 0 12px}'+
@@ -58,20 +58,26 @@ export function telaFolhaEmpenhos(el){
       '<label class="campo"><span>Primeiro número do empenho</span><input type="number" min="1" id="fe-inicio" value="5000"></label>'+
       '<label class="campo"><span>Filtrar empenhos</span><select id="fe-filtro"><option value="todos">Todos</option><option value="pendentes">Com pendências</option><option value="principal">Folha principal</option><option value="decimo">13º adiantamento</option><option value="rescisao">Rescisões</option></select></label>'+
     '</div><p id="fe-status" class="fe-muted" role="status" aria-live="polite"></p></section>'+
-    '<section class="fe-card"><h2>1 · Arquivos do RH</h2><div class="fe-files">'+
+    '<section class="fe-card"><h2>1 · Importar a folha</h2>'+
+      '<label class="fe-file" style="display:block;border:2px solid #3981b4;background:#eef7ff;padding:19px;margin-bottom:12px">'+
+      '<strong style="font-size:1.05rem;color:#16456a">Escolha um único arquivo do RH (PDF)</strong>'+
+      '<small>Importe o Resumo de Verbas consolidado. O SISDIFI identifica as lotações, separa folha principal, adiantamento do 13º, folha extra e rescisões, gera os valores e calcula os descontos. Ficha e fonte ficam para você preencher.</small>'+
+      '<input data-importar="automatico" type="file" accept=".pdf,application/pdf">'+
+      '<span id="fe-nome-automatico" class="fe-muted">Nenhum arquivo importado</span></label>'+
+      '<details><summary>Importação separada (opcional, para casos especiais)</summary><div class="fe-files">'+
       '<label class="fe-file" style="border-color:#3d89bd;background:#eff8ff"><strong>Resumo de Verbas consolidado · todos os tipos</strong><small>Preferencial: um único PDF contendo folha principal, extra, 13º e rescisões. Separa pelo tipo de folha do cabeçalho e pela lotação completa.</small><input data-importar="consolidado" type="file" accept=".pdf"><span id="fe-nome-consolidado" class="fe-muted">Não enviado</span></label>'+
       '<label class="fe-file"><strong>Resumo de Verbas da folha principal</strong><small>Dados por lotação, rubricas e totais da liquidação.</small><input data-importar="principal" type="file" accept=".pdf"><span id="fe-nome-principal" class="fe-muted">Não enviado</span></label>'+
       '<label class="fe-file"><strong>Resumo de Verbas · Folha extra do dia 10</strong><small>Incentivo da enfermagem e eventuais diferenças salariais. Informe se o incentivo já compõe o bruto do RH.</small><input data-importar="extra" type="file" accept=".pdf"><span id="fe-nome-extra" class="fe-muted">Não enviado</span></label>'+ 
       '<label class="fe-file"><strong>Resumo do adiantamento de 50% do 13º</strong><small>Opcional, quando houver na competência.</small><input data-importar="decimo" type="file" accept=".pdf"><span id="fe-nome-decimo" class="fe-muted">Não enviado</span></label>'+
       '<label class="fe-file"><strong>Resumo de Verbas das rescisões</strong><small>Opcional, quando houver rescisões.</small><input data-importar="rescisao" type="file" accept=".pdf"><span id="fe-nome-rescisao" class="fe-muted">Não enviado</span></label>'+
       '<label class="fe-file"><strong>Folha nominal consolidada · identificação das servidoras</strong><small>Para identificar matrícula, servidora, rubrica 163 e INSS (201). Confirmação individual obrigatória.</small><input data-importar="nominal" type="file" accept=".pdf"><span id="fe-nome-nominal" class="fe-muted">Não enviado</span></label>'+
-    '</div><div id="fe-avisos"></div></section>'+
+    '</div></details><div id="fe-avisos"></div></section>'+
     '<section class="fe-card"><div class="fe-actions"><h2>2 · Servidoras com salário-maternidade</h2><button id="fe-nova-servidora" type="button" class="btn btn-sec">+ Adicionar registro</button></div>'+
       '<p class="fe-muted">O INSS individual confirmado é retirado do desconto do empenho principal e transferido para a retenção da OP extraorçamentária. A rubrica 229 (prorrogação) não é convertida automaticamente. Se o layout nominal não for reconhecido, preencha manualmente com base no contracheque.</p>'+
       '<div id="fe-pessoas"></div></section>'+
-    '<section class="fe-card"><h2>3 · Mapeamento de ficha, fonte e conta</h2>'+
+    '<section class="fe-card"><h2>3 · Preencha ficha e fonte de recursos</h2>'+
       '<p class="fe-muted">Na folha extra, se o incentivo federal estiver informado fora do bruto do RH, escolha <strong>Somar ao bruto</strong> na respectiva lotação. Se já estiver incluído, escolha <strong>Já incluído</strong>. Não haverá INSS automático na extra: eventual desconto na folha seguinte será conferido separadamente.</p>'+
-      '<p class="fe-muted">O Resumo de Verbas não contém esses dados. Preencha uma vez por lotação e reaproveite na competência seguinte. Se já tiver um mapa por lotação, importe o CSV.</p>'+
+      '<p class="fe-muted">O Resumo de Verbas já fornece bruto, composição dos descontos e líquido por empenho. Você só precisa informar ficha e fonte, conferir os valores e, se desejar, a conta bancária. Reaproveitamos as informações por lotação nos meses seguintes.</p>'+
       '<div class="fe-actions"><button class="btn btn-sec" id="fe-baixar-mapa" type="button">Baixar modelo CSV</button>'+
       '<label class="btn btn-sec" style="cursor:pointer">Importar mapa CSV <input id="fe-ler-mapa" type="file" accept=".csv,text/csv" style="display:none"></label>'+
       '<label><input type="checkbox" id="fe-confirmar-mapa"> Conferi as fichas e fontes na LOA</label></div><div id="fe-mapa-notas"></div></section>'+
@@ -79,8 +85,8 @@ export function telaFolhaEmpenhos(el){
       '<p class="fe-muted">Consulta as minutas já lidas na aba Consignações por mês, neste mesmo navegador e conta. A comparação automática é por total de cada banco, não garante por si só a lotação de cada guia.</p>'+
       '<div class="fe-actions"><button class="btn btn-sec" type="button" id="fe-buscar-minutas">Consultar minutas</button>'+
       '<label><input type="checkbox" id="fe-confirmar-bancos"> Conferi também a distribuição dos descontos por empenho</label></div><div id="fe-bancos"></div></section>'+
-    '<section class="fe-card"><div class="fe-actions"><h2>5 · Empenhos gerados</h2>'+ 
-      '<label class="campo"><span>Visualização</span><select id="fe-visao"><option value="composicao">Composição dos descontos</option><option value="resumo">Bruto, líquido, ficha e fonte</option></select></label>'+
+    '<section class="fe-card"><div class="fe-actions"><h2>5 · Empenhos gerados automaticamente</h2>'+ 
+      '<label class="campo"><span>Visualização</span><select id="fe-visao"><option value="resumo">Empenhos: ficha, fonte, bruto e líquido</option><option value="composicao">Composição dos descontos</option></select></label>'+
       '<button class="btn btn-sec" type="button" id="fe-rascunho">Baixar rascunho XLSX</button>'+
       '<button class="btn" type="button" id="fe-final" disabled>Baixar planilha conferida XLSX</button></div>'+
       '<div id="fe-kpis" class="fe-kpis"></div><div id="fe-pendencias"></div>'+ 
@@ -265,17 +271,34 @@ export function telaFolhaEmpenhos(el){
     status('Lendo '+f.name+'…');input.disabled=true;
     try{
       const linhas=await extrairLinhasDaFolha(await f.arrayBuffer());
-      if(tipo==='consolidado'){
+      if(tipo==='automatico'||tipo==='consolidado'){
         const analisado=analisarResumoConsolidado(linhas,{nome:f.name});
-        if(!analisado.quantidade)throw Error('Nenhuma lotação legível encontrada no Resumo de Verbas.');
+        if(!analisado.quantidade)throw Error('Nenhum Resumo de Verbas legível neste PDF. A folha nominal isolada não traz os totais orçamentários por lotação; envie o PDF de Resumo de Verbas.');
         const comp=analisado.arquivos.find(a=>a.competencia)?.competencia;
-        if(comp&&comp!==competencia)throw Error('Competência do documento ('+comp+') diferente da selecionada ('+competencia+').');
-        // Cada grupo substitui a versão anterior; nunca duplica o mesmo lote.
+        if(comp&&comp!==competencia){
+          if(Object.values(arquivos).some(x=>x?.registros?.length))
+            throw Error('O PDF é de '+comp+' e o controle aberto é '+competencia+'. Altere a competência antes de importar para evitar misturar meses.');
+          competencia=comp;$('#fe-comp').value=comp;
+          status('Competência identificada automaticamente no PDF: '+comp+'.');
+        }
+        // Importação única substitui os grupos anteriores, evitando contagem dupla.
+        if(tipo==='automatico')arquivos={};
         for(const a of analisado.arquivos)arquivos[a.tipo]=a;
         nomeConsolidado=f.name;alertas=[...analisado.avisos];
+        $('#fe-nome-automatico').textContent=f.name+' · '+analisado.quantidade+' lançamentos identificados';
+        // Se o mesmo PDF também contém folha nominal, identifica as servidoras
+        // sem exigir novo upload. Se não contém, sinaliza a pendência sem inventar INSS.
+        if(tipo==='automatico'&&linhas.some(x=>/\b\d{5,8}\s*\/\s*\d+\s+.+/.test(x.texto||''))){
+          const identificadas=sugerirMaternidadesDaFolha(linhas);
+          if(identificadas.achados.length){
+            pessoas=identificadas.achados;
+            origemIndividual=f.name;
+            alertas.push(...identificadas.avisos);
+          }
+        }
         aprovouMapa=false;aprovouConsignados=false;
         $('#fe-confirmar-mapa').checked=false;$('#fe-confirmar-bancos').checked=false;
-        status('Resumo consolidado: '+analisado.quantidade+' lotações. Grupos: '+Object.entries(analisado.tipos).map(([k,n])=>k+' '+n).join(', ')+'.');
+        status('Folha gerada a partir de '+f.name+': '+analisado.quantidade+' empenhos por lotação, mais adiantamentos identificados. Ordem original preservada. Informe ficha e fonte.');
       } else if(tipo==='nominal'){
         const candidatos=sugerirMaternidadesDaFolha(linhas);
         const matriculasImportadas=new Set(candidatos.achados.map(c=>c.matricula));
