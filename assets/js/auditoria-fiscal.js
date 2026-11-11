@@ -57,8 +57,8 @@ export function auditoriaNota({doc={},cadastro=null,resultado=null,contexto={},c
   }
   if (!contexto.tomadorConfirmado) adicionar('tomador','Tomador da nota','Confirme que a nota foi emitida em nome da Prefeitura Municipal de Frei Inocêncio/MG, CNPJ do órgão conforme cadastro oficial.');
   if (!contexto.autenticidadeConfirmada) adicionar('autenticidade','Autenticidade e autorização','Confirme no portal emissor que a nota está autorizada, não cancelada nem substituída.');
-  if (!contexto.vinculoEmpenho) adicionar('empenho','Vínculo com empenho/contrato','Informe e confira a nota contra empenho, contrato/ordem de fornecimento e saldo contratual.');
-  if (!contexto.atestoConfirmado) adicionar('atesto','Atesto do fornecimento ou serviço','Verifique o recebimento efetivo e o atesto da fiscalização responsável.');
+  if (!contexto.vinculoEmpenho || !literal(doc.numeroEmpenho)) adicionar('empenho','Vínculo com empenho/contrato','Informe o número do empenho/contrato e confira valores e saldo contratual.');
+  if (!contexto.atestoConfirmado || !literal(doc.referenciaAtesto)) adicionar('atesto','Atesto do fornecimento ou serviço','Registre a referência ao atesto/recebimento efetivo e confira a assinatura do fiscal responsável.');
   if (resultado?.simples==null && !contexto.regimeConfirmado) adicionar('simples','Regime tributário na data da emissão','Confirme Simples Nacional/MEI em consulta oficial ou com declaração válida.');
   if (ehServico) {
     if (!literal(doc.codigoServico)) adicionar('codigo','Código do serviço','Informe o código de tributação conforme a NFS-e e confira com a descrição.');
