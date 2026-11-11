@@ -22,7 +22,7 @@ const aval={simples:false,natureza:{servico:true,inss:false},problemas:[]};
 const catalogo={ultimaExecucao:'2026-11-11T07:00:00Z',fontes:[{
  id:'lei_966_2023',estado:'monitorado',hashObservado:'ABC',hashReferencia:'ABC',ultimaConsulta:'2026-11-11T07:00:00Z'
 }]};
-const base={...nota,servico:true,localPrestacao:'3126901',incidencia:'3126901',
+const base={...nota,servico:true,numeroEmpenho:'1234/2026',referenciaAtesto:'Atesto assinado no processo 123/2026',localPrestacao:'3126901',incidencia:'3126901',
  codigoServico:'17.01',descricaoServico:'Assessoria',valor:1000};
 const c={originalConferido:true,tomadorConfirmado:true,autenticidadeConfirmada:true,naturezaConfirmada:true,
  regimeConfirmado:true,localConfirmado:true,legislacaoIssConfirmada:true,baseEspecialAnalisada:true,
