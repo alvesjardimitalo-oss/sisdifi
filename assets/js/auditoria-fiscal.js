@@ -23,19 +23,27 @@ export function codigoExcecaoISS(codigo) {
 }
 export function monitorFiscalSituacao(catalogo, agora='2026-11-11', aprovacoes={}) {
   const fontes = (Array.isArray(catalogo?.fontes) ? catalogo.fontes : []).map(f => {
-    const aprovado = aprovacoes?.[f.id];
-    return aprovado?.hash && aprovado.hash === f.hashObservado && f.estado === 'mudanca_detectada'
-      ? {...f,estado:'revisao_registrada',aprovacao:aprovado} : f;
+    const aprovado = aprovacoes?.[f.id] || {};
+    const aprovadoHash = !!(aprovado.hash && aprovado.hash === f.hashObservado);
+    const validadeManual = aprovado.verificacaoManualEm
+      ? Math.floor((Date.parse(agora+'T12:00:00Z')-Date.parse(String(aprovado.verificacaoManualEm).slice(0,10)+'T12:00:00Z'))/86400000)
+      : null;
+    if (f.estado==='erro' && validadeManual!==null && validadeManual>=0 && validadeManual<=7)
+      return {...f,estado:'verificacao_manual',aprovacao:aprovado};
+    if ((f.estado==='mudanca_detectada' || f.consultaIntermediada) && aprovadoHash)
+      return {...f,estado:'revisao_registrada',aprovacao:aprovado};
+    if (f.consultaIntermediada && f.estado==='monitorado')
+      return {...f,estado:'consulta_intermediada'};
+    return f;
   });
   const verificadas=fontes.filter(f=>f.estado==='monitorado');
   const pendentes=fontes.filter(f=>f.estado==='mudanca_detectada');
-  const indisponiveis=fontes.filter(f=>f.estado==='erro');
+  const indisponiveis=fontes.filter(f=>['erro','consulta_intermediada'].includes(f.estado));
   const ultimo = /^\d{4}-\d{2}-\d{2}/.test(catalogo?.ultimaExecucao||'') ? catalogo.ultimaExecucao.slice(0,10) : '';
   const dias = ultimo ? Math.max(0,Math.floor((Date.parse(agora+'T12:00:00Z')-Date.parse(ultimo+'T12:00:00Z'))/86400000)) : null;
   return {fontes,verificadas,pendentes,indisponiveis,ultimo,dias,
     recente:dias!==null && dias<=7,
     aplicacaoAutomatica:false,
-    // Mudanças ou ausência de verificação exigem análise técnica antes de qualquer liberação.
     requerRevisao:!fontes.length || dias===null || dias>7 || pendentes.length>0 || indisponiveis.length>0};
 }
 export function auditoriaNota({doc={},cadastro=null,resultado=null,contexto={},catalogo=null,aprovacoes={},hoje=new Date().toISOString().slice(0,10)}={}) {
