@@ -94,3 +94,19 @@ export function fonteCompativel(informada,permitidas=[]){
  const p=prefixo(informada);
  return !!p&&permitidas.some(f=>prefixo(f)===p);
 }
+
+/**
+ * Classificação de pessoal conforme o elemento da despesa da LOA.
+ * Os textos são exibidos como apoio; a ficha e a fonte do orçamento
+ * continuam determinantes, não o nome do vínculo isoladamente.
+ */
+export function classificacaoPessoal(naturezas=[]){
+ const codigo=s=>normalizar(s).replace(/\s/g,'');
+ const entradas=[...new Set((naturezas||[]).map(codigo))];
+ const contratado=entradas.some(x=>/3\.1\.90\.04|CONTRATA[CÇ][AÃ]O(?:POR)?TEMPODETERMINADO/.test(x));
+ const vencimentos=entradas.some(x=>/3\.1\.90\.11|VENCIMENTOSEVANT/.test(x));
+ if(contratado&&vencimentos)return {codigo:'',titulo:'Classificação a conferir',conflito:true};
+ if(contratado)return {codigo:'3.1.90.04.00',titulo:'Pessoal Contratado — Contratação por Tempo Determinado',conflito:false};
+ if(vencimentos)return {codigo:'3.1.90.11.00',titulo:'Vencimentos e Vantagens Fixas — Pessoal Civil',conflito:false};
+ return {codigo:'',titulo:'Não identificada na ficha',conflito:false};
+}
