@@ -113,6 +113,46 @@ assert.ok(incorreto.avisos.some(x=>x.includes('soma das rubricas')));
 const bloqueado=prepararEmpenhos([incorreto],5000,{'principal|002.002.204.00002':{ficha:'1',fonte:'1500',conta:'1'}},{});
 assert.ok(bloqueado.pendentes.some(x=>x.problemas.some(p=>p.includes('Composição'))));
 
+// Folha extra do dia 10: incentivo da enfermagem pode vir fora do bruto do empenho.
+// A soma depende de confirmação da Contabilidade para não contar o incentivo duas vezes.
+const folhaExtra=analisarResumoVerbas([
+  'RESUMO DE VERBAS','TIPO CÁLCULO: 03-FOLHA EXTRA','REFERENCIA: SETEMBRO/2026',
+  'LOTAÇÃO...: 002.005.250.00002','PREF. MUNIC. DE FREI INOCENCIO',
+  'HOSPITAL MUNICIPAL','PESSOAL CONTRATADO',
+  'CLASSIFICAÇÃO CONTÁBIL: 0 - FIXA',
+  '100 DIFERENCA SALARIAL 500,00',
+  'CLASSIFICAÇÃO CONTÁBIL: 2 - OUTRAS',
+  '344 COMP FED.PIS SAL ENFERMAGEM 1.500,00',
+  'VALOR BRUTO DO EMPENHO.............: 500,00',
+  'VALOR DO DESCONTO NA LIQUIDAÇÃO....: 0,00',
+  'VALOR LIQUIDO DO EMPENHO...........: 500,00',
+  'COMP FED.PIS SAL ENFERMAGEM........: 1.500,00'
+],{tipo:'extra',nome:'extra-dia10.pdf'});
+assert.equal(folhaExtra.avisos.length,0,folhaExtra.avisos.join(' | '));
+assert.equal(folhaExtra.registros[0].valores.enfermagem,150000);
+const mapaExtra={'extra|002.005.250.00002':{ficha:'100',fonte:'1605',conta:'1'}};
+const semDecisao=prepararEmpenhos([folhaExtra],7000,mapaExtra,{});
+assert.equal(semDecisao.empenhos[0].bruto,50000);
+assert.ok(semDecisao.pendentes[0].problemas.some(x=>x.includes('incentivo federal')));
+const jaIncluido=prepararEmpenhos([folhaExtra],7000,{
+  'extra|002.005.250.00002':{...mapaExtra['extra|002.005.250.00002'],incentivoNoBruto:'sim'}
+},{});
+assert.equal(jaIncluido.empenhos[0].bruto,50000);
+assert.equal(jaIncluido.empenhos[0].incentivo,150000);
+assert.equal(jaIncluido.empenhos[0].liquido,50000);
+const naoIncluido=prepararEmpenhos([folhaExtra],7000,{
+  'extra|002.005.250.00002':{...mapaExtra['extra|002.005.250.00002'],incentivoNoBruto:'nao'}
+},{});
+assert.equal(naoIncluido.empenhos[0].bruto,200000);
+assert.equal(naoIncluido.empenhos[0].liquido,200000);
+assert.equal(naoIncluido.empenhos[0].composicao.INSS,0);
+assert.equal(naoIncluido.empenhos[0].descontoRH,0);
+assert.equal(naoIncluido.pendentes.length,0);
+const excelExtra=new TextDecoder().decode(new Uint8Array(await gerarPlanilhaFolha(naoIncluido,{competencia:'2026-09'}).arrayBuffer()));
+assert.match(excelExtra,/Folha extra/);
+assert.match(excelExtra,/Incentivo federal enfermagem/);
+assert.match(excelExtra,/INSS da folha extra/);
+
 const pessoa=sugerirMaternidadesDaFolha([
 'LOTAÇÃO:',
 '002.004.215.00001 - FUNDEB 70%',
