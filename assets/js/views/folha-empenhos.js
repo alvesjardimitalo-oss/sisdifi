@@ -15,7 +15,7 @@ function baixar(nome,blob){
   const url=URL.createObjectURL(blob),a=document.createElement('a');
   a.href=url;a.download=nome;a.click();setTimeout(()=>URL.revokeObjectURL(url),2500);
 }
-function csv(linhas){return '\ufeff'+linhas.map(l=>l.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(';')).join('\r\n');}
+function csv(linhas){return '\ufeff'+linhas.map(l=>l.map(v=>'"'+String(v??'').replace(/^[=+@-]/,"'function csv(linhas){return '\ufeff'+linhas.map(l=>l.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(';')).join('\r\n');}").replace(/"/g,'""')+'"').join(';')).join('\r\n');}
 function parseCSV(texto) {
   const linhas=[],campos=[];let atual='',aspas=false;
   for(let i=0;i<texto.length;i++){
@@ -33,7 +33,7 @@ export function telaFolhaEmpenhos(el){
   const uid=estado.sessao?.uid;
   let competencia=new Date().getFullYear()+'-'+String(new Date().getMonth()+1).padStart(2,'0');
   let primeiro=5000,arquivos={},pessoas=[],mapa={},aprovouMapa=false,aprovouConsignados=false;
-  let minutas=[],alertas=[],origemIndividual='',filtro='todos',carregando=false,ativa=true;
+  let minutas=[],alertas=[],origemIndividual='',filtro='todos',carregando=false,ativa=true,filaDeSalvamento=Promise.resolve();
   const $=sel=>el.querySelector(sel);
   const estilo='<style>'+
     '.fe{max-width:1350px;margin:0 auto;color:#233e58}.fe h1{color:#174366;font-size:1.55rem;margin:0 0 8px}.fe h2{font-size:1.12rem;color:#174366;margin:0 0 12px}'+
@@ -89,12 +89,16 @@ export function telaFolhaEmpenhos(el){
     const maternidade=consolidarMaternidade(pessoas,[arquivos.principal]);
     return {maternidade,previsao:prepararEmpenhos(arquivosLista(),primeiro,mapa,maternidade.ajustes)};
   };
-  async function persistir(){
-    if(!uid||!ativa||carregando)return;
-    try{
-      await salvarRegistroFolha(uid,competencia,{primeiro,arquivos,pessoas,aprovouMapa,aprovouConsignados,origemIndividual});
-      await salvarRegistroFolha(uid,'mapa-lotacoes',mapa);
-    }catch(e){status('Erro ao salvar localmente: '+(e.message||e));}
+  function persistir(){
+    if(!uid||!ativa||carregando)return Promise.resolve();
+    const compAtual=competencia;
+    const mensal=structuredClone({primeiro,arquivos,pessoas,aprovouMapa,aprovouConsignados,origemIndividual});
+    const mapaAtual=structuredClone(mapa);
+    filaDeSalvamento=filaDeSalvamento.catch(()=>{}).then(async()=>{
+      await salvarRegistroFolha(uid,compAtual,mensal);
+      await salvarRegistroFolha(uid,'mapa-lotacoes',mapaAtual);
+    }).catch(e=>{status('Erro ao salvar localmente: '+(e.message||e));});
+    return filaDeSalvamento;
   }
   async function carregar(){
     const alvo=competencia;carregando=true;status('Carregando dados de '+alvo+'…');
@@ -177,10 +181,12 @@ export function telaFolhaEmpenhos(el){
       (!minutas.length?'<p class="fe-alert">Sem minutas carregadas. Consulte a competência correspondente.</p>':'')+
       '<p class="fe-muted">A igualdade do total por banco não prova que cada guia está vinculada à lotação correta.</p>';
     const registros=p.empenhos.filter(e=>filtro==='todos'||filtro==='pendentes'&&e.problemas.length||e.tipo===filtro);
-    $('#fe-tabela').innerHTML='<table><thead><tr><th>Empenho</th><th>Grupo</th><th>Secretaria / vínculo</th><th>Lotação</th><th>Ficha</th><th>Fonte</th><th>Conta</th><th class="fe-money">Bruto</th><th class="fe-money">Desconto RH</th><th class="fe-money">INSS extra</th><th class="fe-money">Líquido</th><th>Pendências</th></tr></thead><tbody>'+
+    $('#fe-tabela').innerHTML='<table><thead><tr><th>Empenho</th><th>Grupo</th><th>Secretaria</th><th>Vínculo</th><th>Lotação</th><th>Ficha</th><th>Fonte</th><th>Conta</th><th class="fe-money">Bruto</th><th class="fe-money">Desconto RH</th><th class="fe-money">INSS extra</th><th class="fe-money">Líquido</th><th>Pendências</th></tr></thead><tbody>'+
       registros.map(r=>{
         const m=mapa[r.id]||mapa[r.lotacao]||{};
-        return '<tr><td><strong>'+r.empenho+'</strong></td><td>'+esc(tipos[r.tipo])+'</td><td>'+esc(r.secretaria||'Não identificada')+'<br><small>'+esc(r.vinculo)+'</small></td>'+
+        return '<tr><td><strong>'+r.empenho+'</strong></td><td>'+esc(tipos[r.tipo])+'</td>'+
+          '<td><input style="width:170px" data-ref="'+esc(r.id)+'" data-campo="secretaria" value="'+esc(m.secretaria||r.secretaria||'')+'"></td>'+
+          '<td><input style="width:115px" data-ref="'+esc(r.id)+'" data-campo="vinculo" value="'+esc(m.vinculo||r.vinculo||'')+'"></td>'+
         '<td>'+esc(r.lotacao)+'</td>'+
         ['ficha','fonte','conta'].map(col=>'<td><input data-ref="'+esc(r.id)+'" data-campo="'+col+'" value="'+esc(m[col]||'')+'"></td>').join('')+
         '<td class="fe-money">'+dinheiroFolha(r.bruto||0)+'</td><td class="fe-money">'+dinheiroFolha(r.descontoRH||0)+'</td>'+
@@ -258,7 +264,9 @@ export function telaFolhaEmpenhos(el){
         const lot=String(r[ind('lotacao')]||'').trim(),tipo=ind('tipo')<0?'principal':String(r[ind('tipo')]||'principal').trim();
         if(!lot)continue;
         mapa[tipo+'|'+lot]={ficha:String(r[ind('ficha')]||'').trim(),
-          fonte:String(r[ind('fonte')]||'').trim(),conta:String(r[ind('conta')]||'').trim()};
+          fonte:String(r[ind('fonte')]||'').trim(),conta:String(r[ind('conta')]||'').trim(),
+          secretaria:ind('secretaria')<0?'':String(r[ind('secretaria')]||'').trim(),
+          vinculo:ind('vinculo')<0?'':String(r[ind('vinculo')]||'').trim()};
         n++;
       }
       aprovouMapa=false;$('#fe-confirmar-mapa').checked=false;await persistir();render();
