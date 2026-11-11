@@ -90,31 +90,123 @@ export function telaConsignacoes(el) {
       ', referente a '+g.destino+', fonte '+g.fonteCompleta+', conforme minutas de arrecadação.';
   }
   function imprimirMemoriaOP(grupos, detalhado) {
-    if (!$('#mi-revisado').checked) {status('Confirme primeiro que revisou os documentos e os valores.');return;}
+    if (!$('#mi-revisado').checked) {
+      status('Confirme que revisou os documentos antes de imprimir.');
+      return;
+    }
     if (!grupos.length) return;
-    const c=conferenciaMensal(arquivos,esperados), w=window.open('','_blank');
-    if(!w){status('Permita a janela de impressão do navegador.');return;}
-    w.opener=null;
-    const cabecalho='<h1>SISDIFI · Memória de cálculo para OP extraorçamentária</h1>'+
-      '<p><strong>Competência da folha:</strong> '+esc(rotuloCompetencia(competencia))+
-      ' · <strong>Emissão da memória:</strong> '+new Date().toLocaleDateString('pt-BR')+'</p>';
-    const alerta='<p class="alerta"><strong>'+ (c.conferido?'Conferência mensal com valores esperados coincidentes.':'Conferência mensal pendente ou incompleta.')+
-      '</strong> Este documento apenas subsidia o lançamento. Não é uma ordem de pagamento emitida.</p>';
-    const linhas=grupos.map(g=>{
-      const guias=detalhado?'<table><thead><tr><th>Guia / empenho</th><th>Fonte completa</th><th>Data da arrecadação</th><th class="valor">Valor</th></tr></thead><tbody>'+
-        g.registros.map(r=>'<tr><td>'+esc((r.tipo||'Guia')+' '+r.numero)+'</td><td>'+esc(r.fonteCompleta)+'</td><td>'+esc(r.data||'')+'</td><td class="valor">'+moeda(r.centavos)+'</td></tr>').join('')+
-        '</tbody></table>':'';
-      return '<section><h2>'+esc(g.destino)+'</h2><p><strong>Fonte:</strong> '+esc(g.fonteCompleta)+
-        (g.fonteNome?' · '+esc(g.fonteNome):'')+'</p><p><strong>Quantidade de guias:</strong> '+g.guias+
-        '</p><h3>Valor para OP: '+moeda(g.total)+'</h3>'+guias+'</section>';
-    }).join('');
-    const total=grupos.reduce((n,g)=>n+g.total,0);
-    w.document.write('<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Memória OP '+esc(competencia)+'</title>'+
-      '<style>body{font:12px Arial,sans-serif;color:#1a2b40;margin:26px}h1{font-size:18px}h2{font-size:15px;margin-bottom:5px}h3{font-size:15px}section{border:1px solid #b7c7d5;margin:13px 0;padding:12px;break-inside:avoid}p{margin:8px 0}.alerta{padding:12px;border:1px solid #d2b375;background:#fff9e9}table{width:100%;border-collapse:collapse;margin-top:10px}td,th{text-align:left;border-bottom:1px solid #ccd3da;padding:6px}th{font-size:11px}.valor{text-align:right;white-space:nowrap}.rodape{margin-top:15px;border-top:2px solid #44566b;padding-top:10px}footer{margin-top:32px;color:#555}@media print{body{margin:10mm}section{break-inside:avoid}}</style></head><body>'+
-      cabecalho+alerta+linhas+'<p class="rodape"><strong>Total da seleção: '+moeda(total)+'</strong></p>'+
-      '<footer>Documento de apoio para preenchimento da OP no sistema contábil. Confirmar banco, fonte, guias e pagamento antes de emitir.</footer></body></html>');
-    w.document.close();w.focus();w.print();
+    const c = conferenciaMensal(arquivos, esperados), w = window.open('', '_blank');
+    if (!w) { status('Permita a abertura da janela para imprimir a memória.'); return; }
+    w.opener = null;
+    const total = grupos.reduce((n,g)=>n+g.total,0);
+    const individual = grupos.length === 1;
+    const g = individual ? grupos[0] : null;
+    // Imagem institucional JÁ incluída no SISDIFI, mesmo domínio do site.
+    const logoUrl = new URL('assets/img/brasao.png', document.baseURI).href;
+    const emissao = new Date().toLocaleDateString('pt-BR');
+    const siglaFonte = f => String(f||'').replace(/\D/g,'').slice(0,4);
+    const titulo = 'MEMÓRIA DE CÁLCULO';
+    const subtitulo = 'OP EXTRAORÇAMENTÁRIA · ' + (individual?'BANCO E FONTE':'RESUMO POR BANCO E FONTE');
+    const quantidade = grupos.reduce((n,x)=>n+x.guias,0);
+    const bancos = [...new Set(grupos.map(x=>x.destino))];
+    const nomeBanco = individual ? g.destino : (bancos.length===1?bancos[0]:'Vários bancos');
+    const situacao = c.conferido ? 'Valores mensais conciliados com os totais esperados' : 'Conferência mensal pendente / incompleta';
+    const css = [
+      '@page{size:A4 portrait;margin:13mm 14mm 13mm 14mm}',
+      '*{box-sizing:border-box}html,body{margin:0;background:#fff;color:#17283d}',
+      'body{font:10.5px/1.45 Arial,Helvetica,sans-serif}',
+      'h1,h2,h3,p{margin:0}strong{font-weight:700}',
+      '.barra{height:4px;background:linear-gradient(90deg,#154e7e 0 74%,#2c8253 74%);margin:12px 0 21px}',
+      '.topo{display:flex;align-items:center;justify-content:space-between;gap:14px}',
+      '.marca{display:flex;gap:13px;align-items:center;min-width:0}',
+      '.brasao{width:64px;height:64px;object-fit:contain;flex-shrink:0}',
+      '.orgao{border-left:2px solid #2a8a59;padding-left:12px}',
+      '.orgao h2{font-size:15px;letter-spacing:.15px;line-height:1.14;color:#143e66}',
+      '.orgao p{font-size:10px;line-height:1.5;color:#536679}',
+      '.sistema{border-left:1px solid #c5d3dd;padding-left:13px;text-align:right;white-space:nowrap}',
+      '.sistema b{font-size:17px;color:#123f67;letter-spacing:1.5px}',
+      '.sistema span{display:block;font-size:9px;color:#596c7d}',
+      '.titulo{text-align:center;margin:0 0 18px}.titulo h1{font-size:21px;letter-spacing:.65px;color:#153f66}',
+      '.titulo p{display:inline-block;margin-top:7px;padding:6px 18px;background:#eaf3ee;color:#226145;font-size:10px;font-weight:700;letter-spacing:.35px;border-bottom:2px solid #2e8859}',
+      '.resumo{display:grid;grid-template-columns:1.2fr 1.1fr .66fr 1.05fr;gap:0;border:1px solid #cddde8;border-radius:7px;overflow:hidden;margin-bottom:16px}',
+      '.resumo .item{padding:10px 11px;background:#f4f8fc;border-right:1px solid #dbe5ed}',
+      '.resumo .item:last-child{border:0;background:#e9f5ec}',
+      '.resumo small{display:block;color:#526879;font-size:9px;letter-spacing:.2px}',
+      '.resumo strong{display:block;font-size:12px;line-height:1.4;margin-top:3px;color:#183a5b}',
+      '.resumo .total strong{font-size:15px;color:#14633b;white-space:nowrap}',
+      '.op-bloco{border:1px solid #cbdbe6;border-radius:7px;overflow:hidden;margin:0 0 14px}',
+      '.op-cab{display:flex;align-items:center;justify-content:space-between;background:#e9f1f8;border-bottom:1px solid #cbdbe6;padding:11px 13px;gap:12px}',
+      '.op-cab .rotulo{font-size:9px;color:#49647e;text-transform:uppercase;font-weight:700;letter-spacing:.45px}',
+      '.op-cab h2{font-size:15px;color:#17486f;margin:2px 0}',
+      '.op-cab p{color:#506579;font-size:10px}',
+      '.op-cab .valor{text-align:right;white-space:nowrap}',
+      '.op-cab .valor strong{font-size:19px;color:#123e64}',
+      '.mi-tab{width:100%;border-collapse:collapse;table-layout:auto}',
+      '.mi-tab th{background:#f4f7fa;text-align:left;font-size:9px;color:#3c5971;text-transform:uppercase;letter-spacing:.22px}',
+      '.mi-tab th,.mi-tab td{padding:7px 10px;border-bottom:1px solid #e1e8ee}',
+      '.mi-tab tbody tr:nth-child(even){background:#f9fbfd}',
+      '.mi-tab tbody tr:last-child td{border-bottom:0}',
+      '.mi-tab td.valor,.mi-tab th.valor{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}',
+      '.mi-tab td.cod{white-space:nowrap;font-weight:600}',
+      '.mi-tab tfoot td{font-weight:700;color:#17486f;background:#eef5fa;border-top:1px solid #cbdbe6}',
+      '.quadro-total{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#eaf5ec;border:1px solid #a6ccb0;border-radius:7px;padding:11px 14px;color:#1b5635;margin-top:14px}',
+      '.quadro-total span{font-size:11px;font-weight:700}.quadro-total strong{font-size:18px;white-space:nowrap}',
+      '.situacao{border-left:3px solid '+(c.conferido?'#34845c':'#c89544')+';padding:8px 11px;background:'+(c.conferido?'#f0f7f2':'#fff9ed')+';color:#435568;margin:14px 0;font-size:10px}',
+      '.nota{margin-top:16px;color:#4a5a6b;font-size:9px;line-height:1.55}',
+      '.assinaturas{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;margin-top:40px;text-align:center;color:#43546a;font-size:9px}',
+      '.assinaturas span{display:block;border-top:1px solid #6d8396;padding-top:5px}',
+      '.rodape{border-top:1px solid #ccdae5;margin-top:23px;padding-top:8px;display:flex;justify-content:space-between;gap:12px;color:#7a8792;font-size:8px}',
+      'section,.op-bloco,.quadro-total,.assinaturas{break-inside:avoid;page-break-inside:avoid}',
+      '@media print{*{-webkit-print-color-adjust:exact;print-color-adjust:exact}body{margin:0}thead{display:table-header-group}tr{break-inside:avoid}}'
+    ].join('');
+    const tabelaIndividual = g => {
+      const linhas = g.registros.map(r => '<tr><td class="cod">'+esc((r.tipo||'Guia')+' '+r.numero)+'</td><td>'+esc(r.data||'—')+
+        '</td><td>'+esc(r.arquivo||'—')+'</td><td class="valor">'+moeda(r.centavos)+'</td></tr>').join('');
+      return '<table class="mi-tab"><thead><tr><th>Guia / empenho</th><th>Arrecadação</th><th>Documento de origem</th><th class="valor">Valor</th></tr></thead>'+
+        '<tbody>'+linhas+'</tbody><tfoot><tr><td colspan="3">TOTAL DA FONTE '+esc(g.fonteCompleta)+'</td><td class="valor">'+moeda(g.total)+'</td></tr></tfoot></table>';
+    };
+    const memoriaIndividual = g =>
+      '<section class="op-bloco"><div class="op-cab"><div><span class="rotulo">Identificação da OP</span><h2>'+esc(g.destino)+' · Fonte '+esc(siglaFonte(g.fonteCompleta))+
+      '</h2><p>Fonte completa: '+esc(g.fonteCompleta)+' · '+esc(g.fonteNome||'Fonte de recursos')+
+      ' · '+g.guias+' guia(s)</p></div><div class="valor"><span class="rotulo">Valor da OP</span><br><strong>'+moeda(g.total)+
+      '</strong></div></div>'+(detalhado?tabelaIndividual(g):'')+'</section>';
+    const memoriaResumo = grupos => '<section class="op-bloco"><div class="op-cab"><div><span class="rotulo">Relação de pagamentos</span><h2>Uma OP por banco e fonte de recurso</h2>'+
+      '<p>'+grupos.length+' OP(s) sugeridas na competência '+esc(rotuloCompetencia(competencia))+'</p></div></div>'+
+      '<table class="mi-tab"><thead><tr><th>Banco / desconto</th><th>Fonte completa</th><th>Guias</th><th class="valor">Valor da OP</th></tr></thead><tbody>'+
+      grupos.map(g=>'<tr><td>'+esc(g.destino)+'</td><td class="cod">'+esc(g.fonteCompleta)+'</td><td>'+g.guias+
+        '</td><td class="valor">'+moeda(g.total)+'</td></tr>').join('')+
+      '</tbody></table></section>';
+    const corpo = individual ? memoriaIndividual(g) : memoriaResumo(grupos);
+    const html = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+
+      '<title>Memória de cálculo · '+esc(competencia)+'</title><style>'+css+'</style></head><body>'+
+      '<header class="topo"><div class="marca"><img id="mi-logo-prefeitura" class="brasao" src="'+esc(logoUrl)+'" alt="Brasão do Município de Frei Inocêncio">'+
+      '<div class="orgao"><h2>PREFEITURA MUNICIPAL DE<br>FREI INOCÊNCIO</h2><p>Estado de Minas Gerais · CNPJ 16.945.990/0001-70<br>Secretaria Municipal da Fazenda · Setor de Contabilidade</p></div></div>'+
+      '<div class="sistema"><b>SISDIFI</b><span>Conferência de consignações</span></div></header><div class="barra"></div>'+
+      '<div class="titulo"><h1>'+titulo+'</h1><p>'+esc(subtitulo)+'</p></div>'+
+      '<div class="resumo"><div class="item"><small>COMPETÊNCIA DA FOLHA</small><strong>'+esc(rotuloCompetencia(competencia))+
+      '</strong></div><div class="item"><small>BANCO / DESCONTO</small><strong>'+esc(nomeBanco)+
+      '</strong></div><div class="item"><small>GUIAS</small><strong>'+quantidade+
+      '</strong></div><div class="item total"><small>TOTAL DA MEMÓRIA</small><strong>'+moeda(total)+'</strong></div></div>'+
+      corpo+'<div class="quadro-total"><span>TOTAL PARA EMISSÃO '+(individual?'DA OP':'DAS OPS')+'</span><strong>'+moeda(total)+'</strong></div>'+
+      '<div class="situacao"><strong>Situação da conferência:</strong> '+esc(situacao)+
+      '. Este impresso apresenta a memória de cálculo; não substitui a OP do sistema contábil.</div>'+
+      '<p class="nota">Documento de apoio à emissão de ordem de pagamento extraorçamentária. Valores apurados das minutas de arrecadação da competência informada. Conferir banco, fonte de recurso, valores e documentos originais antes da emissão.</p>'+
+      '<div class="assinaturas"><span>Responsável pela conferência</span><span>Setor de Contabilidade</span><span>Autorização</span></div>'+
+      '<footer class="rodape"><span>Prefeitura Municipal de Frei Inocêncio · SISDIFI</span><span>Memória emitida em '+esc(emissao)+'</span></footer>'+
+      '</body></html>';
+    w.document.write(html);
+    w.document.close();
+    const imprimir = () => { try { w.focus(); w.print(); } catch (e) { status('Não foi possível abrir a impressão.'); } };
+    const logo = w.document.getElementById('mi-logo-prefeitura');
+    if (logo && !logo.complete) {
+      let disparado=false;
+      const concluir=()=>{if(disparado)return;disparado=true;imprimir();};
+      logo.addEventListener('load',concluir,{once:true});
+      logo.addEventListener('error',concluir,{once:true});
+      setTimeout(concluir,1800);
+    } else setTimeout(imprimir,150);
   }
+
   function alternarModoOP(op) {
     modoOP=op;
     $('#mi-op-conteudo').hidden=!op;
