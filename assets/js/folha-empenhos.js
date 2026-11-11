@@ -4,7 +4,7 @@
 export const MESES_FOLHA=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 export const TIPOS_FOLHA=[{id:'principal',nome:'Folha principal'},{id:'decimo',nome:'Adiantamento de 50% do 13º'},{id:'rescisao',nome:'Rescisões contratuais'}];
 const norma=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/\s+/g,' ').trim();
-const n2=s=>String(s??'').replace(/\D/g,'');
+const numeroSeguro=n=>Number.isSafeInteger(n)&&n>=0;
 export const dinheiroFolha=c=>(c/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 export function centavosFolha(valor) {
   const s=String(valor??'').trim().replace(/^R\$\s*/,'');
