@@ -360,6 +360,14 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
     totalDescontoRH:empenhos.reduce((s,r)=>s+(r.descontoRH||0),0),
     totalDescontoAjustado:empenhos.reduce((s,r)=>s+(r.descontoAjustado||0),0),
     totalLiquido:empenhos.reduce((s,r)=>s+(r.liquido||0),0),
+    totalLiquidoRH:ordenadas.reduce((s,r)=>s+(Number.isSafeInteger(r.valores?.liquido)?r.valores.liquido:0),0),
+    totalLiquidoBase:ordenadas.reduce((s,r)=>s+(
+      Number.isSafeInteger(r.valores?.bruto)&&Number.isSafeInteger(r.valores?.desconto)
+        ?r.valores.bruto-r.valores.desconto:0),0),
+    diferencaTotalRH:ordenadas.reduce((s,r)=>s+(
+      Number.isSafeInteger(r.valores?.bruto)&&Number.isSafeInteger(r.valores?.desconto)
+        &&Number.isSafeInteger(r.valores?.liquido)
+        ?r.valores.bruto-r.valores.desconto-r.valores.liquido:0),0),
     pendentes:empenhos.filter(r=>r.problemas.length)};
 }
 export function conferirConsignadosFolha(empenhos,arquivosMinuta){
