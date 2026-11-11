@@ -20,6 +20,39 @@
   <div id="app"><div class="carregando-tela"><div class="spinner"></div><p>Carregando SISDIFI…</p></div></div>
   <noscript>O SISDIFI precisa de JavaScript habilitado.</noscript>
   <script>window.SISDIFI_ANEXOS_APP_URL = 'https://script.google.com/macros/s/AKfycbx-TjZPQz7ZaVGs1BIyOPJ5ofhdV2RuFSwgRezR69lYRYrUOdWLkT6IjyOdu2OF8oaO/exec';</script>
-  <script type="module" src="assets/js/app.js?v=3.16.1"></script>
+  <script>
+    // Se a rede, o login ou um módulo falhar, nunca deixar o usuário em spinner infinito.
+    (function () {
+      var falha = '';
+      window.addEventListener('error', function (e) {
+        if (e.target && e.target !== window) {
+          var tag = e.target.tagName || '';
+          if (tag === 'SCRIPT') falha = 'Não foi possível carregar um arquivo do sistema.';
+        } else if (e.error) {
+          falha = 'Falha de inicialização: ' + String(e.error.message || 'erro inesperado');
+        }
+      }, true);
+      window.addEventListener('unhandledrejection', function (e) {
+        if (e.reason) falha = 'Falha na comunicação ou no carregamento: ' + String(e.reason.message || 'erro inesperado');
+      });
+      setTimeout(function () {
+        var raiz = document.getElementById('app');
+        if (!raiz || !raiz.querySelector('.carregando-tela')) return;
+        raiz.innerHTML = '<div class="login-fundo"><div class="login-caixa">' +
+          '<h2>SISDIFI — não foi possível concluir o carregamento</h2>' +
+          '<p id="erro-inicializacao"></p>' +
+          '<p>Os dados não foram apagados. Recarregue a página para tentar novamente.</p>' +
+          '<button type="button" id="recarregar-sisdifi" class="btn btn-bloco">Recarregar SISDIFI</button>' +
+          '</div></div>';
+        document.getElementById('erro-inicializacao').textContent = falha || 'O carregamento demorou mais do que o esperado.';
+        document.getElementById('recarregar-sisdifi').onclick = function () {
+          var url = new URL(location.href);
+          url.searchParams.set('atualizar', Date.now().toString());
+          location.replace(url.href);
+        };
+      }, 18000);
+    }());
+  </script>
+  <script type="module" src="assets/js/app.js?v=3.16.2"></script>
 </body>
 </html>
