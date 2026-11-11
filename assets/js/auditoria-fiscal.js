@@ -30,7 +30,8 @@ export function monitorFiscalSituacao(catalogo, agora='2026-11-11', aprovacoes={
       : null;
     if (f.estado==='erro' && validadeManual!==null && validadeManual>=0 && validadeManual<=7)
       return {...f,estado:'verificacao_manual',aprovacao:aprovado};
-    if ((f.estado==='mudanca_detectada' || f.consultaIntermediada) && aprovadoHash)
+    if ((f.estado==='mudanca_detectada' || f.consultaIntermediada) && aprovadoHash
+        && (!f.consultaIntermediada || (validadeManual!==null && validadeManual>=0 && validadeManual<=7)))
       return {...f,estado:'revisao_registrada',aprovacao:aprovado};
     if (f.consultaIntermediada && f.estado==='monitorado')
       return {...f,estado:'consulta_intermediada'};
