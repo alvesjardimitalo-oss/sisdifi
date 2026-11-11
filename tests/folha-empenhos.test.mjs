@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
+import {readFileSync,writeFileSync} from 'node:fs';
 import {
   analisarResumoVerbas,prepararEmpenhos,conferirConsignadosFolha,
   centavosFolha,dinheiroFolha,competenciaNoResumo
@@ -175,6 +175,7 @@ assert.equal(troca.find(x=>x.banco==='Caixa').diferenca,-588);
 assert.equal(troca.find(x=>x.banco==='Sicoob').diferenca,588);
 const xlsx=gerarPlanilhaFolha(prev,{competencia:'2026-09',status:'RASCUNHO',conciliacao:conc});
 const file=new Uint8Array(await xlsx.arrayBuffer());
+writeFileSync('/tmp/sisdifi-folha-teste.xlsx',file);
 assert.deepEqual([...file.slice(0,4)],[0x50,0x4b,0x03,0x04]);
 const texto=new TextDecoder().decode(file);
 assert.match(texto,/sheet1.xml/);
