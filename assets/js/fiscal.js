@@ -704,12 +704,12 @@ export function mensagemFornecedor(r, doc = {}, cadastro = null, orgao = 'Prefei
   const nome = cadastro?.nome || doc.nome || 'fornecedor';
   const nota = [doc.documento || 'nota fiscal', doc.numero ? 'nº ' + doc.numero : ''].filter(Boolean).join(' ');
   const itens = r.problemas.filter(p => p.nivel !== 'info' && !/^Comprove|^Alíquotas de|^Sem parâmetros|^Não foi possível consultar/.test(p.titulo));
-  if (!itens.length) return `Prezados (${nome}),\n\nConferimos a ${nota} (${moeda(r.valor)}) e não encontramos divergências. O pagamento será liquidado pelo valor líquido de ${moeda(r.liquido)}.\n\nAtenciosamente,\nContabilidade — ${orgao}`;
-  const linhas = itens.map((p, i) => `${i + 1}. ${p.titulo}.`);
+  if (!itens.length) return `Prezados (${nome}),\n\nA ${nota} está em pré-conferência fiscal. Não foram encontradas divergências no cálculo preliminar, mas a Contabilidade ainda verificará o documento original, eventuais retenções adicionais e o processo administrativo. Não há, por ora, solicitação de substituição da nota.\n\nAtenciosamente,\nContabilidade — ${orgao}`;
+  const linhas = itens.map((p, i) => `${i + 1}. ${p.titulo}.\nProvidência solicitada: ${p.solucao}`);
   const corretos = [];
   if (r.ir.reter) corretos.push(`IRRF: ${moeda(r.ir.valor)} (${pct(r.ir.aliquota)}${r.natureza.cooperativa ? '' : ' — ' + r.natureza.texto})`);
   if (r.iss.aplica && r.iss.reter && r.iss.valor) corretos.push(`ISSQN: ${pct(r.iss.aliquota)} = ${moeda(r.iss.valor)}, retido pelo tomador, local da prestação/incidência ${MUNICIPIO.nome}/${MUNICIPIO.uf}`);
   return `Prezados (${nome}),\n\nNa conferência da ${nota}, no valor de ${moeda(r.valor)}, encontramos:\n${linhas.join('\n')}\n\n` +
-    (corretos.length ? `Valores corretos para a liquidação:\n- ${corretos.join('\n- ')}\n- Valor líquido a pagar: ${moeda(r.liquido)}\n\n` : '') +
-    `Solicitamos a correção (substituição da nota) para darmos continuidade à liquidação. Ficamos à disposição.\n\nAtenciosamente,\nContabilidade — ${orgao}`;
+    (corretos.length ? `Valores preliminares para conferência da Contabilidade (não substituir orientação tributária final):\n- ${corretos.join('\n- ')}\n- Valor líquido a pagar: ${moeda(r.liquido)}\n\n` : '') +
+    `Solicitamos a providência correspondente, observando se o documento admite correção, cancelamento ou substituição conforme a legislação e o emissor. A análise final depende do setor de Tributos, Contabilidade e dos documentos do processo. Ficamos à disposição.\n\nAtenciosamente,\nContabilidade — ${orgao}`;
 }
