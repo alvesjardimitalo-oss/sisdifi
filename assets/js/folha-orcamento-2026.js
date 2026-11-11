@@ -84,3 +84,13 @@ export function alertaNaturezaFicha(vinculo,naturezas=[]){
  if(/EFETIV|COMISSIONAD|AGENTE POLITIC/.test(t)&&e04&&!e11)return 'Ficha de contratação temporária (3.1.90.04) em vínculo não temporário: confira a classificação.';
  return '';
 }
+
+export function fonteCompativel(informada,permitidas=[]){
+ const prefixo=x=>{
+   let s=String(x||'').replace(/\D/g,'');
+   if(s.length===3)s='1'+s;
+   return s.slice(0,4);
+ };
+ const p=prefixo(informada);
+ return !!p&&permitidas.some(f=>prefixo(f)===p);
+}
