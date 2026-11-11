@@ -19,3 +19,11 @@ Testes: `node tests/minuta-pdf.test.mjs` e `node tests/consignacoes-mensal.test.
 
 ## Minuta Caixa com receita 21 (Frei Inocêncio)
 O PDF analítico pode trazer somente a sequência \`00021 2.1.3.01.00.00 21\` em cada guia, sem nome Caixa. A especificação 21 **no contexto exato da receita 2.1.3.01.00.00** é mapeada à Caixa Econômica Federal; não inferir Caixa da ficha 00021 isoladamente nem de números 21 fora dessa sequência. A descrição literal de outros bancos tem prioridade sobre o mapeamento. Os documentos previamente importados são reclassificados na abertura do mês, sem precisar reenviar o PDF e sem alterar valores/fontes. Avisos de classificação já sanados deixam de ser pendentes; o histórico original permanece armazenado. Novos layouts sem essa sequência continuam exigindo revisão humana.
+
+
+## Modo OP extraorçamentária por banco e fonte
+Na competência selecionada, o painel **Resumo para OP** vem antes do detalhamento extenso. Cada linha representa uma única combinação de destino (Caixa, Sicoob, Bradesco, pensão) com **fonte completa** (1.500.000.0000, 1.540.000.0000 etc). Mostra a quantidade de guias distintas e o total calculado em centavos. Duas fontes completas diferentes nunca são mescladas só porque começam com os mesmos quatro dígitos. Um arquivo com várias guias na mesma fonte gera uma única linha de OP. Lançamentos sem banco ou fonte identificados não entram no resumo e aparecem como pendências.
+
+Use o filtro de banco para limitar as OPs visíveis. **Ver guias** revela a tela detalhada já existente e aplica o filtro de banco e fonte. **Copiar dados** copia o banco, fonte, valor e histórico sugerido para preenchimento manual. **Imprimir OP** gera uma *memória de cálculo* A4 da linha banco+fonte, com o rol das guias. **Imprimir resumo exibido** imprime a relação das combinações filtradas. Ambas as impressões dependem da confirmação de revisão já existente. O documento não tem número de OP e não registra pagamento, não substitui a emissão no sistema contábil. Se o comparativo mensal não estiver conferido, o impresso sinaliza expressamente a pendência; o checkbox de revisão não certifica sozinho a conciliação.
+
+O botão **Guias detalhadas** alterna para a visualização original; **Resumo para OP** volta ao painel compacto, sem perder filtros nem arquivos. A competência continua sendo a da folha, não a data da arrecadação.
