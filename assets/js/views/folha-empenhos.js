@@ -117,7 +117,12 @@ export function telaFolhaEmpenhos(el){
   const montar=()=>{
     if(!Object.values(arquivos).some(x=>x?.registros?.length))return null;
     const maternidade=consolidarMaternidade(pessoas,[arquivos.principal].filter(Boolean));
-    return {maternidade,previsao:prepararEmpenhos(arquivosLista(),primeiro,mapa,maternidade.ajustes)};
+    // Completa a ação/unidade para fichas previamente salvas, sem remover edições manuais.
+    const mapaConsulta=Object.fromEntries(Object.entries(mapa).map(([chave,m])=>{
+      const ref=localizarFicha(m.ficha);
+      return [chave,{...m,secretaria:m.secretaria||ref?.unidade||'',lotacaoOrcamentaria:m.lotacaoOrcamentaria||ref?.acao||''}];
+    }));
+    return {maternidade,previsao:prepararEmpenhos(arquivosLista(),primeiro,mapaConsulta,maternidade.ajustes)};
   };
   function persistir(){
     if(!uid||!ativa||carregando)return Promise.resolve();
@@ -149,7 +154,7 @@ export function telaFolhaEmpenhos(el){
     // Impede exportar como conferido quando a ficha informada contradiz a natureza orçamentária.
     if(x.previsao.empenhos.some(r=>{
       const ref=localizarFicha(r.ficha);
-      return !!(ref&&alertaNaturezaFicha(r.vinculo,ref.naturezas));
+      return !!(ref&&(alertaNaturezaFicha(r.vinculo,ref.naturezas)||(r.fonte&&ref.fontes.length&&!fonteCompativel(r.fonte,ref.fontes))));
     }))return false;
     const contemBancoOuPensao=x.previsao.empenhos.some(e=>Object.values(e.bancos||{}).some(v=>v>0));
     if((arquivos.principal||contemBancoOuPensao) && (!minutas.length||!aprovouConsignados))return false;
