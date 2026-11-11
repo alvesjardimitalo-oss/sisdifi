@@ -64,12 +64,52 @@ const moeda=/(-?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2})\s*$/;
 const rubrica=/^\s*(\d{2,4})\s+(.+?)\s+(-?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2})\s*$/;
 const resumo=/^\s*(TOTAL BRUTO DE PROVENTOS|TOTAL BRUTO DE DESCONTOS|TOTAL L[IÍ]QUIDO|VALOR BRUTO DO EMPENHO|VALOR DO DESCONTO NA LIQUIDA[CÇ][ÃA]O|VALOR L[IÍ]QUIDO DO EMPENHO|SALARIO FAMILIA|SALARIO MATERNIDADE INSS|COMP FED\.PIS SAL ENFERMAGEM)\.{2,}\s*:\s*([-\d.,]+)\s*$/i;
 const possuiTipo=t=>/TIPO C[AÁ]LCULO|RESUMO DE VERBAS/i.test(t);
+// Códigos e descrições de descontos identificados no Resumo de Verbas.
+// As rubricas de provento (inclusive salário-família, maternidade e diárias)
+// NUNCA são deduções apenas por aparecerem na classificação "2 - OUTRAS".
+export const CATEGORIAS_DESCONTOS=['Caixa','Sicoob','Bradesco','Pensao','INSS','IRRF','Outros'];
+export function categoriaRubricaDesconto(r) {
+  const descricao=norma(r?.descricao||'');
+  if(r.codigo==='201'||/^(I\\.?N\\.?S\\.?S\\.?|INSS)(?:\\s|$)/.test(descricao))return 'INSS';
+  if(r.codigo==='204'||/IMPOSTO DE RENDA|IRRF/.test(descricao))return 'IRRF';
+  if(/EMPRESTIMO/.test(descricao)){
+    if(/CAIXA|\\bCEF\\b/.test(descricao))return 'Caixa';
+    if(/SICOOB/.test(descricao))return 'Sicoob';
+    if(/BRADESCO/.test(descricao))return 'Bradesco';
+  }
+  if(/PENSAO JUDICIAL|PENSAO ALIMENT/.test(descricao))return 'Pensao';
+  return 'Outros';
+}
+// Confere a soma do bloco de rubricas com o desconto total do RH.
+// O RH pode incluir bloco de proventos após os descontos (ex.: diárias),
+// então não é correto usar apenas o último "2 - OUTRAS" ou o código >= 200.
+function selecionarBlocosDeDesconto(blocos,valorRH) {
+  if(!Number.isSafeInteger(valorRH))return [];
+  if(valorRH===0)return [];
+  const candidatos=[];
+  for(let i=0;i<blocos.length;i++){
+    let soma=0;
+    for(let j=i;j<blocos.length;j++){
+      const faixa=blocos.slice(i,j+1).flatMap(b=>b.rubricas);
+      soma+=blocos[j].rubricas.reduce((n,r)=>n+r.valor,0);
+      if(soma!==valorRH)continue;
+      const marcadores=faixa.filter(r=>{
+        const d=norma(r.descricao);
+        return r.codigo==='201'||r.codigo==='204'||/EMPRESTIMO|PENSAO|DESCONTO|INSS|IMPOSTO DE RENDA|IRRF/.test(d);
+      }).length;
+      if(marcadores)candidatos.push({faixa,marcadores,blocos:j-i+1,termino:j});
+    }
+  }
+  candidatos.sort((a,b)=>b.marcadores-a.marcadores||a.blocos-b.blocos||b.termino-a.termino);
+  return candidatos[0]?.faixa||[];
+}
+const possuiTipo=t=>/TIPO C[AÁ]LCULO|RESUMO DE VERBAS/i.test(t);
 export function analisarResumoVerbas(linhas,{tipo='principal',nome=''}={}){
   if(!['principal','decimo','rescisao'].includes(tipo))throw Error('Tipo de folha inválido.');
   const texto=linhas.map(l=>typeof l==='string'?l:l.texto).join('\n');
   if(!possuiTipo(texto))throw Error('O arquivo não parece ser um Resumo de Verbas do RH.');
   const comp=competenciaNoResumo(linhas),avisos=[],dados=[];
-  let grupo=null,secao='',rubricas=[],naHeader=false;
+  let grupo=null,secao='',rubricas=[],blocos=[],blocoAtual=null,naHeader=false;
   const fechar=()=>{
     if(!grupo)return;
     grupo.rubricas=rubricas;
@@ -92,20 +132,25 @@ export function analisarResumoVerbas(linhas,{tipo='principal',nome=''}={}){
       avisos.push('Lotação '+grupo.lotacao+': faltou total bruto/desconto/líquido. Confira páginas de continuação.');
     else if(grupo.valores.bruto-grupo.valores.desconto!==grupo.valores.liquido)
       avisos.push('Lotação '+grupo.lotacao+': bruto menos desconto não corresponde ao líquido informado pelo RH.');
-    grupo.inss=rubricas.filter(r=>/^(I\.?N\.?S\.?S\.?|INSS)$/i.test(r.descricao)||r.codigo==='201').reduce((s,r)=>s+r.valor,0);
-    grupo.bancos={Caixa:0,Sicoob:0,Bradesco:0,Pensao:0};
-    for(const r of rubricas){
-      const d=norma(r.descricao);
-      if(/EMPRESTIMO/.test(d)){
-        if(/CAIXA|\bCEF\b/.test(d))grupo.bancos.Caixa+=r.valor;
-        else if(/SICOOB/.test(d))grupo.bancos.Sicoob+=r.valor;
-        else if(/BRADESCO/.test(d))grupo.bancos.Bradesco+=r.valor;
-      } else if(/PENSAO JUDICIAL|PENSAO ALIMENT/.test(d))grupo.bancos.Pensao+=r.valor;
-    }
+    const subtotal=grupo.valores.desconto??grupo.valores.totalDescontos;
+    const selecionadas=selecionarBlocosDeDesconto(blocos,subtotal);
+    grupo.classificacaoDescontosIdentificada=subtotal===0||selecionadas.length>0;
+    grupo.rubricasDesconto=selecionadas.map(r=>({...r,categoria:categoriaRubricaDesconto(r)}));
+    grupo.composicao=Object.fromEntries(CATEGORIAS_DESCONTOS.map(k=>[k,0]));
+    for(const r of grupo.rubricasDesconto)grupo.composicao[r.categoria]+=r.valor;
+    grupo.composicaoTotal=Object.values(grupo.composicao).reduce((n,v)=>n+v,0);
+    grupo.diferencaComposicao=subtotal==null?null:subtotal-grupo.composicaoTotal;
+    if(subtotal!=null && grupo.diferencaComposicao!==0)
+      avisos.push('Lotação '+grupo.lotacao+': soma das rubricas de desconto ('+
+        dinheiroFolha(grupo.composicaoTotal)+') difere do total do RH ('+
+        dinheiroFolha(subtotal)+'). Não liberar sem conferência.');
+    grupo.inss=grupo.composicao.INSS;
+    grupo.bancos={Caixa:grupo.composicao.Caixa,Sicoob:grupo.composicao.Sicoob,
+      Bradesco:grupo.composicao.Bradesco,Pensao:grupo.composicao.Pensao};
     grupo.secretaria=origemDaLotacao(grupo.caminho.join(' '));
     grupo.vinculo=vinculoDaLotacao(grupo.caminho.at(-1)||'');
     if(!grupo.secretaria)avisos.push('Lotação '+grupo.lotacao+': secretaria não reconhecida; selecionar manualmente.');
-    dados.push(grupo);grupo=null;rubricas=[];secao='';
+    dados.push(grupo);grupo=null;rubricas=[];blocos=[];blocoAtual=null;secao='';
   };
   let primeiraPagina=1,ultimaPagina=1,linhasVistas=0;
   for(const item of linhas){
@@ -120,11 +165,11 @@ export function analisarResumoVerbas(linhas,{tipo='principal',nome=''}={}){
     }
     if(!grupo)continue;
     grupo.paginaFim=pagina;ultimaPagina=pagina;
-    if(/CLASSIFICA[CÇ][ÃA]O CONT[AÁ]BIL:/i.test(l)){secao=l;naHeader=false;continue;}
+    if(/CLASSIFICA[CÇ][ÃA]O CONT[AÁ]BIL:/i.test(l)){secao=l;blocoAtual={secao,rubricas:[]};blocos.push(blocoAtual);naHeader=false;continue;}
     const v=l.match(resumo);
     if(v){grupo.resumos[norma(v[1])]=centavosFolha(v[2]);naHeader=false;continue;}
     const r=l.match(rubrica);
-    if(r){rubricas.push({codigo:r[1],descricao:r[2].trim(),valor:centavosFolha(r[3]),classe:secao});naHeader=false;continue;}
+    if(r){const itemRubrica={codigo:r[1],descricao:r[2].trim(),valor:centavosFolha(r[3]),classe:secao,pagina};rubricas.push(itemRubrica);if(blocoAtual)blocoAtual.rubricas.push(itemRubrica);naHeader=false;continue;}
     if(naHeader && !/^(PREF\. MUNIC\.|PREFEITURA MUNICIPAL|UF:|MUNIC[IÍ]PIO:)/i.test(l)
       && !/^TOTAL\b/i.test(l) && !/^VERBA\b/.test(l) && !/^ENTIDADE\b/.test(l)){
       grupo.caminho.push(l);
@@ -161,6 +206,7 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
     if(!r.secretaria)problemas.push('Classificar secretaria');
     if(!destino.ficha||!destino.fonte||!destino.conta)problemas.push('Informar ficha, fonte e conta bancária');
     if(bruto==null||desconto==null)problemas.push('Total bruto/desconto ilegível');
+    if(!r.classificacaoDescontosIdentificada||r.diferencaComposicao!==0)problemas.push('Composição dos descontos divergente do Resumo de Verbas');
     if(maternidade && !a.confirmado)problemas.push('Conferir servidoras do salário-maternidade e INSS individual');
     if(r.valores.enfermagem)problemas.push('Complementação federal da enfermagem fora do empenho principal: conferir classificação e lançamento próprio');
     if(!numeroSeguro(inssExtra)||inssExtra>r.inss||inssExtra>desconto)
@@ -174,7 +220,9 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
       ficha:String(destino.ficha||''),fonte:String(destino.fonte||''),conta:String(destino.conta||''),
       bruto,descontoRH:desconto,descontoAjustado,liquido,maisInssExtra:inssExtra,
       familia,maternidade,beneficiosOutros:r.valores.enfermagem||0,
-      bancos:r.bancos,inssOriginal:r.inss,arquivo:r.fonteArquivo,pagina:r.paginaInicio,problemas
+      bancos:r.bancos,inssOriginal:r.inss,composicao:r.composicao,
+      rubricasDesconto:r.rubricasDesconto,diferencaComposicao:r.diferencaComposicao,
+      composicaoTotal:r.composicaoTotal,arquivo:r.fonteArquivo,pagina:r.paginaInicio,problemas
     };
   });
   const extras=empenhos.flatMap(r=>{
