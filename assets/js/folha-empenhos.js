@@ -338,6 +338,7 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
       id:r.tipo+'|'+r.lotacao,empenho:Number(primeiro)+i,tipo:r.tipo,lotacao:r.lotacao,
       secretaria:destino.secretaria||r.secretaria,vinculo:destino.vinculo||r.vinculo,
       ficha:String(destino.ficha||''),fonte:String(destino.fonte||''),conta:String(destino.conta||''),
+      lotacaoOrcamentaria:String(destino.lotacaoOrcamentaria||''),origemFicha:String(destino.origemFicha||''),
       bruto,brutoRH,incentivo,enfermagemIncluidaNoBruto:decisao||'',
       descontoRH:desconto,descontoAjustado,liquido,maisInssExtra:inssExtra,
       familia,maternidade,beneficiosOutros:r.valores.enfermagem||0,
