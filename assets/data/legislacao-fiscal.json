@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "municipio": "Prefeitura Municipal de Frei Inocêncio",
+  "codigoIBGE": "3126901",
+  "versaoPolitica": "2026-11-11.1",
+  "ultimaExecucao": null,
+  "explicacao": "Monitor automático das publicações oficiais. Mudança de conteúdo não é mudança de alíquota. Parâmetros tributários exigem validação da Contabilidade/ADM.",
+  "fontes": [
+    {
+      "id": "codigo_tributario_municipal",
+      "titulo": "Código Tributário Municipal (Lei 883/2017)",
+      "tema": "ISS",
+      "url": "https://freiinocencio.mg.gov.br/legislacoes",
+      "estado": "nao_verificado",
+      "hashReferencia": null,
+      "hashObservado": null,
+      "ultimaConsulta": null
+    },
+    {
+      "id": "lei_966_2023",
+      "titulo": "Lei Municipal 966/2023 — base do ISS",
+      "tema": "ISS",
+      "url": "https://freiinocencio.mg.gov.br/arquivo/67d484b2ddc9d.pdf",
+      "estado": "nao_verificado",
+      "hashReferencia": null,
+      "hashObservado": null,
+      "ultimaConsulta": null
+    },
+    {
+      "id": "municipal_publicacoes",
+      "titulo": "Publicações legislativas do Município",
+      "tema": "municipal",
+      "url": "https://camarafreiinocencio.mg.gov.br/legislacoes",
+      "estado": "nao_verificado",
+      "hashReferencia": null,
+      "hashObservado": null,
+      "ultimaConsulta": null
+    },
+    {
+      "id": "receita_normas",
+      "titulo": "Acervo de normas da Receita Federal",
+      "tema": "IRRF",
+      "url": "https://www.gov.br/receitafederal/pt-br/acesso-a-informacao/legislacao/app-normas",
+      "estado": "nao_verificado",
+      "hashReferencia": null,
+      "hashObservado": null,
+      "ultimaConsulta": null
+    },
+    {
+      "id": "reforma_tributaria",
+      "titulo": "Marcos regulatórios da Reforma Tributária",
+      "tema": "CBS/IBS",
+      "url": "https://www.gov.br/receitafederal/pt-br/acesso-a-informacao/acoes-e-programas/programas-e-atividades/reforma-tributaria-do-consumo/legislacao/principais-marcos-regulatorios",
+      "estado": "nao_verificado",
+      "hashReferencia": null,
+      "hashObservado": null,
+      "ultimaConsulta": null
+    },
+    {
+      "id": "reforma_orientacoes",
+      "titulo": "Cronograma de documentos fiscais da RTC",
+      "tema": "CBS/IBS",
+      "url": "https://www.gov.br/receitafederal/pt-br/assuntos/noticias/2026/julho/receita-federal-e-comite-gestor-do-ibs-publicam-o-cronograma-de-implementacao-dos-documentos-fiscais-eletronicos-da-reforma-tributaria-do-consumo",
+      "estado": "nao_verificado",
+      "hashReferencia": null,
+      "hashObservado": null,
+      "ultimaConsulta": null
+    }
+  ]
+}
