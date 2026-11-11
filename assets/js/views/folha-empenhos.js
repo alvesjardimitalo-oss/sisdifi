@@ -9,13 +9,13 @@ import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js';
 import {carregarRegistroFolha,salvarRegistroFolha} from '../folha-empenhos-store.js';
 import {carregarMes} from '../consignacoes-mensal.js?v=3.13.0';
 
-const tipos={principal:'Folha principal',decimo:'Adiantamento de 50% do 13º',rescisao:'Rescisões'};
+const tipos={principal:'Folha principal',extra:'Folha extra · incentivo federal (dia 10)',decimo:'Adiantamento de 50% do 13º',rescisao:'Rescisões'};
 const formato=c=>(Number(c||0)/100).toFixed(2).replace('.',',');
 function baixar(nome,blob){
   const url=URL.createObjectURL(blob),a=document.createElement('a');
   a.href=url;a.download=nome;a.click();setTimeout(()=>URL.revokeObjectURL(url),2500);
 }
-function csv(linhas){return '\ufeff'+linhas.map(l=>l.map(v=>'"'+String(v??'').replace(/^[=+@-]/,"'function csv(linhas){return '\ufeff'+linhas.map(l=>l.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(';')).join('\r\n');}").replace(/"/g,'""')+'"').join(';')).join('\r\n');}
+function csv(linhas){return '\ufeff'+linhas.map(l=>l.map(v=>'"'+String(v??'').replace(/^[=+@-]/,"'$&").replace(/"/g,'""')+'"').join(';')).join('\r\n');}
 function parseCSV(texto) {
   const linhas=[],campos=[];let atual='',aspas=false;
   for(let i=0;i<texto.length;i++){
@@ -60,6 +60,7 @@ export function telaFolhaEmpenhos(el){
     '</div><p id="fe-status" class="fe-muted" role="status" aria-live="polite"></p></section>'+
     '<section class="fe-card"><h2>1 · Arquivos do RH</h2><div class="fe-files">'+
       '<label class="fe-file"><strong>Resumo de Verbas da folha principal *</strong><small>Dados por lotação, rubricas e totais da liquidação.</small><input data-importar="principal" type="file" accept=".pdf"><span id="fe-nome-principal" class="fe-muted">Não enviado</span></label>'+
+      '<label class="fe-file"><strong>Resumo de Verbas · Folha extra do dia 10</strong><small>Incentivo da enfermagem e eventuais diferenças salariais. Informe se o incentivo já compõe o bruto do RH.</small><input data-importar="extra" type="file" accept=".pdf"><span id="fe-nome-extra" class="fe-muted">Não enviado</span></label>'+ 
       '<label class="fe-file"><strong>Resumo do adiantamento de 50% do 13º</strong><small>Opcional, quando houver na competência.</small><input data-importar="decimo" type="file" accept=".pdf"><span id="fe-nome-decimo" class="fe-muted">Não enviado</span></label>'+
       '<label class="fe-file"><strong>Resumo de Verbas das rescisões</strong><small>Opcional, quando houver rescisões.</small><input data-importar="rescisao" type="file" accept=".pdf"><span id="fe-nome-rescisao" class="fe-muted">Não enviado</span></label>'+
       '<label class="fe-file"><strong>Folha principal nominal · salário-maternidade</strong><small>Para identificar matrícula, servidora, rubrica 163 e INSS (201). Confirmação individual obrigatória.</small><input data-importar="nominal" type="file" accept=".pdf"><span id="fe-nome-nominal" class="fe-muted">Não enviado</span></label>'+
@@ -68,6 +69,7 @@ export function telaFolhaEmpenhos(el){
       '<p class="fe-muted">O INSS individual confirmado é retirado do desconto do empenho principal e transferido para a retenção da OP extraorçamentária. A rubrica 229 (prorrogação) não é convertida automaticamente. Se o layout nominal não for reconhecido, preencha manualmente com base no contracheque.</p>'+
       '<div id="fe-pessoas"></div></section>'+
     '<section class="fe-card"><h2>3 · Mapeamento de ficha, fonte e conta</h2>'+
+      '<p class="fe-muted">Na folha extra, se o incentivo federal estiver informado fora do bruto do RH, escolha <strong>Somar ao bruto</strong> na respectiva lotação. Se já estiver incluído, escolha <strong>Já incluído</strong>. Não haverá INSS automático na extra: eventual desconto na folha seguinte será conferido separadamente.</p>'+
       '<p class="fe-muted">O Resumo de Verbas não contém esses dados. Preencha uma vez por lotação e reaproveite na competência seguinte. Se já tiver um mapa por lotação, importe o CSV.</p>'+
       '<div class="fe-actions"><button class="btn btn-sec" id="fe-baixar-mapa" type="button">Baixar modelo CSV</button>'+
       '<label class="btn btn-sec" style="cursor:pointer">Importar mapa CSV <input id="fe-ler-mapa" type="file" accept=".csv,text/csv" style="display:none"></label>'+
@@ -193,7 +195,7 @@ export function telaFolhaEmpenhos(el){
           '<td><input style="width:115px" data-ref="'+esc(r.id)+'" data-campo="vinculo" value="'+esc(m.vinculo||r.vinculo||'')+'"></td>'+
         '<td>'+esc(r.lotacao)+'</td>'+
         ['ficha','fonte','conta'].map(col=>'<td><input data-ref="'+esc(r.id)+'" data-campo="'+col+'" value="'+esc(m[col]||'')+'"></td>').join('')+
-        '<td class="fe-money">'+dinheiroFolha(r.bruto||0)+'</td><td class="fe-money">'+dinheiroFolha(r.descontoRH||0)+'</td>'+
+        '<td class="fe-money">'+dinheiroFolha(r.bruto||0)+(r.tipo==='extra'&&r.incentivo?'<small style="display:block;color:#506d82">Incentivo: '+dinheiroFolha(r.incentivo)+'</small>':'')+'</td><td class="fe-money">'+dinheiroFolha(r.descontoRH||0)+'</td>'+
         '<td class="fe-money">'+dinheiroFolha(r.maisInssExtra)+'</td><td class="fe-money"><strong>'+dinheiroFolha(r.liquido||0)+'</strong></td>'+
         '<td class="fe-status">'+esc(r.problemas.join('; ')||'Pronto para conferir')+'</td></tr>';
       }).join('')+'</tbody></table>';
@@ -229,11 +231,28 @@ export function telaFolhaEmpenhos(el){
       mapa[k]={...(mapa[k]||{}),[campo]:input.value.trim()};
       aprovouMapa=false;$('#fe-confirmar-mapa').checked=false;persistir();render();
     });
-    $('#fe-extras').innerHTML='<details><summary>OPs extraorçamentárias sugeridas ('+p.extras.length+')</summary><div class="fe-scroll"><table>'+
+    const situacoes=p.previsao?.empenhos||p.empenhos;
+    const incentivos=situacoes.filter(r=>r.tipo==='extra'&&r.incentivo>0);
+    const boxIncentivo=incentivos.map(r=>{
+      const decisao=mapa[r.id]?.incentivoNoBruto||'';
+      return '<label style="display:flex;gap:10px;align-items:center;margin:8px 0;flex-wrap:wrap"><strong>Lotação '+esc(r.lotacao)+'</strong> · Incentivo: '+dinheiroFolha(r.incentivo)+
+        ' · Bruto informado pelo RH: '+dinheiroFolha(r.brutoRH||0)+
+        ' <select data-extra-bruto="'+esc(r.id)+'"><option value="">Confirmar tratamento do incentivo</option>'+
+        '<option value="sim" '+(decisao==='sim'?'selected':'')+'>Já incluído no bruto do RH</option>'+
+        '<option value="nao" '+(decisao==='nao'?'selected':'')+'>Somar incentivo ao bruto do RH</option></select></label>';
+    }).join('');
+    $('#fe-extras').innerHTML=(incentivos.length?'<section class="fe-card"><h2>Incentivo federal de enfermagem · folha extra</h2>'+
+      '<p class="fe-muted">Confirme em cada lotação se o bruto do RH já contém o incentivo. A soma é feita somente após a escolha explícita. O desconto previdenciário da folha seguinte não é lançado nesta operação.</p>'+
+      boxIncentivo+'</section>':'')+'<details><summary>OPs extraorçamentárias sugeridas ('+p.extras.length+')</summary><div class="fe-scroll"><table>'+
       '<thead><tr><th>Tipo</th><th>Empenho origem</th><th>Lotação</th><th>Bruto</th><th>INSS a reter</th><th>Líquido</th><th>Status</th></tr></thead><tbody>'+
       p.extras.map(x=>'<tr><td>'+esc(x.tipo)+'</td><td>'+x.empenhoReferencia+'</td><td>'+esc(x.lotacao)+'</td>'+
         '<td>'+dinheiroFolha(x.bruto)+'</td><td>'+dinheiroFolha(x.inss)+'</td><td>'+dinheiroFolha(x.liquido)+'</td>'+
         '<td>'+esc(x.problemas.join('; ')||'A conferir')+'</td></tr>').join('')+'</tbody></table></div></details>';
+    $('#fe-extras').querySelectorAll('[data-extra-bruto]').forEach(c=>c.onchange=()=>{
+      const id=c.dataset.extraBruto;
+      mapa[id]={...(mapa[id]||{}),incentivoNoBruto:c.value};
+      aprovouMapa=false;$('#fe-confirmar-mapa').checked=false;persistir();render();
+    });
   }
   el.querySelectorAll('[data-importar]').forEach(input=>input.onchange=async()=>{
     const f=input.files?.[0],tipo=input.dataset.importar;
