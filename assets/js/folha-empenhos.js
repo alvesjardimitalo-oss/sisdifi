@@ -38,7 +38,7 @@ export function origemDaLotacao(nome=''){
   if(/OBRAS PUBLICAS|OBRAS/.test(t))return ORGAOS[7];
   if(/MEIO AMBIENTE/.test(t))return ORGAOS[8];
   if(/LIMPEZA URBANA/.test(t))return ORGAOS[9];
-  if(/FUNDEB/.test(t))return ORGAOS[11];
+  if(/FUNDEB|(?:CRECHE|ENSINO (?:FUNDAMENTAL|INFANTIL)) (?:70|30)%/.test(t))return ORGAOS[11];
   if(/FUNDO.*EDUCACAO/.test(t))return ORGAOS[12];
   if(/EDUCACAO|ENSINO|ESCOLA/.test(t))return ORGAOS[10];
   if(/HOSPITAL/.test(t))return ORGAOS[15];
@@ -54,9 +54,11 @@ export function vinculoDaLotacao(s=''){
   if(/EFETIV|ESTATUTAR|CONCURSAD/.test(t))return 'Efetivos';
   if(/CONTRATAD|TEMPORAR/.test(t))return 'Contratados';
   if(/PREFEITO|VICE.PREFEITO|AGENTE POLITIC|SUBSIDIO/.test(t))return 'Agentes políticos';
+  if(/APOSENTAD|PENSIONIST|PENSOES DO RPPS|INATIV/.test(t))return 'Inativos/pensionistas';
+  if(/CONSELHO TUTELAR/.test(t))return 'Conselho tutelar';
   return 'Outros';
 }
-const VINCULOS=['Comissionados','Efetivos','Contratados','Agentes políticos','Outros'];
+const VINCULOS=['Comissionados','Efetivos','Contratados','Agentes políticos','Inativos/pensionistas','Conselho tutelar','Outros'];
 const codBeneficio={familia:'164',maternidade:'163'};
 const moeda=/(-?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2})\s*$/;
 const rubrica=/^\s*(\d{2,4})\s+(.+?)\s+(-?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2})\s*$/;
@@ -160,6 +162,7 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
     if(!destino.ficha||!destino.fonte||!destino.conta)problemas.push('Informar ficha, fonte e conta bancária');
     if(bruto==null||desconto==null)problemas.push('Total bruto/desconto ilegível');
     if(maternidade && !a.confirmado)problemas.push('Conferir servidoras do salário-maternidade e INSS individual');
+    if(r.valores.enfermagem)problemas.push('Complementação federal da enfermagem fora do empenho principal: conferir classificação e lançamento próprio');
     if(!numeroSeguro(inssExtra)||inssExtra>r.inss||inssExtra>desconto)
       problemas.push('INSS do salário-maternidade inválido');
     const descontoAjustado=desconto!=null&&numeroSeguro(inssExtra)?desconto-inssExtra:null;
