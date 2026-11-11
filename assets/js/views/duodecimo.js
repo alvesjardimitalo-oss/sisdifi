@@ -105,7 +105,7 @@ export function telaDuodecimo(el) {
     documento=null;erro='';carregando=true;render();mostrarErro('Carregando repasses de '+ano+'…');
     desinscrever=db.ouvirDoc('exercicios',String(ano),doc=>{
       if(cancelou)return;documento=doc||{ano,duodecimo:{repasses:{}}};
-      erro='';carregando=false;mostrarErro('Dados sincronizados com o SISDIFI · exercício '+ano);render();
+      erro='';carregando=false;$('#dd-status').textContent='Dados sincronizados com o SISDIFI · exercício '+ano;render();
     }, e=>{if(cancelou)return;carregando=false;mostrarErro('Não foi possível carregar os repasses: '+mensagemErro(e));render();});
   }
   async function salvarRegistro(dados, anterior=null) {
@@ -167,7 +167,8 @@ export function telaDuodecimo(el) {
     if(!ok)return;
     ocupada=true;estadoBotoes();
     try {
-      await db.salvar('exercicios',String(ano),{ano,duodecimo:{repasses:{[id]:{...r,id:undefined,anulado:true,
+      const {id: ignorado, ...dadosExistentes} = r;
+      await db.salvar('exercicios',String(ano),{ano,duodecimo:{repasses:{[id]:{...dadosExistentes,anulado:true,
         anuladoEm:new Date().toISOString(),anuladoPor:estado.sessao.nome}}}});
       try{await db.registrarLog('duodecimo.op.anular',{ano,competencia:r.competencia,numeroOP:r.numeroOP,valorCentavos:r.valorCentavos});}
       catch(e){toast('OP anulada. Falha ao registrar log de auditoria.','erro');}
