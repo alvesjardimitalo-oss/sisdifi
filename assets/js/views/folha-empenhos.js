@@ -59,7 +59,7 @@ export function telaFolhaEmpenhos(el){
       '<label class="campo"><span>Filtrar empenhos</span><select id="fe-filtro"><option value="todos">Todos</option><option value="pendentes">Com pendências</option><option value="principal">Folha principal</option><option value="decimo">13º adiantamento</option><option value="rescisao">Rescisões</option></select></label>'+
     '</div><p id="fe-status" class="fe-muted" role="status" aria-live="polite"></p></section>'+
     '<section class="fe-card"><h2>1 · Arquivos do RH</h2><div class="fe-files">'+
-      '<label class="fe-file"><strong>Resumo de Verbas da folha principal *</strong><small>Dados por lotação, rubricas e totais da liquidação.</small><input data-importar="principal" type="file" accept=".pdf"><span id="fe-nome-principal" class="fe-muted">Não enviado</span></label>'+
+      '<label class="fe-file"><strong>Resumo de Verbas da folha principal</strong><small>Dados por lotação, rubricas e totais da liquidação.</small><input data-importar="principal" type="file" accept=".pdf"><span id="fe-nome-principal" class="fe-muted">Não enviado</span></label>'+
       '<label class="fe-file"><strong>Resumo de Verbas · Folha extra do dia 10</strong><small>Incentivo da enfermagem e eventuais diferenças salariais. Informe se o incentivo já compõe o bruto do RH.</small><input data-importar="extra" type="file" accept=".pdf"><span id="fe-nome-extra" class="fe-muted">Não enviado</span></label>'+ 
       '<label class="fe-file"><strong>Resumo do adiantamento de 50% do 13º</strong><small>Opcional, quando houver na competência.</small><input data-importar="decimo" type="file" accept=".pdf"><span id="fe-nome-decimo" class="fe-muted">Não enviado</span></label>'+
       '<label class="fe-file"><strong>Resumo de Verbas das rescisões</strong><small>Opcional, quando houver rescisões.</small><input data-importar="rescisao" type="file" accept=".pdf"><span id="fe-nome-rescisao" class="fe-muted">Não enviado</span></label>'+
@@ -90,7 +90,7 @@ export function telaFolhaEmpenhos(el){
   const status=t=>{$('#fe-status').textContent=t;};
   const arquivosLista=()=>Object.values(arquivos);
   const montar=()=>{
-    if(!arquivos.principal)return null;
+    if(!arquivos.principal&&!arquivos.extra)return null;
     const maternidade=consolidarMaternidade(pessoas,[arquivos.principal]);
     return {maternidade,previsao:prepararEmpenhos(arquivosLista(),primeiro,mapa,maternidade.ajustes)};
   };
@@ -120,9 +120,11 @@ export function telaFolhaEmpenhos(el){
   }
   const conciliar=x=>conferirConsignadosFolha(x.previsao.empenhos,minutas);
   function finalPossivel(x){
-    if(!x||!arquivos.principal||!minutas.length||alertas.length||x.maternidade.avisos.length||x.previsao.pendentes.length||!aprovouMapa||!aprovouConsignados)return false;
+    if(!x||(!arquivos.principal&&!arquivos.extra)||alertas.length||x.maternidade.avisos.length||x.previsao.pendentes.length||!aprovouMapa)return false;
+    const contemBancoOuPensao=x.previsao.empenhos.some(e=>Object.values(e.bancos||{}).some(v=>v>0));
+    if((arquivos.principal||contemBancoOuPensao) && (!minutas.length||!aprovouConsignados))return false;
     if(arquivosLista().some(f=>f.avisos?.length))return false;
-    return conciliar(x).every(r=>r.conferido);
+    return (!arquivos.principal&&!contemBancoOuPensao)||conciliar(x).every(r=>r.conferido);
   }
   function renderPessoas(){
     const r=arquivos.principal?.registros?.filter(x=>x.valores.maternidade)||[];
@@ -164,7 +166,7 @@ export function telaFolhaEmpenhos(el){
     renderPessoas();
     const pacote=montar();
     if(!pacote){
-      $('#fe-kpis').innerHTML='';$('#fe-pendencias').innerHTML='<p class="fe-alert">Importe primeiro o Resumo de Verbas principal.</p>';
+      $('#fe-kpis').innerHTML='';$('#fe-pendencias').innerHTML='<p class="fe-alert">Importe o Resumo de Verbas principal ou o Resumo da folha extra do dia 10.</p>';
       $('#fe-bancos').innerHTML='<p class="fe-muted">Aguardando dados da folha.</p>';
       $('#fe-tabela').innerHTML='';$('#fe-extras').innerHTML='';$('#fe-final').disabled=true;return;
     }
