@@ -121,6 +121,10 @@ export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',co
     ['Diferença RH x composição',{centavos:previsao.empenhos.reduce((a,r)=>a+(r.diferencaComposicao||0),0)}],
     ['Desconto ajustado do INSS maternidade',{centavos:previsao.totalDescontoAjustado}],
     ['Líquido orçamentário ajustado',{centavos:previsao.totalLiquido}],
+    ['Líquido do RH (somatório das lotações)',{centavos:previsao.totalLiquidoRH}],
+    ['Líquido base calculado (bruto RH - descontos)',{centavos:previsao.totalLiquidoBase}],
+    ['Diferença calculado x RH',{centavos:previsao.diferencaTotalRH}],
+    ['Conferência global',previsao.diferencaTotalRH===0?'VALOR BATEU':'VALOR NÃO BATEU'],
     ['OPs extraorçamentárias',previsao.extras.length],
     ['Atenção','Documento de apoio, não efetua empenho, liquidação ou OP oficial. Conferir ficha, fonte e todos os descontos.'],
     ['Banco','Desconto RH','Minuta','Diferença','Situação']];
@@ -129,6 +133,7 @@ export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',co
     ['1. A numeração dos empenhos é sequencial e provisória a partir do primeiro informado.'],
     ['2. A ordem dentro da folha principal segue o PDF original do RH, como na planilha de junho, depois extra, 13º e rescisões.'],
     ['2A. A primeira aba reproduz as colunas da planilha da Contabilidade. Ficha, fonte, conta, nº OP e ajustes adicionais ficam editáveis.'],
+    ['2B. A aba Conferência apresenta VALOR BATEU ou VALOR NÃO BATEU para bruto menos desconto versus líquido original do RH.'],
     ['3. O resumo de verbas informa valores por lotação, não os nomes das servidoras.'],
     ['4. Salário-família gera indicação de OP extra pelo valor do resumo.'],
     ['5. Salário-maternidade exige folha individual, matrícula, rubrica 163 e INSS 201 com conferência humana.'],
