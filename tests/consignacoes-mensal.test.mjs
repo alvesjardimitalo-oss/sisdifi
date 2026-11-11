@@ -95,4 +95,18 @@ const semExtra=agruparOPsPorBancoFonte([{nome:'x',resultado:{registros:[{
 }]}}]);
 assert.equal(semExtra.total,39483);
 assert.equal(agruparOPsPorBancoFonte([]).itens.length,0);
+const bradescoExato=agruparOPsPorBancoFonte([{
+ nome:'bradesco setembro.pdf', resultado:{registros:[
+  {destino:bradesco,fonte:'1500',fonteCompleta:'1.500.000.0000',numero:'2026/4548-1',tipo:'Guia',centavos:39483},
+  {destino:bradesco,fonte:'1540',fonteCompleta:'1.540.000.0000',numero:'2026/4570-1',tipo:'Guia',centavos:17230},
+  {destino:bradesco,fonte:'1600',fonteCompleta:'1.600.000.0000',numero:'2026/4583-1',tipo:'Guia',centavos:37391}
+ ]}}]);
+assert.equal(bradescoExato.itens.length,3);
+assert.equal(bradescoExato.total,94104);
+assert.deepEqual(bradescoExato.itens.map(g=>[g.fonte,g.total]),[['1500',39483],['1540',17230],['1600',37391]]);
+const fontesDiferentes=agruparOPsPorBancoFonte([{nome:'teste',resultado:{registros:[
+ {destino:bradesco,fonte:'1500',fonteCompleta:'1.500.000.0000',numero:'1',tipo:'Guia',centavos:100},
+ {destino:bradesco,fonte:'1500',fonteCompleta:'1.500.100.0000',numero:'2',tipo:'Guia',centavos:200}
+]}}]);
+assert.equal(fontesDiferentes.itens.length,2);
 console.log('OP extra por banco/fonte: fontes separadas, guias únicas e pendências aprovadas.');
