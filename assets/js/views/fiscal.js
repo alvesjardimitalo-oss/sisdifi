@@ -632,19 +632,19 @@ async function abrirCamera(el) {
 export function telaImprimirFiscal(el) {
   const r = ultimaConferencia.r, x = ultimaConferencia.s;
   if (!r || !x) { el.innerHTML = '<div class="vazio"><h2>Nenhuma conferência para imprimir</h2><p><a href="#/fiscal">Abrir a conferência fiscal</a></p></div>'; return { titulo: 'Ficha de conferência' }; }
-  const cad = x.consulta?.cadastro, d = x.doc;
-  const linha = (a, b) => `<tr><td class="r" style="width:32%">${esc(a)}</td><td>${b}</td></tr>`;
+  const cad = x.consulta?.cadastro, d = x.doc, a=ultimaConferencia.auditoria;
+  const linha = (campo, valor) => `<tr><td class="r" style="width:32%">${esc(campo)}</td><td>${valor}</td></tr>`;
   el.innerHTML = `<div class="barra-impressao"><button class="btn" onclick="window.print()">🖨 Imprimir / salvar PDF</button><a class="btn btn-sec" href="#/fiscal">Voltar</a></div>
     <div class="documentos"><div class="folha">
-      <div class="doc-cab"><img src="assets/img/brasao.png" alt="Brasão" class="doc-brasao"><div class="doc-titulos"><div class="doc-orgao">${esc(estado.config.orgao)}</div>
-        <div class="doc-titulo">Ficha de conferência fiscal para liquidação</div><div class="doc-sub">${esc({ ok: 'Nota conferida', alerta: 'Nota com avisos', erro: 'Nota com erros' }[r.situacao])}</div></div></div>
+      <div class="doc-cab"><img src="assets/img/brasao.png" alt="Brasão" class="doc-brasao"><div class="doc-titulos"><div class="doc-orgao">PREFEITURA MUNICIPAL DE FREI INOCÊNCIO/MG</div>
+        <div class="doc-titulo">Pré-auditoria fiscal da nota · conferência antes da liquidação</div><div class="doc-sub">${esc(a?.resumo || 'Parecer documental ainda não emitido')}</div></div></div>
       <div class="doc-linha"></div>
       <div class="doc-secao"><div class="doc-secao-titulo">1 - Nota fiscal</div><table class="doc-tab">
         ${linha('Documento', esc([d.documento, d.numero ? 'nº ' + d.numero : '', d.serie ? 'série ' + d.serie : ''].filter(Boolean).join(' ')))}
         ${d.chave ? linha('Chave de acesso', `<span class="quebra">${esc(d.chave)}</span>`) : ''}
         ${linha('Data de competência', esc(dataBR(d.emissao)))}
         ${linha('Valor bruto', moeda(r.valor))}
-        ${linha('Natureza (IN RFB 1.234/2012)', esc(r.natureza.texto))}</table></div>
+        ${linha('Natureza (IN RFB 1.234/2012)', esc(r.natureza.texto))}${d.tomadorNome||d.tomadorCnpj?linha('Tomador lido',esc(d.tomadorNome||'')+' · '+esc(d.tomadorCnpj||'')):''}</table></div>
       <div class="doc-secao"><div class="doc-secao-titulo">2 - Fornecedor</div><table class="doc-tab">
         ${linha('Razão social', esc(cad?.nome || d.nome || ''))}
         ${linha('CNPJ', esc(formatarCnpj(cad?.cnpj || d.cnpj)))}
@@ -664,12 +664,19 @@ export function telaImprimirFiscal(el) {
         ${r.comparativo.map(l => `<tr><td class="r">${l.total ? '' : '(−) '}${esc(l.item)}${l.notaAliq != null || l.conferidoAliq != null ? ` (${l.notaAliq != null ? pctTxt(l.notaAliq) : '—'} → ${l.conferidoAliq != null ? pctTxt(l.conferidoAliq) : '—'})` : ''}</td><td>${moeda(l.nota)}</td><td>${l.total ? '<strong>' + moeda(l.conferido) + '</strong>' : moeda(l.conferido)}</td><td>${Math.abs(l.diferenca) >= 0.01 ? moeda(l.diferenca) : '—'}</td></tr>`).join('')}
       </table>` : `<table class="doc-tab">
         ${linha('Valor bruto', moeda(r.valor))}${linha('(−) IRRF', moeda(r.ir.reter ? r.ir.valor : 0))}${linha('(−) ISSQN', moeda(r.iss.reter ? r.iss.valor : 0))}
-        ${linha('Valor líquido a pagar', `<strong>${moeda(r.liquido)}</strong>`)}</table>`}</div>
+        ${linha('Líquido preliminar (sem INSS)', `<strong>${moeda(r.liquido)}</strong>`)}</table>`}</div>
       <div class="doc-secao"><div class="doc-secao-titulo">5 - Divergências e providências</div><table class="doc-tab"><tr><td>
         ${r.problemas.length ? `<ul class="doc-lista">${r.problemas.map(p => `<li><strong>[${NIVEL[p.nivel][0]}] ${esc(p.titulo)}.</strong> ${esc(p.solucao)}</li>`).join('')}</ul>` : 'Nenhuma divergência encontrada.'}
       </td></tr></table></div>
-      <p class="doc-sub" style="margin-top:6px">Bases: IN RFB 1.234/2012 com a IN RFB 2.145/2023 (IRRF, dispensa abaixo de R$ ${MINIMO_RETENCAO_IR},00); LC 116/2003 e legislação municipal (ISSQN ${pctTxt(parametrosFiscais?.issPadrao || ISS.aliquota)}${Object.keys(parametrosFiscais?.issPorCodigo || {}).length ? ', com exceções por código' : ''}); LC 123/2006 (Simples Nacional); LC 214/2025 (CBS/IBS).
-        Consulta do CNPJ em dados abertos da Receita Federal${cad ? ' (' + esc(cad.fonte) + ')' : ''}. Conferido em ${esc(ultimaConferencia.quando.toLocaleString('pt-BR'))} por ${esc(estado.sessao?.nome || '')}.</p>
+      <div class="doc-secao"><div class="doc-secao-titulo">6 - Parecer de pré-auditoria e diligências</div><table class="doc-tab">
+        ${linha('Situação',esc(a?.resumo || 'Conferência pendente'))}
+        ${linha('Versão das regras fiscais',esc(a?.versaoPolitica || 'Não registrada'))}
+        ${linha('Boletim legislativo',esc(a?.monitor?.ultimo || 'Não verificado')+' · '+(a?.monitor?.pendentes?.length || 0)+' alteração(ões) pendente(s)')}
+        ${a?.pendencias?.length?linha('Informações não confirmadas','<ul class="doc-lista">'+a.pendencias.map(p=>'<li>'+esc(p.titulo)+': '+esc(p.pergunta)+'</li>').join('')+'</ul>'):''}
+        ${a?.impedimentos?.length?linha('Impedimentos','<ul class="doc-lista">'+a.impedimentos.map(p=>'<li>'+esc(p.titulo)+': '+esc(p.pergunta)+'</li>').join('')+'</ul>'):''}
+      </table></div>
+      <p class="doc-sub" style="margin-top:6px">Bases: IN RFB 1.234/2012 com a IN RFB 2.145/2023 (IRRF, dispensa abaixo de R$ ${MINIMO_RETENCAO_IR},00); LC 116/2003, Lei Municipal 883/2017 e Lei 966/2023 (ISSQN ${pctTxt(parametrosFiscais?.issPadrao || ISS.aliquota)}${Object.keys(parametrosFiscais?.issPorCodigo || {}).length ? ', com exceções por código' : ''}); LC 123/2006 (Simples Nacional); LC 214/2025 (CBS/IBS).
+        O cálculo não abrange retenção previdenciária e situações especiais de base de ISS, que exigem parecer específico. Este documento não autoriza liquidar notas. Consulta do CNPJ em dados abertos da Receita Federal${cad ? ' (' + esc(cad.fonte) + ')' : ''}. Conferido em ${esc(ultimaConferencia.quando.toLocaleString('pt-BR'))} por ${esc(estado.sessao?.nome || '')}.</p>
       <table class="doc-ass"><tr><td><div class="doc-linha-ass">${esc(estado.sessao?.nome || 'Contabilidade')}<br>Contabilidade</div></td><td><div class="doc-linha-ass">Ordenador da despesa</div></td></tr></table>
     </div></div>`;
   return { titulo: 'Ficha de conferência fiscal' };
