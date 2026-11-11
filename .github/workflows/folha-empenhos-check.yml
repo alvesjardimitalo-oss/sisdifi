@@ -1,0 +1,39 @@
+name: Folha de pagamentos — testes
+on:
+  push:
+    paths:
+      - 'assets/js/folha-empenhos.js'
+      - 'assets/js/folha-maternidade.js'
+      - 'assets/js/folha-empenhos-pdf.js'
+      - 'assets/js/folha-empenhos-store.js'
+      - 'assets/js/folha-empenhos-xlsx.js'
+      - 'assets/js/views/folha-empenhos.js'
+      - 'assets/js/app.js'
+      - 'tests/folha-empenhos.test.mjs'
+      - '.github/workflows/folha-empenhos-check.yml'
+  pull_request:
+    paths:
+      - 'assets/js/folha-empenhos.js'
+      - 'assets/js/folha-maternidade.js'
+      - 'assets/js/folha-empenhos-pdf.js'
+      - 'assets/js/folha-empenhos-store.js'
+      - 'assets/js/folha-empenhos-xlsx.js'
+      - 'assets/js/views/folha-empenhos.js'
+      - 'assets/js/app.js'
+      - 'tests/folha-empenhos.test.mjs'
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: |
+          node --check assets/js/folha-empenhos.js
+          node --check assets/js/folha-maternidade.js
+          node --check assets/js/folha-empenhos-pdf.js
+          node --check assets/js/folha-empenhos-store.js
+          node --check assets/js/folha-empenhos-xlsx.js
+          node --check assets/js/views/folha-empenhos.js
+          node --check assets/js/app.js
+      - run: node tests/folha-empenhos.test.mjs
