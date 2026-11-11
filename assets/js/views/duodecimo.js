@@ -4,10 +4,9 @@
 import * as db from '../db.js';
 import { estado, pode } from '../estado.js';
 import { esc, modal, confirmar, toast, mensagemErro, hojeISO } from '../ui.js';
-import { META_MENSAL_PADRAO, MESES_DUODECIMO, centavosDuodecimo, dinheiroDuodecimo, dataDuodecimoBR, mesDoAno, competenciaDuodecimo, validarRepasse, repassesAtivos, resumoDuodecimo } from '../duodecimo.js';
+import { META_MENSAL_PADRAO, MESES_DUODECIMO, dinheiroDuodecimo, dataDuodecimoBR, mesDoAno, competenciaDuodecimo, validarRepasse, repassesAtivos, resumoDuodecimo } from '../duodecimo.js';
 
 const dinheiro = dinheiroDuodecimo;
-const chave = x => String(x ?? '');
 const estilo = '<style>'+
 '.duod{color:#21374d;max-width:1240px;margin:0 auto}.duod *{box-sizing:border-box}'+
 '.duod h1{margin:0 0 6px;color:#153d61;font-size:1.65rem}.duod h2{color:#183e5e;margin:0 0 12px;font-size:1.17rem}.duod .duod-muted{color:#617384;font-size:.88rem;margin:0 0 12px}'+
@@ -35,13 +34,13 @@ export function telaDuodecimo(el) {
   const selecaoAno = Array.from({length:11},(_,i)=>ano+3-i);
   el.innerHTML = estilo + '<section class="duod">'+
     '<h1>Controle de repasses do duodécimo</h1>'+
-    '<p class="duod-muted">Câmara Municipal · Registre cada OP e a data em que o dinheiro foi efetivamente repassado. A competência continua sendo o mês a que o repasse se refere.</p>'+
+    '<p class="duod-muted">Câmara Municipal · Previsão de R$ 140.000,00 por mês. Registre as OPs e suas datas de pagamento; a competência é o mês ao qual cada repasse se refere.</p>'+
     '<div class="dd-toolbar"><div class="dd-tools">'+
       '<label class="campo"><span>Exercício</span><select id="dd-ano">'+
       selecaoAno.map(y=>'<option value="'+y+'" '+(y===ano?'selected':'')+'>'+y+'</option>').join('')+
       '</select></label><label class="campo"><span>Mês de referência</span><select id="dd-mes">'+
       MESES_DUODECIMO.map((nome,i)=>'<option value="'+mesDoAno(i+1)+'" '+(mesDoAno(i+1)===mes?'selected':'')+'>'+nome+'</option>').join('')+
-      '</select></label></div><div class="dd-tools"><button class="btn btn-sec" id="dd-csv" disabled>Exportar CSV anual</button><button class="btn btn-sec" id="dd-imprimir" disabled>Imprimir demonstrativo</button><button class="btn" id="dd-adicionar" disabled>+ Registrar OP / repasse</button></div></div>'+
+      '</select></label></div><div class="dd-tools"><button class="btn btn-sec" id="dd-csv" disabled>Exportar CSV anual</button><button class="btn btn-sec" id="dd-imprimir" disabled>Imprimir mês</button><button class="btn btn-sec" id="dd-imprimir-anual" disabled>Imprimir ano</button><button class="btn" id="dd-adicionar" disabled>+ Registrar OP / repasse</button></div></div>'+
     '<div id="dd-status" class="dd-status" role="status" aria-live="polite"></div>'+
     '<div id="dd-ano-kpis" class="dd-kpis"></div>'+
     '<section class="dd-box"><h2>Repasses por mês · <span id="dd-ano-label"></span></h2><div id="dd-meses" class="dd-grid"></div></section>'+
@@ -57,6 +56,7 @@ export function telaDuodecimo(el) {
     $('#dd-adicionar').disabled = bloqueio;
     $('#dd-csv').disabled = bloqueio;
     $('#dd-imprimir').disabled = bloqueio;
+    $('#dd-imprimir-anual').disabled = bloqueio;
   }
   function render() {
     if(cancelou)return;
@@ -103,10 +103,11 @@ export function telaDuodecimo(el) {
   function ouvirAno() {
     if(desinscrever)desinscrever();
     documento=null;erro='';carregando=true;render();mostrarErro('Carregando repasses de '+ano+'…');
+    const anoLido=ano;
     desinscrever=db.ouvirDoc('exercicios',String(ano),doc=>{
-      if(cancelou)return;documento=doc||{ano,duodecimo:{repasses:{}}};
+      if(cancelou||ano!==anoLido)return;documento=doc||{ano,duodecimo:{repasses:{}}};
       erro='';carregando=false;$('#dd-status').textContent='Dados sincronizados com o SISDIFI · exercício '+ano;render();
-    }, e=>{if(cancelou)return;carregando=false;mostrarErro('Não foi possível carregar os repasses: '+mensagemErro(e));render();});
+    }, e=>{if(cancelou||ano!==anoLido)return;carregando=false;mostrarErro('Não foi possível carregar os repasses: '+mensagemErro(e));render();});
   }
   async function salvarRegistro(dados, anterior=null) {
     if(ocupada || carregando || erro)return;
@@ -210,11 +211,35 @@ export function telaDuodecimo(el) {
     w.document.write(html);w.document.close();w.focus();
     setTimeout(()=>w.print(),300);
   }
+  function imprimirAnual() {
+    const relatorio=resumo(),w=window.open('','_blank');
+    if(!w){toast('Libere o pop-up para imprimir.','erro');return;}
+    w.opener=null;
+    const logo=new URL('assets/img/brasao.png',document.baseURI).href;
+    const linhas=relatorio.meses.map(m=>'<tr><td>'+m.nome+'</td><td class="valor">'+dinheiro(m.meta)+'</td>'+
+      '<td class="valor">'+dinheiro(m.pago)+'</td><td class="valor">'+dinheiro(m.saldo)+'</td><td>'+m.situacao+'</td></tr>').join('');
+    const pagos=relatorio.meses.flatMap(m=>m.repasses.map(x=>({...x,mes:m.nome})));
+    const detalhado=pagos.map(r=>'<tr><td>'+r.mes+'</td><td>'+esc(r.numeroOP)+'</td><td>'+dataDuodecimoBR(r.dataOP)+'</td><td>'+dataDuodecimoBR(r.dataRepasse)+
+      '</td><td class="valor">'+dinheiro(r.valorCentavos)+'</td><td>'+(r.dataRepasse?'Repassado':'Pendente')+'</td></tr>').join('');
+    const html='<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Duodécimo anual '+ano+'</title><style>'+
+      '@page{size:A4;margin:13mm}body{font:11px Arial;color:#19334b;margin:0}h1{font-size:17px;color:#164e73}h2{font-size:14px;margin-top:25px}small{color:#536879}header{display:flex;gap:12px;align-items:center;border-bottom:3px solid #287b4e;padding-bottom:10px;margin-bottom:16px}header img{width:55px;height:55px;object-fit:contain}table{width:100%;border-collapse:collapse}th{background:#eaf2f8}td,th{text-align:left;padding:7px 5px;border-bottom:1px solid #d7e1e8}.valor{text-align:right;white-space:nowrap}tr{break-inside:avoid}thead{display:table-header-group}tfoot{font-weight:700;background:#eef5ef}.assin{margin-top:45px;display:flex;gap:20px}.assin span{flex:1;border-top:1px solid #8196aa;text-align:center;padding-top:6px}'+
+      '</style></head><body><header><img src="'+esc(logo)+'" alt="Brasão"><div><strong>PREFEITURA MUNICIPAL DE FREI INOCÊNCIO</strong><br>Setor de Contabilidade · SISDIFI</div></header>'+
+      '<h1>CONTROLE ANUAL DE REPASSES DO DUODÉCIMO · '+ano+'</h1><p>Câmara Municipal · Previsão mensal: '+dinheiro(META_MENSAL_PADRAO)+'</p>'+
+      '<h2>Resumo por competência</h2><table><thead><tr><th>Mês</th><th class="valor">Previsto</th><th class="valor">Repassado</th><th class="valor">Saldo</th><th>Situação</th></tr></thead><tbody>'+linhas+'</tbody>'+
+      '<tfoot><tr><td>TOTAL</td><td class="valor">'+dinheiro(relatorio.metaTotal)+'</td><td class="valor">'+dinheiro(relatorio.pago)+'</td><td class="valor">'+dinheiro(relatorio.saldo)+'</td><td>'+relatorio.mesesIntegrais+' mês(es) integral(is)</td></tr></tfoot></table>'+
+      '<h2>Histórico de OPs e datas dos repasses</h2><table><thead><tr><th>Competência</th><th>Nº OP</th><th>Data OP</th><th>Data repasse</th><th class="valor">Valor</th><th>Situação</th></tr></thead><tbody>'+
+      (detalhado||'<tr><td colspan="6">Nenhuma OP registrada no exercício.</td></tr>')+'</tbody></table>'+
+      '<p><small>OPs sem data de repasse não integram o total efetivamente pago. Demonstrativo de acompanhamento; não substitui as ordens de pagamento emitidas no sistema contábil.</small></p>'+
+      '<div class="assin"><span>Responsável pela conferência</span><span>Setor de Contabilidade</span></div></body></html>';
+    w.document.write(html);w.document.close();w.focus();setTimeout(()=>w.print(),300);
+  }
+
   $('#dd-mes').onchange=e=>{mes=e.target.value;render();};
   $('#dd-ano').onchange=e=>{ano=Number(e.target.value);ouvirAno();};
   $('#dd-adicionar').onclick=()=>abrirFormulario();
   $('#dd-csv').onclick=exportarCSV;
   $('#dd-imprimir').onclick=imprimir;
+  $('#dd-imprimir-anual').onclick=imprimirAnual;
   ouvirAno();
   return {titulo:'Duodécimo da Câmara',limpar:()=>{cancelou=true;desinscrever?.();}};
 }
