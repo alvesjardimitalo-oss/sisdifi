@@ -77,9 +77,98 @@ export function telaConsignacoes(el) {
   function resumo(c) {
     return `<h2>${esc(rotuloCompetencia(competencia))}</h2><table><thead><tr><th>Destino</th><th>Importado</th><th>Esperado</th><th>Diferença</th></tr></thead><tbody>${c.blocos.map(b=>`<tr><td>${esc(b.destino)}${b.arquivos?'':' — arquivo pendente'}</td><td>${moeda(b.total)}</td><td>${b.esperado===null?'Não informado':moeda(b.esperado)}</td><td>${b.diferenca===null?'—':moeda(b.diferenca)}</td></tr>`).join('')}</tbody></table>`;
   }
+
+  function textoParaOP(g) {
+    return 'OP extraorçamentária - '+g.destino+' - Fonte '+g.fonteCompleta+
+      '\nCompetência da folha: '+rotuloCompetencia(competencia)+
+      '\nValor: '+moeda(g.total)+
+      '\nHistórico sugerido: Recolhimento de consignações da folha de '+rotuloCompetencia(competencia)+
+      ', referente a '+g.destino+', fonte '+g.fonteCompleta+', conforme minutas de arrecadação.';
+  }
+  function imprimirMemoriaOP(grupos, detalhado) {
+    if (!$('#mi-revisado').checked) {status('Confirme primeiro que revisou os documentos e os valores.');return;}
+    if (!grupos.length) return;
+    const c=conferenciaMensal(arquivos,esperados), w=window.open('','_blank');
+    if(!w){status('Permita a janela de impressão do navegador.');return;}
+    w.opener=null;
+    const cabecalho='<h1>SISDIFI · Memória de cálculo para OP extraorçamentária</h1>'+
+      '<p><strong>Competência da folha:</strong> '+esc(rotuloCompetencia(competencia))+
+      ' · <strong>Emissão da memória:</strong> '+new Date().toLocaleDateString('pt-BR')+'</p>';
+    const alerta='<p class="alerta"><strong>'+ (c.conferido?'Conferência mensal com valores esperados coincidentes.':'Conferência mensal pendente ou incompleta.')+
+      '</strong> Este documento apenas subsidia o lançamento. Não é uma ordem de pagamento emitida.</p>';
+    const linhas=grupos.map(g=>{
+      const guias=detalhado?'<table><thead><tr><th>Guia / empenho</th><th>Fonte completa</th><th>Data da arrecadação</th><th class="valor">Valor</th></tr></thead><tbody>'+
+        g.registros.map(r=>'<tr><td>'+esc((r.tipo||'Guia')+' '+r.numero)+'</td><td>'+esc(r.fonteCompleta)+'</td><td>'+esc(r.data||'')+'</td><td class="valor">'+moeda(r.centavos)+'</td></tr>').join('')+
+        '</tbody></table>':'';
+      return '<section><h2>'+esc(g.destino)+'</h2><p><strong>Fonte:</strong> '+esc(g.fonteCompleta)+
+        (g.fonteNome?' · '+esc(g.fonteNome):'')+'</p><p><strong>Quantidade de guias:</strong> '+g.guias+
+        '</p><h3>Valor para OP: '+moeda(g.total)+'</h3>'+guias+'</section>';
+    }).join('');
+    const total=grupos.reduce((n,g)=>n+g.total,0);
+    w.document.write('<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Memória OP '+esc(competencia)+'</title>'+
+      '<style>body{font:12px Arial,sans-serif;color:#1a2b40;margin:26px}h1{font-size:18px}h2{font-size:15px;margin-bottom:5px}h3{font-size:15px}section{border:1px solid #b7c7d5;margin:13px 0;padding:12px;break-inside:avoid}p{margin:8px 0}.alerta{padding:12px;border:1px solid #d2b375;background:#fff9e9}table{width:100%;border-collapse:collapse;margin-top:10px}td,th{text-align:left;border-bottom:1px solid #ccd3da;padding:6px}th{font-size:11px}.valor{text-align:right;white-space:nowrap}.rodape{margin-top:15px;border-top:2px solid #44566b;padding-top:10px}footer{margin-top:32px;color:#555}@media print{body{margin:10mm}section{break-inside:avoid}}</style></head><body>'+
+      cabecalho+alerta+linhas+'<p class="rodape"><strong>Total da seleção: '+moeda(total)+'</strong></p>'+
+      '<footer>Documento de apoio para preenchimento da OP no sistema contábil. Confirmar banco, fonte, guias e pagamento antes de emitir.</footer></body></html>');
+    w.document.close();w.focus();w.print();
+  }
+  function alternarModoOP(op) {
+    modoOP=op;
+    $('#mi-op-conteudo').hidden=!op;
+    $('#mi-detalhamento').hidden=op;
+    $('#mi-modo-ops').setAttribute('aria-pressed',String(op));
+    $('#mi-modo-detalhe').setAttribute('aria-pressed',String(!op));
+  }
+  function renderOPs(c) {
+    const dados=agruparOPsPorBancoFonte(arquivos);
+    const banco=$('#mi-op-banco').value;
+    const itens=dados.itens.filter(g=>!banco||g.destino===banco);
+    const total=itens.reduce((n,g)=>n+g.total,0);
+    const revisado=$('#mi-revisado').checked;
+    const bancos=DESTINOS.map(destino=>({destino,lista:itens.filter(g=>g.destino===destino)})).filter(b=>b.lista.length);
+    $('#mi-ops').innerHTML=
+      '<div class="mi-op-barra"><strong class="mi-op-resumo">'+itens.length+' OP(s) · '+moeda(total)+'</strong><small>Uma OP para cada combinação de banco e fonte completa.</small></div>'+
+      (!c.conferido?'<p class="mi-op-aviso">Conferência mensal pendente: os valores são os das minutas importadas. Antes da emissão, verifique diferenças com a folha e valores esperados.</p>':'')+
+      (dados.pendentes.length?'<p class="mi-op-aviso">'+dados.pendentes.length+' lançamento(s) sem banco/fonte válida não entraram no resumo. Revise-os.</p>':'')+
+      (bancos.length?bancos.map(b=>{
+        const subtotal=b.lista.reduce((n,g)=>n+g.total,0);
+        return '<section class="mi-op-banco"><div class="mi-op-banco-cab"><div><h3>'+esc(b.destino)+'</h3><small>'+b.lista.length+' OP(s) por fonte</small></div><strong>'+moeda(subtotal)+'</strong></div>'+
+          '<table class="mi-op-tabela"><thead><tr><th>Fonte de recurso</th><th>Guias</th><th style="text-align:right">Valor da OP</th><th style="text-align:right">Ações</th></tr></thead><tbody>'+
+          b.lista.map(g=>{
+            const i=dados.itens.indexOf(g);
+            return '<tr><td class="mi-op-fonte"><strong>'+esc(g.fonteCompleta)+'</strong><small>'+esc(g.fonteNome)+'</small></td>'+
+              '<td class="mi-op-qtd">'+g.guias+'</td><td class="mi-op-montante">'+moeda(g.total)+'</td>'+
+              '<td class="mi-op-botoes"><button type="button" class="btn btn-sec" data-op-ver="'+i+'">Ver guias</button>'+
+              '<button type="button" class="btn btn-sec" data-op-copiar="'+i+'">Copiar dados</button>'+
+              '<button type="button" class="btn" data-op-imprimir="'+i+'" '+(!revisado||ocupado?'disabled':'')+'>Imprimir OP</button></td></tr>';
+          }).join('')+'</tbody></table></section>';
+      }).join(''):'<p class="mi-card">Nenhuma OP nesta seleção. Importe as minutas ou altere o filtro.</p>')+
+      '<p class="dica">A impressão é uma memória para preencher a OP extraorçamentária no sistema contábil; não gera número nem registra pagamento automaticamente.</p>';
+    $('#mi-ops').querySelectorAll('[data-op-ver]').forEach(b=>b.onclick=()=>{
+      const g=dados.itens[Number(b.dataset.opVer)];
+      if(!g)return;
+      alternarModoOP(false);
+      $('#mi-destino').value=g.destino;
+      $('#mi-fonte').value=g.fonte;
+      $('#mi-busca').value='';
+      render();
+      $('#mi-resultado').scrollIntoView({behavior:'smooth',block:'start'});
+    });
+    $('#mi-ops').querySelectorAll('[data-op-imprimir]').forEach(b=>b.onclick=()=>{
+      const g=dados.itens[Number(b.dataset.opImprimir)];
+      if(g&&!ocupado)imprimirMemoriaOP([g],true);
+    });
+    $('#mi-ops').querySelectorAll('[data-op-copiar]').forEach(b=>b.onclick=async()=>{
+      const g=dados.itens[Number(b.dataset.opCopiar)];
+      if(!g)return;
+      try{await navigator.clipboard.writeText(textoParaOP(g));status('Dados da OP copiados: '+g.destino+' · fonte '+g.fonte);}
+      catch(e){status('Não foi possível copiar automaticamente. Use a impressão da memória.');}
+    });
+  }
+
   function render() {
     const c=conferenciaMensal(arquivos,esperados), rs=filtrados();
     $('#mi-competencia').textContent=rotuloCompetencia(competencia);
+    renderOPs(c);
     $('#mi-bancos').innerHTML=c.blocos.map((b,i)=>`<div class="mi-card"><h3>${esc(b.destino)}</h3><small>${b.arquivos?`${b.arquivos} arquivo(s) · ${b.registros.length} lançamentos`:'Arquivo pendente'}</small><p class="mi-total">${moeda(b.total)}</p><label class="campo"><span>Valor esperado · ${esc(b.destino)}</span><input data-esperado="${i}" inputmode="decimal" placeholder="Ex.: 10.000,00" value="${b.esperado===null?'':(b.esperado/100).toFixed(2).replace('.',',')}"></label><button class="btn btn-sec" data-salvar="${i}">Salvar valor</button><p class="${b.diferenca===0?'mi-ok':'mi-diferenca'}">${b.diferenca===null?'Informe o valor para comparar':b.diferenca===0?'Sem diferença de valor':b.diferenca>0?'Sobra '+moeda(b.diferenca):'Falta '+moeda(-b.diferenca)}</p><button class="btn btn-sec" data-ver="${i}">Ver lançamentos</button></div>`).join('');
     const documento = r => `${esc(r.tipo)} ${esc(r.numero)} · fonte(s) ${(r.fontes||[r.fonteCompleta]).map(esc).join(', ')} · ${moeda(r.centavos)} · ${esc(r.arquivo||'')} · p. ${(r.paginas||[r.pagina]).join(', ')}`;
     const hipoteses = c.investigacoes.map(t => {
@@ -169,7 +258,13 @@ export function telaConsignacoes(el) {
     }catch(err){status(err.message+' Os novos PDFs não foram adicionados.');}
     finally{if(ativo){ocupado=false;$('#mi-pdf').value='';atualizar();}}
   };
-  $('#mi-destino').onchange=$('#mi-fonte').onchange=$('#mi-revisado').onchange=render;
+  $('#mi-destino').onchange=$('#mi-fonte').onchange=$('#mi-revisado').onchange=$('#mi-op-banco').onchange=render;
+  $('#mi-modo-ops').onclick=()=>alternarModoOP(true);
+  $('#mi-modo-detalhe').onclick=()=>alternarModoOP(false);
+  $('#mi-op-imprimir-todos').onclick=()=>{
+    const banco=$('#mi-op-banco').value;
+    imprimirMemoriaOP(agruparOPsPorBancoFonte(arquivos).itens.filter(g=>!banco||g.destino===banco),false);
+  };
   $('#mi-abas').querySelectorAll('[data-aba]').forEach(b=>b.onclick=()=>{
     $('#mi-destino').value=b.dataset.aba;$('#mi-fonte').value='';$('#mi-busca').value='';render();
     $('#mi-resultado').scrollIntoView({behavior:'smooth',block:'start'});
