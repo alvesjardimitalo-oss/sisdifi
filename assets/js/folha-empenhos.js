@@ -223,8 +223,6 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
     if(!r.classificacaoDescontosIdentificada||r.diferencaComposicao!==0)problemas.push('Composição dos descontos divergente do Resumo de Verbas');
     if(maternidade && !a.confirmado)problemas.push('Conferir servidoras do salário-maternidade e INSS individual');
     if(incentivoPendente)problemas.push('Confirmar se incentivo federal já integra o bruto do RH');
-    if(r.tipo==='extra' && incentivo>0 && decisao==='nao')
-      problemas.push('Incentivo somado ao bruto: confira se não há duplicidade com outras rubricas/proventos');
     if(r.tipo==='extra' && (r.composicao?.INSS||0)>0)
       problemas.push('Folha extra contém desconto INSS; conferir competência e não transferir automaticamente');
     if(r.tipo==='principal' && incentivo>0)
