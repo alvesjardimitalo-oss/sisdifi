@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict';
+import {FICHAS_PESSOAL_2026,consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel} from '../assets/js/folha-orcamento-2026.js';
+
+assert.equal(FICHAS_PESSOAL_2026.length,77,'Catálogo da LOA deve conter as 77 fichas de pessoal');
+const fichas=new Set(FICHAS_PESSOAL_2026.map(x=>x.ficha));
+assert.equal(fichas.size,77,'Ficha repetida no mesmo exercício');
+const gabinete=consultarFichaOrcamento('39',2026);
+assert.equal(gabinete.unidade,'GABINETE DO PREFEITO');
+assert.match(gabinete.acao,/SECRETARIA DE GOVERNO/);
+assert.deepEqual(gabinete.fontes,['1.500.000.0000']);
+assert.equal(alertaNaturezaFicha('Agentes políticos',gabinete.naturezas),'');
+assert.match(alertaNaturezaFicha('Contratados',gabinete.naturezas),/contratado/i);
+const contratados=consultarFichaOrcamento('38',2026);
+assert.match(alertaNaturezaFicha('Efetivos',contratados.naturezas),/temporária/i);
+const fundeb=consultarFichaOrcamento('174',2026);
+assert.equal(fundeb.unidade,'FUNDEB');
+assert.deepEqual(fundeb.fontes,['1.540.000.0000','1.542.000.0000']);
+assert.equal(fonteCompativel('1540',fundeb.fontes),true);
+assert.equal(fonteCompativel('540',fundeb.fontes),true);
+assert.equal(fonteCompativel('1.500.000.0000',fundeb.fontes),false);
+assert.equal(consultarFichaOrcamento('174',2027),null,'Referência 2026 não pode ser reaproveitada em 2027');
+const importada=consultarFichaOrcamento('174',2026,[{ficha:'174',ano:2026,unidade:'UNIDADE',acao:'AÇÃO IMPORTADA',fonte_codigo:'1.540.000.0000',ativo:true}]);
+assert.equal(importada.acao,'AÇÃO IMPORTADA','Orçamento cadastrado tem prioridade');
+assert.equal(importada.fontes[0],'1.540.000.0000');
+console.log('Fichas da LOA 2026: 77 registros únicos, secretaria, ação, fonte e natureza verificadas.');
