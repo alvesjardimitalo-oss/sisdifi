@@ -7,7 +7,15 @@ const texto=o=>String(typeof o==='string'?o:o?.texto||'').trim();
 const pagina=o=>typeof o==='string'?1:o?.pagina||1;
 const dinheiro=/^-?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}$/;
 const matricula=/^(\d{4,8})\s*\/\s*\d+\s+(.+)$/;
-const lotacao=/^(\d{3}(?:\.\d+)+)\s*-\s*(.+)$/;
+// Exige a hierarquia completa (4 níveis ou mais); '002.004' é secretaria,
+// não a lotação do empenho. Captura códigos mesmo com espaços dos PDFs.
+const lotacaoCompleta=/\b(\d{3}(?:\s*\.\s*\d+){3,})\b/g;
+const limparLotacao=v=>String(v||'').replace(/\s+/g,'');
+function localizarLotacaoCompleta(linha){
+  const achados=[...String(linha||'').matchAll(lotacaoCompleta)];
+  return achados.sort((a,b)=>b[1].split('.').length-a[1].split('.').length)[0]?.[1]
+    ? limparLotacao(achados[0][1]) : '';
+}
 const verba=/^(\d{2,4})\s+([A-Z])\s+(.+)$/i;
 const normalizar=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
 function extrairNome(s){
@@ -24,12 +32,15 @@ function valoresRubrica(l){
 }
 export function sugerirMaternidadesDaFolha(linhas){
   const achados=[],avisos=[];
-  let pessoa=null,lotacaoCompleta='',cabecalho=false,ultimaPagina=1;
+  let pessoa=null,lotacaoAtual='',emCabecalho=false,ultimaPagina=1;
+  let ultimoPrefixo='',ultimaPaginaLotacao=0;
   const fechar=()=>{
     if(!pessoa)return;
     if(pessoa.beneficio>0){
       if(!pessoa.nome||!pessoa.matricula||pessoa.inss==null||!pessoa.lotacao)
-        avisos.push('Matrícula '+(pessoa.matricula||'?')+' (página '+pessoa.pagina+'): dados ou lotação incompletos.');
+        avisos.push('Matrícula '+(pessoa.matricula||'?')+' (página '+pessoa.pagina+'): código de lotação completo não encontrado'+
+          (pessoa.lotacaoPendente?' (somente prefixo '+pessoa.lotacaoPendente+')':'')+
+          '. Não atribuir automaticamente a outra lotação.');
       achados.push({...pessoa,confirmado:false,origem:'Folha individual — PDF'});
     }
     pessoa=null;
@@ -39,25 +50,33 @@ export function sugerirMaternidadesDaFolha(linhas){
     if(!s)continue;
     ultimaPagina=pagina(item);
     if(/^LOTA[CÇ][AÃ]O\s*:/i.test(s)){
-      fechar();lotacaoCompleta='';cabecalho=true;
-      // Alguns PDFs trazem a primeira linha de lotação junto ao rótulo.
-      const embutida=s.match(/LOTA[CÇ][AÃ]O\s*:\s*(\d{3}(?:\.\d+)+)/i);
-      if(embutida)lotacaoCompleta=embutida[1];
+      fechar();
+      lotacaoAtual='';
+      ultimoPrefixo='';
+      emCabecalho=true;
+      ultimaPaginaLotacao=pagina(item);
+      const codigo=localizarLotacaoCompleta(s);
+      if(codigo)lotacaoAtual=codigo;
       continue;
     }
-    if(cabecalho){
-      const l=s.match(lotacao);
-      if(l){
-        // Selecionar o último nível (por exemplo 002.004.215.00002).
-        lotacaoCompleta=l[1];
+    // Nos PDFs do RH há quatro níveis em linhas distintas: 002, 002.004,
+    // 002.004.215, 002.004.215.00001. NÃO usar um nível parcial.
+    // Não exigir hífen, pois o pdf.js pode separar descrição e código.
+    if(emCabecalho){
+      const codigo=localizarLotacaoCompleta(s);
+      if(codigo){lotacaoAtual=codigo;ultimoPrefixo='';continue;}
+      const parcial=s.match(/\b(\d{3}(?:\s*\.\s*\d+){1,2})\b/);
+      if(parcial){
+        ultimoPrefixo=limparLotacao(parcial[1]);
         continue;
       }
     }
     const cab=s.match(matricula);
     if(cab){
-      fechar();cabecalho=false;
-      pessoa={matricula:cab[1],nome:extrairNome(cab[2]),lotacao:lotacaoCompleta,
+      fechar();emCabecalho=false;
+      pessoa={matricula:cab[1],nome:extrairNome(cab[2]),lotacao:lotacaoAtual,
         pagina:pagina(item),beneficio:0,inss:null};
+      if(!lotacaoAtual && ultimoPrefixo)pessoa.lotacaoPendente=ultimoPrefixo;
       continue;
     }
     if(!pessoa)continue;

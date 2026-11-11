@@ -206,6 +206,36 @@ assert.equal(michele.achados[0].beneficio,178237);
 assert.equal(michele.achados[0].inss,13609);
 assert.equal(michele.achados[0].pagina,3);
 
+// Layout efetivo do PDF de outubro/2026: quatro níveis separados em linhas.
+// Antes do reparo, a matrícula 005054 era associada incorretamente ao prefixo 002.004.
+const micheleReal=sugerirMaternidadesDaFolha([
+ {pagina:19,texto:'LOTAÇÃO: 002 - PREF. MUNIC. DE FREI INOCENCIO'},
+ {pagina:19,texto:'002.004 - SECRETARIA MUNIC. DE EDUCACAO'},
+ {pagina:19,texto:'002.004.215 - MANUTENÇAO CRECHE 70%'},
+ {pagina:19,texto:'002.004.215.00001 - PESSOAL CONTRATADO'},
+ {pagina:19,texto:'005054 /1 MICHELE LOPES GONÇALVES 1_20 / 0073 - MONITOR (SALA DE AULA) 01/01/2026 CONTRATADO'},
+ {pagina:19,texto:'163 P SALARIO MATERNIDADE 30,00 1.782,37'},
+ {pagina:19,texto:'164 P SALARIO FAMILIA 2,00 135,08'},
+ {pagina:19,texto:'201 P I.N.S.S. 136,09'},
+ {pagina:19,texto:'384 P RETRO DIF DE SAL DO 3,00 182,64'}
+]);
+assert.equal(micheleReal.achados.length,1);
+assert.equal(micheleReal.achados[0].lotacao,'002.004.215.00001');
+assert.equal(micheleReal.achados[0].beneficio,178237);
+assert.equal(micheleReal.achados[0].inss,13609);
+assert.equal(micheleReal.avisos.length,0,micheleReal.avisos.join('; '));
+// Nunca usar 002.004 como lotação para uma OP, mesmo com maternidade identificada.
+const semUltimoNivel=sugerirMaternidadesDaFolha([
+ 'LOTAÇÃO: 002 - PREF. MUNIC. DE FREI INOCENCIO',
+ '002.004 - SECRETARIA MUNIC. DE EDUCACAO',
+ '002.004.215 - MANUTENÇAO CRECHE 70%',
+ '005054 /1 MICHELE LOPES GONÇALVES 1_20 / 0073 - MONITOR',
+ '163 P SALARIO MATERNIDADE 30,00 1.782,37',
+ '201 P I.N.S.S. 136,09'
+]);
+assert.equal(semUltimoNivel.achados[0].lotacao,'');
+assert.ok(semUltimoNivel.avisos.some(x=>x.includes('somente prefixo')));
+
 const pessoa=sugerirMaternidadesDaFolha([
 'LOTAÇÃO:',
 '002.004.215.00001 - FUNDEB 70%',

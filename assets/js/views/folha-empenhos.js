@@ -278,10 +278,22 @@ export function telaFolhaEmpenhos(el){
         status('Resumo consolidado: '+analisado.quantidade+' lotações. Grupos: '+Object.entries(analisado.tipos).map(([k,n])=>k+' '+n).join(', ')+'.');
       } else if(tipo==='nominal'){
         const candidatos=sugerirMaternidadesDaFolha(linhas);
-        const existentes=new Set(pessoas.map(p=>p.matricula+'|'+p.lotacao));
-        pessoas.push(...candidatos.achados.filter(c=>!existentes.has(c.matricula+'|'+c.lotacao)));
-        origemIndividual=f.name;alertas.push(...candidatos.avisos);
-        status(candidatos.achados.length+' registro(s) de salário-maternidade identificado(s). Confirme individualmente.');
+        const matriculasImportadas=new Set(candidatos.achados.map(c=>c.matricula));
+        // Reimportação corrige registros antigos que ficaram vinculados a "002.004".
+        // Preserva registros manuais e registros de outras matrículas.
+        pessoas=pessoas.filter(p=>!matriculasImportadas.has(p.matricula) ||
+          p.origem==='Preenchimento manual');
+        const chaves=new Set(pessoas.map(p=>p.matricula+'|'+p.lotacao));
+        for(const c of candidatos.achados){
+          const chave=c.matricula+'|'+c.lotacao;
+          if(chaves.has(chave))continue;
+          chaves.add(chave);
+          pessoas.push(c); // Exige nova confirmação na lotação correta.
+        }
+        origemIndividual=f.name;
+        alertas=alertas.filter(x=>!/^Matrícula .*lotação .*sem rubrica 163/.test(x));
+        alertas.push(...candidatos.avisos);
+        status(candidatos.achados.length+' servidora(s) com maternidade identificada(s) por matrícula e lotação completa. Confira os valores e marque Conferi.');
       } else {
         const a=analisarResumoVerbas(linhas,{tipo,nome:f.name});
         if(a.competencia&&a.competencia!==competencia)throw Error('Competência do PDF ('+a.competencia+') difere da selecionada ('+competencia+').');
