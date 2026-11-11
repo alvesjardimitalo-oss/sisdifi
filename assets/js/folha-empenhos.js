@@ -166,9 +166,9 @@ export function analisarResumoVerbas(linhas,{tipo='principal',nome=''}={}){
     const l=String(typeof item==='string'?item:item.texto).trim();
     const pagina=typeof item==='object'?item.pagina||1:1;
     if(!l)continue;linhasVistas++;
-    if(/LOTA[CÇ][ÃA]O\.{2,}\s*:\s*([\d.]+)/i.test(l)){
+    if(/LOTA[CÇ][ÃA]O\s*\.*\s*:\s*(\d{3}(?:\.\d+){2,})/i.test(l)){
       fechar();
-      grupo={lotacao:l.match(/LOTA[CÇ][ÃA]O\.{2,}\s*:\s*([\d.]+)/i)[1],caminho:[],resumos:{},paginaInicio:pagina,paginaFim:pagina,fonteArquivo:nome};
+      grupo={lotacao:l.match(/LOTA[CÇ][ÃA]O\s*\.*\s*:\s*(\d{3}(?:\.\d+){2,})/i)[1],caminho:[],resumos:{},paginaInicio:pagina,paginaFim:pagina,fonteArquivo:nome};
       naHeader=true;primeiraPagina=pagina;
       continue;
     }
@@ -205,7 +205,7 @@ export function tipoDeFolhaCabecalho(linha){
 export function analisarResumoConsolidado(linhas,{nome=''}={}){
   const grupos=[],alertas=[];let tipo='',inicio=[],grupo=null,ultimaPagina=0;
   const cabecalho=[];
-  const lot=/LOTA[CÇ][AÃ]O\s*\.{0,}\s*:\s*(\d{3}(?:\.\d+){2,})/i;
+  const lot=/LOTA[CÇ][AÃ]O\s*\.*\s*:\s*(\d{3}(?:\.\d+){2,})/i;
   const finalizar=()=>{
     if(!grupo)return;
     const tipoAtual=grupo.tipo;
