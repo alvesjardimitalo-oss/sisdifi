@@ -1,6 +1,7 @@
 // SISDIFI — Folha de pagamentos: geração de relação prévia de empenhos.
 // Exclusivo de Contabilidade/ADM. Não grava dados de folha no Firebase.
 import {estado,pode} from '../estado.js';
+import {consultarFichaOrcamento,alertaNaturezaFicha,FICHAS_PESSOAL_2026} from '../folha-orcamento-2026.js';
 import {esc,toast} from '../ui.js';
 import {analisarResumoVerbas,analisarResumoConsolidado,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha} from '../folha-empenhos.js';
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
@@ -35,6 +36,22 @@ export function telaFolhaEmpenhos(el){
   let primeiro=5000,arquivos={},pessoas=[],mapa={},aprovouMapa=false,aprovouConsignados=false;
   let minutas=[],alertas=[],nomeConsolidado='',origemIndividual='',filtro='todos',visao='resumo',carregando=false,ativa=true,filaDeSalvamento=Promise.resolve();
   const $=sel=>el.querySelector(sel);
+  // Ficha da LOA -> órgão/unidade e ação orçamentária. Nunca alterar o código RH da lotação.
+  const localizarFicha=numero=>consultarFichaOrcamento(numero,Number(competencia.slice(0,4)),estado.fichas||[],estado.secretarias||[]);
+  const preencherPelaFicha=(id,numero)=>{
+    const atual=mapa[id]||{},ficha=String(numero||'').trim(),referencia=localizarFicha(ficha);
+    const novo={...atual,ficha};
+    if(referencia&&!referencia.ambiguo){
+      if(referencia.unidade)novo.secretaria=referencia.unidade;
+      if(referencia.acao)novo.lotacaoOrcamentaria=referencia.acao;
+      novo.origemFicha=referencia.origem;
+      if(referencia.fontes.length===1)novo.fonte=referencia.fontes[0];
+      else if(novo.fonte&&referencia.fontes.length&&!referencia.fontes.includes(novo.fonte))novo.fonte='';
+    }else if(!ficha){
+      novo.lotacaoOrcamentaria='';novo.origemFicha='';
+    }
+    mapa[id]=novo;
+  };
   const estilo='<style>'+
     '.fe{max-width:1350px;margin:0 auto;color:#233e58}.fe h1{color:#174366;font-size:1.55rem;margin:0 0 8px}.fe h2{font-size:1.12rem;color:#174366;margin:0 0 12px}'+
     '.fe p{line-height:1.52}.fe .fe-muted{color:#66798b;font-size:.85rem}.fe .fe-card{background:#fff;border:1px solid #dce5ee;border-radius:12px;margin:14px 0;padding:17px}'+
@@ -77,7 +94,7 @@ export function telaFolhaEmpenhos(el){
       '<div id="fe-pessoas"></div></section>'+
     '<section class="fe-card"><h2>3 · Preencha ficha e fonte de recursos</h2>'+
       '<p class="fe-muted">Na folha extra, se o incentivo federal estiver informado fora do bruto do RH, escolha <strong>Somar ao bruto</strong> na respectiva lotação. Se já estiver incluído, escolha <strong>Já incluído</strong>. Não haverá INSS automático na extra: eventual desconto na folha seguinte será conferido separadamente.</p>'+
-      '<p class="fe-muted">O Resumo de Verbas já fornece bruto, composição dos descontos e líquido por empenho. Você só precisa informar ficha e fonte, conferir os valores e, se desejar, a conta bancária. Reaproveitamos as informações por lotação nos meses seguintes.</p>'+
+      '<p class="fe-muted">Ao informar uma ficha, o SISDIFI identifica a secretaria/unidade e a ação (lotação orçamentária) pelo orçamento vigente cadastrado ou, para 2026, pela referência da LOA. O código da lotação RH, extraído do PDF, permanece inalterado. Se a ficha permitir mais de uma fonte, escolha a fonte manualmente. Todos os campos permanecem editáveis.</p>'+
       '<div class="fe-actions"><button class="btn btn-sec" id="fe-baixar-mapa" type="button">Baixar modelo CSV</button>'+
       '<label class="btn btn-sec" style="cursor:pointer">Importar mapa CSV <input id="fe-ler-mapa" type="file" accept=".csv,text/csv" style="display:none"></label>'+
       '<label><input type="checkbox" id="fe-confirmar-mapa"> Conferi as fichas e fontes na LOA</label></div><div id="fe-mapa-notas"></div></section>'+
@@ -128,6 +145,11 @@ export function telaFolhaEmpenhos(el){
   const conciliar=x=>conferirConsignadosFolha(x.previsao.empenhos,minutas);
   function finalPossivel(x){
     if(!x||!Object.values(arquivos).some(a=>a?.registros?.length)||alertas.length||x.maternidade.avisos.length||x.previsao.pendentes.length||!aprovouMapa)return false;
+    // Impede exportar como conferido quando a ficha informada contradiz a natureza orçamentária.
+    if(x.previsao.empenhos.some(r=>{
+      const ref=localizarFicha(r.ficha);
+      return !!(ref&&alertaNaturezaFicha(r.vinculo,ref.naturezas));
+    }))return false;
     const contemBancoOuPensao=x.previsao.empenhos.some(e=>Object.values(e.bancos||{}).some(v=>v>0));
     if((arquivos.principal||contemBancoOuPensao) && (!minutas.length||!aprovouConsignados))return false;
     if(arquivosLista().some(f=>f.avisos?.length))return false;
@@ -203,18 +225,27 @@ export function telaFolhaEmpenhos(el){
       '<p class="fe-muted">A igualdade do total por banco não prova que cada guia está vinculada à lotação correta.</p>';
     const registros=p.empenhos.filter(e=>filtro==='todos'||filtro==='pendentes'&&e.problemas.length||e.tipo===filtro);
     if(visao==='resumo'){
-    $('#fe-tabela').innerHTML='<table><thead><tr><th>Empenho</th><th>Grupo</th><th>Secretaria</th><th>Vínculo</th><th>Lotação</th><th>Ficha</th><th>Fonte</th><th>Conta</th><th class="fe-money">Bruto</th><th class="fe-money">Desconto RH</th><th class="fe-money">INSS extra</th><th class="fe-money">Líquido</th><th>Pendências</th></tr></thead><tbody>'+
+    $('#fe-tabela').innerHTML='<table><thead><tr><th>Empenho</th><th>Grupo</th><th>Secretaria/unidade</th><th>Vínculo</th><th>Lotação RH</th><th>Lotação orçamentária (ação)</th><th>Ficha</th><th>Fonte</th><th>Conta</th><th class="fe-money">Bruto</th><th class="fe-money">Desconto RH</th><th class="fe-money">INSS extra</th><th class="fe-money">Líquido</th><th>Pendências</th></tr></thead><tbody>'+
       registros.map(r=>{
         const m=mapa[r.id]||mapa[r.lotacao]||{};
+        const ref=localizarFicha(m.ficha||r.ficha);
+        const avisoNatureza=ref?alertaNaturezaFicha(r.vinculo,ref.naturezas):'';
+        const fontes=ref?.fontes||[];
+        const avisoFicha=m.ficha&&!ref?'Ficha não localizada no orçamento disponível; confira manualmente.':ref?.ambiguo?'Ficha com correspondências orçamentárias distintas; confira manualmente.':'';
+        const avisoFonte=ref&&fontes.length>1&&!m.fonte?'Selecione uma das fontes permitidas: '+fontes.join(', '):ref&&m.fonte&&fontes.length&&!fontes.includes(m.fonte)?'A fonte informada não corresponde às fontes cadastradas nesta ficha.':'';
         return '<tr><td><strong>'+r.empenho+'</strong></td><td>'+esc(tipos[r.tipo])+'</td>'+
           '<td><input style="width:170px" data-ref="'+esc(r.id)+'" data-campo="secretaria" value="'+esc(m.secretaria||r.secretaria||'')+'"></td>'+
           '<td><input style="width:115px" data-ref="'+esc(r.id)+'" data-campo="vinculo" value="'+esc(m.vinculo||r.vinculo||'')+'"></td>'+
-        '<td>'+esc(r.lotacao)+'</td>'+
-        ['ficha','fonte','conta'].map(col=>'<td><input data-ref="'+esc(r.id)+'" data-campo="'+col+'" value="'+esc(m[col]||'')+'"></td>').join('')+
+        '<td><strong>'+esc(r.lotacao)+'</strong></td>'+
+        '<td><input style="width:225px" data-ref="'+esc(r.id)+'" data-campo="lotacaoOrcamentaria" value="'+esc(m.lotacaoOrcamentaria||ref?.acao||'')+'"><small style="display:block;color:#526b80">'+esc(ref?.origem||'Edição manual')+'</small></td>'+
+        '<td><input style="width:88px" list="fe-fichas-2026" data-ref="'+esc(r.id)+'" data-campo="ficha" value="'+esc(m.ficha||'')+'"></td>'+
+        '<td><input style="width:132px" data-ref="'+esc(r.id)+'" data-campo="fonte" value="'+esc(m.fonte||'')+'"></td>'+
+        '<td><input data-ref="'+esc(r.id)+'" data-campo="conta" value="'+esc(m.conta||'')+'"></td>'+
         '<td class="fe-money">'+dinheiroFolha(r.bruto||0)+(r.tipo==='extra'&&r.incentivo?'<small style="display:block;color:#506d82">Incentivo: '+dinheiroFolha(r.incentivo)+'</small>':'')+'</td><td class="fe-money">'+dinheiroFolha(r.descontoRH||0)+'</td>'+
         '<td class="fe-money">'+dinheiroFolha(r.maisInssExtra)+'</td><td class="fe-money"><strong>'+dinheiroFolha(r.liquido||0)+'</strong></td>'+
-        '<td class="fe-status">'+esc(r.problemas.join('; ')||'Pronto para conferir')+'</td></tr>';
-      }).join('')+'</tbody></table>';
+        '<td class="fe-status">'+esc([...r.problemas,avisoFicha,avisoFonte,avisoNatureza].filter(Boolean).join('; ')||'Pronto para conferir')+'</td></tr>';
+      }).join('')+'</tbody></table>'+
+      (Number(competencia.slice(0,4))===2026?'<datalist id="fe-fichas-2026">'+FICHAS_PESSOAL_2026.map(f=>'<option value="'+esc(f.ficha)+'" label="'+esc(f.acao)+'"></option>').join('')+'</datalist>':'');
     }else{
       const cabecalhos=['Empenho','Secretaria / vínculo','Lotação','Bruto','Caixa','Sicoob','Bradesco','Pensão',
         'INSS original','Imposto de Renda','Outros','Soma das rubricas','Desconto do RH','Diferença',
@@ -244,7 +275,8 @@ export function telaFolhaEmpenhos(el){
     }
     $('#fe-tabela').querySelectorAll('[data-ref]').forEach(input=>input.onchange=()=>{
       const k=input.dataset.ref,campo=input.dataset.campo;
-      mapa[k]={...(mapa[k]||{}),[campo]:input.value.trim()};
+      if(campo==='ficha')preencherPelaFicha(k,input.value);
+      else mapa[k]={...(mapa[k]||{}),[campo]:input.value.trim()};
       aprovouMapa=false;$('#fe-confirmar-mapa').checked=false;persistir();render();
     });
     const situacoes=p.previsao?.empenhos||p.empenhos;
@@ -374,10 +406,11 @@ export function telaFolhaEmpenhos(el){
       for(const r of linhas){
         const lot=String(r[ind('lotacao')]||'').trim(),tipo=ind('tipo')<0?'principal':String(r[ind('tipo')]||'principal').trim();
         if(!lot)continue;
-        mapa[tipo+'|'+lot]={ficha:String(r[ind('ficha')]||'').trim(),
+        mapa[tipo+'|'+lot]={...(mapa[tipo+'|'+lot]||{}),ficha:String(r[ind('ficha')]||'').trim(),
           fonte:String(r[ind('fonte')]||'').trim(),conta:String(r[ind('conta')]||'').trim(),
           secretaria:ind('secretaria')<0?'':String(r[ind('secretaria')]||'').trim(),
           vinculo:ind('vinculo')<0?'':String(r[ind('vinculo')]||'').trim()};
+        preencherPelaFicha(tipo+'|'+lot,mapa[tipo+'|'+lot].ficha);
         n++;
       }
       aprovouMapa=false;$('#fe-confirmar-mapa').checked=false;await persistir();render();
