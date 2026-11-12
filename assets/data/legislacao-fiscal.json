@@ -3,7 +3,7 @@
   "municipio": "Prefeitura Municipal de Frei Inocêncio",
   "codigoIBGE": "3126901",
   "versaoPolitica": "2026-11-11.1",
-  "ultimaExecucao": "2026-11-11T14:38:47+00:00",
+  "ultimaExecucao": "2026-11-12T18:19:39+00:00",
   "explicacao": "Monitor automático das publicações oficiais. Mudança de conteúdo não é mudança de alíquota. Parâmetros tributários exigem validação da Contabilidade/ADM.",
   "fontes": [
     {
@@ -11,74 +11,87 @@
       "titulo": "Código Tributário Municipal (Lei 883/2017)",
       "tema": "ISS",
       "url": "https://freiinocencio.mg.gov.br/legislacoes",
-      "estado": "monitorado",
+      "estado": "mudanca_detectada",
       "hashReferencia": "cd7ac76b972d26c7c81ddc07dce5cbd6baccb829d72db1a6c6ed80dcacf9c766",
-      "hashObservado": "cd7ac76b972d26c7c81ddc07dce5cbd6baccb829d72db1a6c6ed80dcacf9c766",
-      "ultimaConsulta": "2026-11-11T14:38:47+00:00",
+      "hashObservado": "2bb5da805a2eb527a9811291149d02fd93521ff3bb54645bcc3ac0d98f072693",
+      "ultimaConsulta": "2026-11-12T18:19:39+00:00",
       "consultaIntermediada": true,
-      "referenciaCapturadaEm": "2026-11-11T14:38:47+00:00"
+      "referenciaCapturadaEm": "2026-11-11T14:38:47+00:00",
+      "mudancaDetectadaEm": "2026-11-12T18:19:39+00:00"
     },
     {
       "id": "lei_966_2023",
       "titulo": "Lei Municipal 966/2023 — base do ISS",
       "tema": "ISS",
       "url": "https://freiinocencio.mg.gov.br/arquivo/67d484b2ddc9d.pdf",
-      "estado": "monitorado",
+      "estado": "mudanca_detectada",
       "hashReferencia": "02e7010d5e3086c845e14d30d2fcdff3a87ed735efc13c05aa774c6c1630f7ab",
-      "hashObservado": "02e7010d5e3086c845e14d30d2fcdff3a87ed735efc13c05aa774c6c1630f7ab",
-      "ultimaConsulta": "2026-11-11T14:38:47+00:00",
+      "hashObservado": "efd89d520579f0a3a755d5bdc433fecb58d15b0d0e881c1578b0e6d3a2a1d45e",
+      "ultimaConsulta": "2026-11-12T18:19:39+00:00",
       "consultaIntermediada": true,
-      "referenciaCapturadaEm": "2026-11-11T14:38:47+00:00"
+      "referenciaCapturadaEm": "2026-11-11T14:38:47+00:00",
+      "mudancaDetectadaEm": "2026-11-12T18:19:39+00:00"
     },
     {
       "id": "municipal_publicacoes",
       "titulo": "Publicações legislativas do Município",
       "tema": "municipal",
       "url": "https://camarafreiinocencio.mg.gov.br/legislacoes",
-      "estado": "monitorado",
+      "estado": "mudanca_detectada",
       "hashReferencia": "9caa5f15e1bdb091e5c4ec2cec91ce53bff259661755bb8a5e07bc5efba019d3",
-      "hashObservado": "9caa5f15e1bdb091e5c4ec2cec91ce53bff259661755bb8a5e07bc5efba019d3",
-      "ultimaConsulta": "2026-11-11T14:38:47+00:00",
+      "hashObservado": "53196cfa89f3726ce190f9a96159a636de7d89c739ea3b28cbabda8432fffbc1",
+      "ultimaConsulta": "2026-11-12T18:19:39+00:00",
       "consultaIntermediada": true,
-      "referenciaCapturadaEm": "2026-11-11T14:38:47+00:00"
+      "referenciaCapturadaEm": "2026-11-11T14:38:47+00:00",
+      "mudancaDetectadaEm": "2026-11-12T18:19:39+00:00"
     },
     {
       "id": "receita_normas",
       "titulo": "Acervo de normas da Receita Federal",
       "tema": "IRRF",
       "url": "https://www.gov.br/receitafederal/pt-br/acesso-a-informacao/legislacao/app-normas",
-      "estado": "monitorado",
+      "estado": "mudanca_detectada",
       "hashReferencia": "b4f3ab2d0410857b779e224ddcd66fef149a0783253e22993d11b103ac4e5f37",
-      "hashObservado": "b4f3ab2d0410857b779e224ddcd66fef149a0783253e22993d11b103ac4e5f37",
-      "ultimaConsulta": "2026-11-11T14:38:47+00:00",
+      "hashObservado": "919c5960ec049919b91950f1324f0d581c2abadafc77baab8ae311bf2d875f5d",
+      "ultimaConsulta": "2026-11-12T18:19:39+00:00",
       "referenciaCapturadaEm": "2026-11-11T14:32:50+00:00",
-      "consultaIntermediada": false
+      "consultaIntermediada": false,
+      "mudancaDetectadaEm": "2026-11-12T18:19:39+00:00"
     },
     {
       "id": "reforma_tributaria",
       "titulo": "Marcos regulatórios da Reforma Tributária",
       "tema": "CBS/IBS",
       "url": "https://www.gov.br/receitafederal/pt-br/acesso-a-informacao/acoes-e-programas/programas-e-atividades/reforma-tributaria-do-consumo/legislacao/principais-marcos-regulatorios",
-      "estado": "monitorado",
+      "estado": "mudanca_detectada",
       "hashReferencia": "012a14f4844f6b3e66a6fc485dc54931e110cb6f6d6b49d8b1c9ecf81f67aef3",
-      "hashObservado": "012a14f4844f6b3e66a6fc485dc54931e110cb6f6d6b49d8b1c9ecf81f67aef3",
-      "ultimaConsulta": "2026-11-11T14:38:47+00:00",
+      "hashObservado": "0bf6537805f1e9fc4345804ae39ffdfd8b66971fb4e7fb273c53e2096ae9cd34",
+      "ultimaConsulta": "2026-11-12T18:19:39+00:00",
       "referenciaCapturadaEm": "2026-11-11T14:32:50+00:00",
-      "consultaIntermediada": false
+      "consultaIntermediada": false,
+      "mudancaDetectadaEm": "2026-11-12T18:19:39+00:00"
     },
     {
       "id": "reforma_orientacoes",
       "titulo": "Cronograma de documentos fiscais da RTC",
       "tema": "CBS/IBS",
       "url": "https://www.gov.br/receitafederal/pt-br/assuntos/noticias/2026/julho/receita-federal-e-comite-gestor-do-ibs-publicam-o-cronograma-de-implementacao-dos-documentos-fiscais-eletronicos-da-reforma-tributaria-do-consumo",
-      "estado": "monitorado",
+      "estado": "mudanca_detectada",
       "hashReferencia": "aebca686da08a5d2d17c07c15d5c5893ccafefbcb13e88fbd40b237fbca1861e",
-      "hashObservado": "aebca686da08a5d2d17c07c15d5c5893ccafefbcb13e88fbd40b237fbca1861e",
-      "ultimaConsulta": "2026-11-11T14:38:47+00:00",
+      "hashObservado": "a175f3a06bc88872efbe2d55543f8b5a953bf38ab4c5b34d69bdd9e1e57043ca",
+      "ultimaConsulta": "2026-11-12T18:19:39+00:00",
       "referenciaCapturadaEm": "2026-11-11T14:32:50+00:00",
-      "consultaIntermediada": false
+      "consultaIntermediada": false,
+      "mudancaDetectadaEm": "2026-11-12T18:19:39+00:00"
     }
   ],
   "aplicacaoAutomaticaDeAliquotas": false,
-  "novosAlertas": []
+  "novosAlertas": [
+    "Código Tributário Municipal (Lei 883/2017)",
+    "Lei Municipal 966/2023 — base do ISS",
+    "Publicações legislativas do Município",
+    "Acervo de normas da Receita Federal",
+    "Marcos regulatórios da Reforma Tributária",
+    "Cronograma de documentos fiscais da RTC"
+  ]
 }
