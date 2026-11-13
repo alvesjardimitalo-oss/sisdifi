@@ -492,6 +492,7 @@ export function telaRetencoes(el) {
     desinscrever = db.ouvirDoc('retencoes_anos', String(ano), d => {
       if (cancelou || lido !== ano) return;
       documento = d || { ano, lancamentos: {} }; carregando = false;
+      corrigirContaIPI();
       $('#r-status').textContent = 'Sincronizado · exercício ' + ano; render();
     }, e => {
       if (cancelou || lido !== ano) return;
@@ -500,7 +501,24 @@ export function telaRetencoes(el) {
       render();
     });
   }
-  desConfig = db.ouvirDoc('retencoes_config', 'geral', d => { config = { ...CONFIG_PADRAO, ...(d || {}) }; alertaEmpenhos(); }, () => {});
+  // Correção da conta do IPI (92998-8 → 92998-0): ajusta a configuração e os lançamentos já gravados, uma vez.
+  const CONTA_IPI_ERRADA = '92998-8', CONTA_IPI = ORIGENS.IPI.conta;
+  let corrigindoIPI = false;
+  function corrigirContaIPI() {
+    if (corrigindoIPI || !documento) return;
+    const errados = registros().filter(r => r.origem === 'IPI' && r.conta === CONTA_IPI_ERRADA);
+    if (!errados.length) return;
+    corrigindoIPI = true;
+    const lanc = Object.fromEntries(errados.map(r => [r.id, { conta: CONTA_IPI }]));
+    db.salvar('retencoes_anos', String(ano), { lancamentos: lanc })
+      .then(() => db.registrarLog('retencoes.corrige_conta_ipi', { quantidade: errados.length }).catch(() => {}))
+      .catch(() => {}).finally(() => { corrigindoIPI = false; });
+  }
+  desConfig = db.ouvirDoc('retencoes_config', 'geral', d => {
+    config = { ...CONFIG_PADRAO, ...(d || {}) };
+    if (config.contas?.IPI === CONTA_IPI_ERRADA) db.salvar('retencoes_config', 'geral', { contas: { IPI: CONTA_IPI } }).catch(() => {});
+    alertaEmpenhos();
+  }, () => {});
   ouvir();
   return { titulo: 'Retenções das transferências', limpar: () => { cancelou = true; desinscrever?.(); desConfig?.(); } };
 }

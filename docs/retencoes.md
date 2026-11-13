@@ -9,7 +9,7 @@ com baixa contra a própria conta da transferência. A aba registra cada retenç
 
 | Retenção | Onde aparece | Conta |
 |---|---|---|
-| PASEP (1% — Lei 9.715/1998, art. 2º, III, e art. 8º, III) | Consulta do DAF no BB | FPM 3261-1, ITR 6729-6, IPI 92998-8, FEP e LC 176 (configurar) |
+| PASEP (1% — Lei 9.715/1998, art. 2º, III, e art. 8º, III) | Consulta do DAF no BB | FPM 3261-1, ITR 6729-6, IPI 92998-0, FEP e LC 176 (configurar) |
 | EMATER, CISDOCE Rateio, CISDOCE Serviços, ARDOCE, AMM | Extrato da conta do FPM, dias 10/20/30 | FPM 3261-1 |
 | CNM | Extrato da conta do FPM, normalmente dia 20 | FPM 3261-1 |
 
@@ -42,7 +42,7 @@ passa a sair com esses dados. **Anular** tira do total sem reaproveitar o númer
 **⬆ Planilha do IPI (SEF-MG)** aceita uma ou várias planilhas `.xlsx` baixadas em
 `fazenda.mg.gov.br/.../previsao_repasse_IPI/repasse_decendial/` (uma a cada decêndio, todos os municípios). O sistema acha a linha
 de Frei Inocêncio (nome do município em Parâmetros), lê a data do título ("PARA O DIA 20/10/2026") e lança o **PASEP do IPI**
-(conta 92998-8), conferindo 1% sobre Bruto − FUNDEB. O comprovante traz a linha da planilha (índice, bruto, FUNDEB, PASEP, saúde,
+(conta 92998-0), conferindo 1% sobre Bruto − FUNDEB. O comprovante traz a linha da planilha (índice, bruto, FUNDEB, PASEP, saúde,
 líquido) — não é preciso imprimir a planilha.
 
 ## Empenhos anuais

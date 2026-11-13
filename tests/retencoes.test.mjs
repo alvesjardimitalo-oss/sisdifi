@@ -194,7 +194,8 @@ assert.equal(empenhoPadrao({ 2026: { EMATER: '15/2026' } }, 'EMATER', 'FPM', '20
 // histórico contábil para copiar
 const { historicoContabil } = await import('../assets/js/retencoes.js');
 assert.equal(historicoContabil({ data: '2026-11-10', origem: 'FPM' }, '3261-1'), 'REFERENTE AO PRIMEIRO DECENDIO DO MES DE NOVEMBRO, FPM 3261-1.');
-assert.equal(historicoContabil({ data: '2026-10-20', origem: 'IPI', conta: '92998-8' }), 'REFERENTE AO SEGUNDO DECENDIO DO MES DE OUTUBRO, IPI 92998-8.');
+assert.equal(historicoContabil({ data: '2026-10-20', origem: 'IPI' }, '92998-0'), 'REFERENTE AO SEGUNDO DECENDIO DO MES DE OUTUBRO, IPI 92998-0.');
+assert.equal((await import('../assets/js/retencoes.js')).ORIGENS.IPI.conta, '92998-0');
 assert.equal(historicoContabil({ data: '2026-11-03', origem: 'ITR' }, '6729-6'), 'REFERENTE AO TERCEIRO DECENDIO DO MES DE OUTUBRO, ITR 6729-6.');
 assert.equal(historicoContabil({ data: '2026-03-30', origem: 'FEP' }), 'REFERENTE AO TERCEIRO DECENDIO DO MES DE MARCO, FEP.');
 assert.equal(historicoContabil({ data: '2026-11-13', origem: 'FPM', decendio: 2, competencia: '2026-11' }, '3261-1'), 'REFERENTE AO SEGUNDO DECENDIO DO MES DE NOVEMBRO, FPM 3261-1.');
