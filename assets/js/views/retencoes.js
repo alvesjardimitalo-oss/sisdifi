@@ -218,7 +218,7 @@ export function telaRetencoes(el) {
   async function importarIPI(arquivos) {
     if (!arquivos.length) return;
     const municipio = estado.config?.origem?.cidade || 'Frei Inocêncio';
-    const { lerXlsx } = await import('../xlsx-leitor.js?v=3.19.0');
+    const { lerXlsx } = await import('../xlsx-leitor.js?v=3.20.0');
     const movimentos = [], erros = [];
     for (const f of arquivos) {
       try {

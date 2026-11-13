@@ -11,6 +11,7 @@ on:
       - 'tests/fixtures/**'
       - 'assets/js/extrato-ocr.js'
       - 'assets/js/xlsx-leitor.js'
+      - 'assets/js/doc-a4.js'
       - '.github/workflows/retencoes-check.yml'
   pull_request:
     paths:
