@@ -57,6 +57,11 @@ ordem das retenções). Cada lote é numerado em ordem de data. Se um lote tiver
 (ex.: subir as planilhas do IPI depois do DAF), o sistema oferece **reordenar** antes de gerar os comprovantes. O botão
 **Reordenar por data** faz o mesmo a qualquer momento. Comprovantes impressos antes precisam ser gerados de novo.
 
+## Lista como extrato
+A lista e o impresso (**Extrato do filtro**) ficam como um extrato: da data mais antiga para a mais nova, com o
+**acumulado** em cada linha e o **total do dia** ao fim de cada data. Filtrando por *Retenção = PASEP* e *Mês = Todos*,
+vira o espelho do PASEP do exercício. Retenções anuladas aparecem riscadas e não somam.
+
 ## Comprovante e histórico
 O comprovante segue o padrão da memória de cálculo das Consignações (folha A4, brasão, faixa azul/verde, quadro do valor,
 assinaturas, código de verificação). Cada retenção tem o **histórico contábil para copiar** (botão *Copiar* na lista, também
