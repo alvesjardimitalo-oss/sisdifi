@@ -517,6 +517,7 @@ export function telaRetencoes(el) {
       if (cancelou || lido !== ano) return;
       documento = d || { ano, lancamentos: {} }; carregando = false;
       corrigirContaIPI();
+      completarEmpenhos();
       $('#r-status').textContent = 'Sincronizado · exercício ' + ano; render();
     }, e => {
       if (cancelou || lido !== ano) return;
@@ -524,6 +525,18 @@ export function telaRetencoes(el) {
       $('#r-status').textContent = 'Não foi possível abrir as retenções. Publique as regras atualizadas do Firestore (firestore.rules) e recarregue. Detalhe: ' + erro;
       render();
     });
+  }
+  // Lançamentos sem empenho (feitos antes dos empenhos automáticos) recebem o empenho padrão do exercício, uma vez.
+  let completandoEmp = false, configCarregada = false;
+  function completarEmpenhos() {
+    if (completandoEmp || !documento || !configCarregada) return;
+    const sem = registros().filter(r => !r.anulado && !r.empenho && empenhoDe(r));
+    if (!sem.length) return;
+    completandoEmp = true;
+    const lanc = Object.fromEntries(sem.map(r => [r.id, { empenho: empenhoDe(r), atualizadoEm: new Date().toISOString(), atualizadoPor: estado.sessao.nome }]));
+    db.salvar('retencoes_anos', String(ano), { lancamentos: lanc })
+      .then(() => { db.registrarLog('retencoes.empenho_automatico', { ano, quantidade: sem.length }).catch(() => {}); toast(`Empenho preenchido automaticamente em ${sem.length} retenção(ões).`); })
+      .catch(() => {}).finally(() => { completandoEmp = false; });
   }
   // Correção da conta do IPI (92998-8 → 92998-0): ajusta a configuração e os lançamentos já gravados, uma vez.
   const CONTA_IPI_ERRADA = '92998-8', CONTA_IPI = ORIGENS.IPI.conta;
@@ -539,7 +552,7 @@ export function telaRetencoes(el) {
       .catch(() => {}).finally(() => { corrigindoIPI = false; });
   }
   desConfig = db.ouvirDoc('retencoes_config', 'geral', d => {
-    config = { ...CONFIG_PADRAO, ...(d || {}) };
+    config = { ...CONFIG_PADRAO, ...(d || {}) }; configCarregada = true; completarEmpenhos();
     if (config.contas?.IPI === CONTA_IPI_ERRADA) db.salvar('retencoes_config', 'geral', { contas: { IPI: CONTA_IPI } }).catch(() => {});
     alertaEmpenhos();
   }, () => {});
