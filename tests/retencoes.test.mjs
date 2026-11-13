@@ -166,9 +166,11 @@ assert.deepEqual(porRub, {
   CISDOCE_RATEIO: 322168 * 4, CISDOCE_SERVICOS: 2726851 + 2502100 + 10070644 + 2502100, AMM: 88052 });
 // rateio (3.221,68) em todo decêndio; serviços (outros valores) só no dia 10
 assert.ok(mEx.filter(p => p.rubrica === 'CISDOCE_SERVICOS').every(p => ['2026-10-09', '2026-11-10'].includes(p.data) && !p.avisos.some(a => /dia 10/.test(a))));
-assert.ok(mEx.find(p => p.data === '2026-10-09' && p.rubrica === 'CISDOCE_RATEIO' && p.avisos.some(a => /Mais de um rateio/.test(a))));
+assert.ok(mEx.find(p => p.data === '2026-10-09' && p.rubrica === 'CISDOCE_RATEIO' && /decêndio anterior/.test(p.observacao)));
+// 10/11: o rateio estornado em 30/10 volta junto com o do decêndio (e um deles foi estornado de novo no dia)
+assert.equal(mEx.filter(p => p.data === '2026-11-10' && p.rubrica === 'CISDOCE_RATEIO').length, 1);
 assert.ok(pEx.filter(p => p.rubrica === 'PASEP').every(p => !p.marcado && !p.avisos.some(a => /diferente/.test(a))), 'PASEP do extrato soma 1% no dia');
-assert.equal(pEx.filter(p => p.avisos.some(a => /estornado/.test(a))).length, 4);
+assert.equal(pEx.filter(p => p.avisos.some(a => /Débito estornado/.test(a))).length, 4);
 assert.ok(!mEx.some(p => p.data === '2026-11-03'), 'ARDOCE de 03/11 foi estornado');
 // lançado de novo: tudo vira duplicado, inclusive os dois CISDOCE iguais do mesmo dia
 const jaEx = mEx.map(p => ({ data: p.data, origem: p.origem, rubrica: p.rubrica, centavos: p.centavos }));

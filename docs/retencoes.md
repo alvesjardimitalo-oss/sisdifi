@@ -24,6 +24,8 @@ com baixa contra a própria conta da transferência. A aba registra cada retenç
    O PASEP do extrato fica desmarcado (vem em duas linhas; é lançado pelo DAF). **CISDOCE**: o extrato não diz se é rateio ou
    serviços. Regra da Contabilidade: o **rateio** é o valor fixo (R$ 3.221,68, editável em Configurar) descontado em todo decêndio;
    **qualquer outro valor é serviços**, conforme a demanda, descontado só no dia 10 (aviso se aparecer em outro decêndio).
+   Rateio **estornado** volta no decêndio seguinte: dois rateios no mesmo dia são lançados, e o a mais recebe a observação
+   "Rateio CISDOCE do decêndio anterior, estornado em …, cobrado novamente neste decêndio" (sai no comprovante).
 3. **+ Lançar decêndio** — digitação rápida de todas as retenções de uma data, quando não houver arquivo.
 4. **+ Lançamento avulso** — qualquer retenção, inclusive "Outra retenção" com credor próprio (ex.: ADO LC 176 ocasional).
 

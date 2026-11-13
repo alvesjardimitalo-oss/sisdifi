@@ -214,7 +214,7 @@ export function telaRetencoes(el) {
           if (!m.el.querySelector(`[data-m="${i}"]`).checked) return;
           const origem = m.el.querySelector(`[data-o="${i}"]`).value, rubrica = m.el.querySelector(`[data-r="${i}"]`).value, data = m.el.querySelector(`[data-d="${i}"]`).value;
           try {
-            validos.push(validarLancamento({ data, origem, rubrica, centavos: p.centavos, base_centavos: p.base_centavos, historico: p.historico,
+            validos.push(validarLancamento({ data, origem, rubrica, centavos: p.centavos, base_centavos: p.base_centavos, historico: p.historico, observacao: p.observacao,
               conta: contaDe(origem), credor: credorDe(rubrica), arquivo: nomeArquivo }));
           } catch (err) { throw Error(`Linha ${p.linha} (${dinheiro(p.centavos)}): ${err.message}`); }
         });

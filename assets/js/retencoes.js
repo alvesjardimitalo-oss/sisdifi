@@ -338,13 +338,19 @@ export function proporLancamentos(movimentos, existentes = [], { fonte = '', val
   });
   // CISDOCE: o rateio é um valor fixo cobrado em todo decêndio; qualquer outro valor é serviço (cobrado só no 1º decêndio, dia 10)
   const rateioDia = {};
+  const estornosRateio = movimentos.filter(m => m.estorno && /^CISDOCE_/.test(m.rubrica) && m.centavos === valorRateioCisdoce).map(m => m.data).sort();
   return movimentos.map((m, i) => ({ m, i })).filter(({ m }) => m.rubrica !== 'BASE' && m.rubrica !== 'IGNORAR' && !(m.bloco && !RUBRICAS[m.rubrica])).map(({ m, i }) => {
     const p = { ...m, avisos: [], base_centavos: 0, duplicado: false };
     if (/^CISDOCE_/.test(p.rubrica) && !/RATEIO|SERVIC/i.test(p.historico.replace(/PRESTA[CÇ][AÃ]O DE SERVI[CÇ]OS/i, ''))) {
       p.rubrica = p.centavos === valorRateioCisdoce ? 'CISDOCE_RATEIO' : 'CISDOCE_SERVICOS';
       if (p.rubrica === 'CISDOCE_RATEIO' && !p.estorno && !estornado.has(i)) {
         rateioDia[p.data] = (rateioDia[p.data] || 0) + 1;
-        if (rateioDia[p.data] > 1) p.avisos.push('Mais de um rateio do CISDOCE no mesmo dia — confira se não é serviço de mesmo valor.');
+        if (rateioDia[p.data] > 1) {
+          // rateio estornado volta a ser cobrado no decêndio seguinte, junto com o rateio do próprio decêndio
+          const est = estornosRateio.filter(d => d < p.data).pop();
+          p.observacao = 'Rateio CISDOCE do decêndio anterior' + (est ? `, estornado em ${dataBR(est)}` : ' (estornado)') + ', cobrado novamente neste decêndio.';
+          p.avisos.push(est ? `Rateio a mais: é o estornado em ${dataBR(est)}, cobrado de novo agora.` : 'Rateio a mais no dia: deve ser o do decêndio anterior, estornado — confira.');
+        }
       }
       if (p.rubrica === 'CISDOCE_SERVICOS' && decendioDe(p.data)?.decendio !== 1) p.avisos.push('CISDOCE serviços normalmente só é descontado no dia 10 — confira.');
     }
