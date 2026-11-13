@@ -11,7 +11,7 @@ import { CSS_DOC, cabecalhoDoc, toolbarDoc } from './doc-a4.js';
 export const ORIGENS = {
   FPM:   { sigla: 'FPM',    nome: 'FPM — Fundo de Participação dos Municípios', conta: '3261-1' },
   ITR:   { sigla: 'ITR',    nome: 'ITR — Imposto Territorial Rural (cota-parte)', conta: '6729-6' },
-  IPI:   { sigla: 'IPI',    nome: 'IPI-Exportação (cota-parte)', conta: '92998-8' },
+  IPI:   { sigla: 'IPI',    nome: 'IPI-Exportação (cota-parte)', conta: '92998-0' },
   LC176: { sigla: 'LC 176', nome: 'ADO 25 / LC nº 176/2020 (auxílio aos municípios)', conta: '' },
   FEP:   { sigla: 'FEP',    nome: 'FEP — Fundo Especial do Petróleo (cota-parte)', conta: '' }
 };
