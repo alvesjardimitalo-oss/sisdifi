@@ -48,8 +48,16 @@ líquido) — não é preciso imprimir a planilha.
 ## Empenhos anuais
 Cada retenção recebe o empenho do exercício automaticamente (editável na conferência e em Configurar). 2026:
 PASEP de FPM, ITR, IPI e LC 176 → 2/2026 · PASEP do FEP → 4/2026 · CISDOCE Rateio → 5/2026 · CISDOCE Serviços → 6/2026 ·
-ARDOCE → 7/2026 · EMATER → 8/2026 · CNM → 9/2026 · AMM → 32/2026. **Preencher empenhos padrão** completa os lançamentos antigos.
+ARDOCE → 7/2026 · EMATER → 8/2026 · AMM → 9/2026 · CNM → 32/2026. **Preencher empenhos padrão** completa os lançamentos antigos.
 A dedução do FUNDEB não é listada.
+
+## Comprovante e histórico
+O comprovante segue o padrão da memória de cálculo das Consignações (folha A4, brasão, faixa azul/verde, quadro do valor,
+assinaturas, código de verificação). Cada retenção tem o **histórico contábil para copiar** (botão *Copiar* na lista, também
+impresso no comprovante), no formato: `REFERENTE AO PRIMEIRO DECENDIO DO MES DE NOVEMBRO, FPM 3261-1.` — o decêndio e o mês
+vêm da competência (3º decêndio pago no início do mês seguinte fica no mês anterior) e a conta vem de Configurar.
+
+Quando o exercício virar, a tela avisa que faltam os empenhos do ano: cadastre-os em Configurar com o novo exercício selecionado.
 
 ## Configurar
 CNPJ, responsável que assina, contas (inclusive a do LC 176) e nome de cada credor no comprovante. Fica em `retencoes_config/geral`.

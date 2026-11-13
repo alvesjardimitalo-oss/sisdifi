@@ -7,7 +7,7 @@ import { estado, pode } from '../estado.js';
 import { esc, modal, confirmar, toast, mensagemErro, hojeISO, baixarArquivo, csv } from '../ui.js';
 import {
   ORIGENS, RUBRICAS, CODIGOS_RUBRICA, dinheiro, dataBR, decendioDe, textoDecendio, lerArquivo, lerExtratoTexto, lerPlanilhaIPI, movimentosIPI, proporLancamentos,
-  validarLancamento, centavosDe, VALOR_RATEIO_CISDOCE, empenhoPadrao, CHAVES_EMPENHO, situacao, lancamentosAtivos, resumo, comprovanteHTML, demonstrativoHTML, linhasCSV
+  validarLancamento, centavosDe, VALOR_RATEIO_CISDOCE, empenhoPadrao, CHAVES_EMPENHO, historicoContabil, situacao, lancamentosAtivos, resumo, comprovanteHTML, demonstrativoHTML, linhasCSV
 } from '../retencoes.js';
 
 const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -19,7 +19,7 @@ const estilo = '<style>' +
 '.ret .r-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:10px 0}.ret .r-kpi{background:#fff;border:1px solid #dce6ef;border-radius:11px;padding:14px}.ret .r-kpi small{display:block;color:#587081;font-size:.76rem;margin-bottom:5px}.ret .r-kpi strong{font-size:1.3rem;color:#174368}' +
 '.ret .r-box{background:#fff;border:1px solid #d8e3ed;border-radius:12px;padding:14px;margin:12px 0}.ret .r-tab{overflow-x:auto}.ret table{border-collapse:collapse;width:100%;min-width:900px}.ret th{background:#eef4fa;font-size:.72rem;text-transform:uppercase;color:#506e83;letter-spacing:.3px}.ret td,.ret th{padding:8px;border-bottom:1px solid #e3eaf0;text-align:left;vertical-align:top}' +
 '.ret .v{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.ret .r-et{display:inline-block;border-radius:999px;padding:2px 9px;font-size:.74rem;font-weight:700;background:#fff3d8;color:#835615;white-space:nowrap}.ret .r-et.ok{background:#e8f5ec;color:#276846}.ret .r-et.azul{background:#e6f0fa;color:#1f5582}.ret .r-et.cinza{background:#eceff2;color:#66737f}' +
-'.ret .r-acoes{display:flex;gap:5px;flex-wrap:wrap}.ret .r-anulado td{color:#8a97a3;text-decoration:line-through}.ret .r-resumo{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.ret .r-resumo span{background:#f3f7fb;border-radius:8px;padding:6px 10px;font-size:.85rem}' +
+'.ret .r-acoes{display:flex;gap:5px;flex-wrap:wrap}.ret .r-hist{display:flex;gap:6px;align-items:center;margin-top:4px;font:600 .74rem/1.3 "Courier New",monospace;color:#1d4f75}.ret .r-hist button{border:1px solid #b9cbd9;background:#f3f8fc;border-radius:5px;padding:2px 7px;font:600 .72rem Arial;color:#1d4f75;cursor:pointer;white-space:nowrap}.ret .r-alerta{border-left:4px solid #c88e38;background:#fff8e8;color:#76551e;border-radius:5px;padding:10px 12px;margin:8px 0}.ret .r-anulado td{color:#8a97a3;text-decoration:line-through}.ret .r-resumo{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.ret .r-resumo span{background:#f3f7fb;border-radius:8px;padding:6px 10px;font-size:.85rem}' +
 '.r-prev{overflow:auto;max-height:55vh}.r-prev table{border-collapse:collapse;width:100%;font-size:.86rem}.r-prev td,.r-prev th{padding:5px;border-bottom:1px solid #e3eaf0;text-align:left;vertical-align:top}.r-prev th{background:#eef4fa;position:sticky;top:0}.r-prev select,.r-prev input{font-size:.85rem;padding:3px;max-width:150px}.r-prev .aviso{color:#8a5a12;font-size:.78rem;display:block}.r-prev tr.dup{background:#f6f6f6;color:#7d8790}' +
 '.r-grade{display:grid;grid-template-columns:1fr 160px;gap:6px 12px;align-items:center}.r-grade label{font-weight:600}' +
 '@media(max-width:760px){.ret .r-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}' +
@@ -64,6 +64,7 @@ export function telaRetencoes(el) {
       </div>
     </div>
     <p id="r-status" class="r-muted" role="status" aria-live="polite"></p>
+    <div id="r-alerta-emp"></div>
     <div id="r-kpis" class="r-kpis"></div>
     <section class="r-box">
       <div class="r-bar" style="margin:0 0 8px">
@@ -106,7 +107,7 @@ export function telaRetencoes(el) {
       lista.map(x => { const s = situacao(x); return `<tr class="${x.anulado ? 'r-anulado' : ''}">
         <td>${x.anulado ? '' : `<input type="checkbox" data-sel="${esc(x.id)}" ${selecionados.has(x.id) ? 'checked' : ''} aria-label="Selecionar ${esc(x.numero)}">`}</td>
         <td><strong>${esc(x.numero)}</strong></td><td>${dataBR(x.data)}</td><td>${esc(textoDecendio(x.decendio, x.competencia))}</td>
-        <td>${esc(ORIGENS[x.origem]?.sigla || x.origem)}</td><td>${esc(RUBRICAS[x.rubrica]?.nome || x.rubrica)}${x.historico ? `<small class="bloco r-muted">${esc(x.historico)}</small>` : ''}</td>
+        <td>${esc(ORIGENS[x.origem]?.sigla || x.origem)}</td><td>${esc(RUBRICAS[x.rubrica]?.nome || x.rubrica)}${x.historico ? `<small class="bloco r-muted">${esc(x.historico)}</small>` : ''}${x.anulado ? '' : `<div class="r-hist"><span>${esc(historicoDe(x))}</span><button type="button" data-copiar="${esc(x.id)}" title="Copiar o histórico para colar no empenho/liquidação">Copiar</button></div>`}</td>
         <td class="v"><strong>${dinheiro(x.centavos)}</strong></td><td>${esc(x.empenho || '—')}${x.liquidacao ? `<small class="bloco r-muted">liq. ${esc(x.liquidacao)}</small>` : ''}</td>
         <td><span class="r-et ${s === 'Liquidado' ? 'ok' : s === 'Empenhado' ? 'azul' : s === 'Anulado' ? 'cinza' : ''}">${s}</span></td>
         <td><div class="r-acoes">${x.anulado ? '' : `<button class="btn btn-peq" data-comp="${esc(x.id)}">Comprovante</button><button class="btn btn-sec btn-peq" data-editar="${esc(x.id)}">Editar</button><button class="btn btn-sec btn-peq" data-anular="${esc(x.id)}">Anular</button>`}</div></td></tr>`; }).join('')
@@ -115,6 +116,8 @@ export function telaRetencoes(el) {
     el.querySelectorAll('[data-sel]').forEach(c => c.onchange = () => { c.checked ? selecionados.add(c.dataset.sel) : selecionados.delete(c.dataset.sel); botoes(); });
     const todos = $('#r-todos');
     if (todos) todos.onchange = () => { lista.filter(x => !x.anulado).forEach(x => todos.checked ? selecionados.add(x.id) : selecionados.delete(x.id)); render(); };
+    el.querySelectorAll('[data-copiar]').forEach(b => b.onclick = () => copiar(historicoDe(registros().find(x => x.id === b.dataset.copiar)), b));
+    alertaEmpenhos();
     el.querySelectorAll('[data-comp]').forEach(b => b.onclick = () => imprimirComprovantes([registros().find(x => x.id === b.dataset.comp)]));
     el.querySelectorAll('[data-editar]').forEach(b => b.onclick = () => editar(registros().find(x => x.id === b.dataset.editar)));
     el.querySelectorAll('[data-anular]').forEach(b => b.onclick = () => anular(registros().find(x => x.id === b.dataset.anular)));
@@ -122,12 +125,39 @@ export function telaRetencoes(el) {
   }
 
   // ---------- impressão ----------
+  function historicoDe(r) { return r ? historicoContabil(r, r.conta || contaDe(r.origem)) : ''; }
+  async function copiar(texto, botao) {
+    if (!texto) return;
+    try { await navigator.clipboard.writeText(texto); }
+    catch {
+      const t = document.createElement('textarea'); t.value = texto; t.style.position = 'fixed'; t.style.opacity = '0';
+      document.body.appendChild(t); t.select(); try { document.execCommand('copy'); } catch { /* sem cópia */ } t.remove();
+    }
+    if (botao) { const antes = botao.textContent; botao.textContent = 'Copiado ✓'; setTimeout(() => { botao.textContent = antes; }, 1500); }
+    toast('Histórico copiado: ' + texto);
+  }
+  // Exercício sem empenhos: avisa para cadastrar (cada ano tem empenhos novos)
+  const empenhosDoAno = a => ['PASEP', 'EMATER', 'ARDOCE', 'CISDOCE_RATEIO', 'CISDOCE_SERVICOS', 'AMM', 'CNM'].filter(k => !empenhoPadrao(config.empenhos, k, 'FPM', a + '-01-01'));
+  function alertaEmpenhos() {
+    const box = $('#r-alerta-emp'); if (!box) return;
+    const faltam = empenhosDoAno(ano);
+    box.innerHTML = faltam.length ? `<div class="r-alerta"><strong>Empenhos de ${ano} não cadastrados</strong> (${faltam.map(k => esc(RUBRICAS[k].nome)).join(', ')}). Cadastre em <a href="#" id="r-ir-config">Configurar</a> antes de lançar — os lançamentos ficam sem empenho até lá.</div>` : '';
+    box.querySelector('#r-ir-config')?.addEventListener('click', e => { e.preventDefault(); $('#r-config').click(); });
+  }
   function abrirJanela(html) {
     const w = window.open('', '_blank');
     if (!w) { toast('Libere o pop-up para imprimir.', 'erro'); return; }
-    w.opener = null; w.document.write(html); w.document.close(); w.focus(); setTimeout(() => w.print(), 400);
+    w.opener = null; w.document.write(html); w.document.close();
+    w.document.getElementById('doc-imprimir')?.addEventListener('click', () => w.print());
+    w.document.getElementById('doc-fechar')?.addEventListener('click', () => w.close());
+    // espera o brasão carregar antes de abrir a impressão
+    const logos = [...w.document.querySelectorAll('img.doc-logo')];
+    let feito = false;
+    const imprimir = () => { if (feito) return; feito = true; try { w.focus(); w.print(); } catch { /* janela fechada */ } };
+    if (logos.length && !logos[0].complete) { logos[0].addEventListener('load', imprimir, { once: true }); logos[0].addEventListener('error', imprimir, { once: true }); setTimeout(imprimir, 1800); }
+    else setTimeout(imprimir, 200);
   }
-  const cfgImpressao = () => ({ orgao: estado.config?.orgao, cnpj: config.cnpj, responsavel: config.responsavel, cargo: config.cargo,
+  const cfgImpressao = () => ({ empenhos: config.empenhos, orgao: estado.config?.orgao, cnpj: config.cnpj, responsavel: config.responsavel, cargo: config.cargo,
     logo: new URL('assets/img/brasao.png', document.baseURI).href, geradoEm: new Date().toLocaleString('pt-BR'), geradoPor: estado.sessao?.nome });
   function imprimirComprovantes(lista) {
     const l = lista.filter(Boolean).map(r => ({ ...r, conta: r.conta || contaDe(r.origem), credor: r.credor || credorDe(r.rubrica) }))
@@ -208,7 +238,7 @@ export function telaRetencoes(el) {
     const total = () => propostas.reduce((s, p, i) => s + (m.el.querySelector(`[data-m="${i}"]`)?.checked ? p.centavos : 0), 0);
     const m = modal({
       titulo: tipoImport === 'fpm' ? 'Extrato do FPM — conferir retenções' : tipoImport === 'ipi' ? 'Planilha do IPI (SEF-MG) — conferir PASEP' : 'Consulta do DAF — conferir retenções', largura: 1100,
-      corpo: `<p class="muted">Arquivo <strong>${esc(nomeArquivo)}</strong>: ${propostas.length} linha(s) com valor. Vêm marcadas só as retenções reconhecidas; corrija o fundo ou a rubrica se precisar. Linhas já lançadas ficam desmarcadas.</p>
+      corpo: `${(() => { const anos = [...new Set(propostas.filter(p => p.marcado && RUBRICAS[p.rubrica] && !empenhoDe(p)).map(p => String(p.data).slice(0, 4)))]; return anos.length ? `<div class="r-alerta" style="border-left:4px solid #c88e38;background:#fff8e8;color:#76551e;border-radius:5px;padding:10px 12px;margin-bottom:10px">Sem empenho cadastrado para ${anos.join(', ')}: as linhas sem empenho ficarão "Aguardando empenho". Cadastre em Configurar (com esse exercício selecionado) e use "Preencher empenhos padrão".</div>` : ''; })()}<p class="muted">Arquivo <strong>${esc(nomeArquivo)}</strong>: ${propostas.length} linha(s) com valor. Vêm marcadas só as retenções reconhecidas; corrija o fundo ou a rubrica se precisar. Linhas já lançadas ficam desmarcadas.</p>
       ${tipoImport === 'daf' ? `<label class="campo" style="max-width:320px"><span>Fundo para linhas sem fundo identificado</span><select id="rp-origem"><option value="">—</option>${opOrigem('')}</select></label>` : ''}
       <label style="display:inline-flex;gap:6px;align-items:center;margin:4px 0 8px"><input type="checkbox" id="rp-todas"> Mostrar também as ${propostas.filter(p => !p.marcado).length} linha(s) que não serão lançadas (${tipoImport === 'fpm' ? 'PASEP, ' : ''}RFB, estornos, já lançadas)</label>
       <div class="r-prev"><table><thead><tr><th></th><th>Data</th><th>Fundo</th><th>Retenção</th><th style="text-align:right">Valor</th><th>Empenho</th><th>Histórico / avisos</th></tr></thead><tbody>${
@@ -424,6 +454,7 @@ export function telaRetencoes(el) {
         <label class="campo"><span>Valor do rateio CISDOCE (todo decêndio)</span><input name="rateio" inputmode="decimal" value="${esc(((Number(config.rateio_cisdoce_centavos) || VALOR_RATEIO_CISDOCE) / 100).toFixed(2).replace('.', ','))}"></label>
         <p class="dica" style="grid-column:1/-1">No extrato, CISDOCE com esse valor é lançado como <strong>rateio</strong>; qualquer outro valor como <strong>serviços</strong> (descontado só no dia 10).</p>
         <h4 style="grid-column:1/-1;margin:6px 0 0">Empenhos do exercício ${ano}</h4>
+        <p class="dica" style="grid-column:1/-1">Cada exercício tem os seus empenhos. Para cadastrar os de outro ano, feche, troque o <strong>Exercício</strong> na tela e abra Configurar de novo.</p>
         ${CHAVES_EMPENHO.map(([k, t]) => { const [rb, og] = k.split(':'); return `<label class="campo"><span>${esc(t)}</span><input data-emp="${k}" maxlength="40" value="${esc(empenhoPadrao(config.empenhos, rb, og || 'FPM', ano + '-01-01'))}" placeholder="nº/${ano}"></label>`; }).join('')}
         <h4 style="grid-column:1/-1;margin:6px 0 0">Contas</h4>
         ${Object.entries(ORIGENS).map(([k, o]) => `<label class="campo"><span>${esc(o.sigla)}</span><input data-conta="${k}" maxlength="30" value="${esc(contaDe(k))}" placeholder="conta"></label>`).join('')}
@@ -469,7 +500,7 @@ export function telaRetencoes(el) {
       render();
     });
   }
-  desConfig = db.ouvirDoc('retencoes_config', 'geral', d => { config = { ...CONFIG_PADRAO, ...(d || {}) }; }, () => {});
+  desConfig = db.ouvirDoc('retencoes_config', 'geral', d => { config = { ...CONFIG_PADRAO, ...(d || {}) }; alertaEmpenhos(); }, () => {});
   ouvir();
   return { titulo: 'Retenções das transferências', limpar: () => { cancelou = true; desinscrever?.(); desConfig?.(); } };
 }

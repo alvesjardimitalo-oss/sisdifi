@@ -424,7 +424,7 @@ export function proporLancamentos(movimentos, existentes = [], { fonte = '', val
  */
 export const EMPENHOS_PADRAO = {
   2026: { PASEP: '2/2026', 'PASEP:FEP': '4/2026', CISDOCE_RATEIO: '5/2026', CISDOCE_SERVICOS: '6/2026',
-          ARDOCE: '7/2026', EMATER: '8/2026', CNM: '9/2026', AMM: '32/2026' }
+          ARDOCE: '7/2026', EMATER: '8/2026', AMM: '9/2026', CNM: '32/2026' }
 };
 /** Campos de empenho exibidos em Configurar (rubrica[:origem], rótulo). */
 export const CHAVES_EMPENHO = [
@@ -496,70 +496,123 @@ export function codigoVerificacao(r) {
   return h.toString(16).toUpperCase().padStart(8, '0').replace(/(.{4})(.{4})/, '$1-$2');
 }
 
+// ---------------- Histórico contábil ----------------
+const ORDINAIS = ['PRIMEIRO', 'SEGUNDO', 'TERCEIRO'];
+const MESES_HIST = ['JANEIRO', 'FEVEREIRO', 'MARCO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO'];
+/** "REFERENTE AO PRIMEIRO DECENDIO DO MES DE NOVEMBRO, FPM 3261-1." — texto para colar no histórico do empenho/liquidação. */
+export function historicoContabil(r, conta = '') {
+  const dec = Number(r.decendio) || decendioDe(r.data)?.decendio;
+  const comp = r.competencia || decendioDe(r.data)?.competencia || '';
+  const mes = MESES_HIST[Number(comp.slice(5, 7)) - 1];
+  if (!dec || !mes) return '';
+  const fundo = [ORIGENS[r.origem]?.sigla || r.origem, conta || r.conta || ''].filter(Boolean).join(' ');
+  return `REFERENTE AO ${ORDINAIS[dec - 1]} DECENDIO DO MES DE ${mes}, ${fundo}.`;
+}
+
 // ---------------- Comprovante ----------------
 const escH = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-/** HTML (uma página A4 por retenção) do Comprovante de Retenção. cfg: { orgao, cnpj, responsavel, cargo, logo, banco } */
+// Mesmo padrão visual da memória de cálculo das Consignações (folha A4, brasão, faixa azul/verde).
+const CSS_DOC = [
+  '@page{size:A4 portrait;margin:0}', '*{box-sizing:border-box}', 'html{margin:0;padding:0}',
+  'body{margin:0;background:#e8edf3;color:#172c42;font:13px/1.46 Arial,Helvetica,sans-serif}', 'h1,h2,h3,p{margin:0}',
+  '.barra{height:5px;background:linear-gradient(90deg,#14517c 0 74%,#33844c 74%);margin:15px 0 22px}',
+  '.toolbar{width:210mm;max-width:calc(100% - 24px);margin:18px auto 0;display:flex;align-items:center;justify-content:space-between;gap:12px;color:#33526c;font-size:13px}',
+  '.toolbar .acoes{display:flex;gap:8px}.toolbar button{background:#155078;border:1px solid #155078;color:#fff;border-radius:6px;font:600 13px Arial;padding:10px 14px;cursor:pointer}',
+  '.toolbar button.fechar{background:#fff;color:#204765;border-color:#b9cbd9}',
+  '.paper{width:210mm;min-height:297mm;margin:14px auto 36px;padding:14mm 15mm 12mm;background:#fff;box-shadow:0 9px 28px rgba(21,48,74,.18);display:flex;flex-direction:column}',
+  '.topo{display:flex;align-items:center;justify-content:space-between;gap:15px}.marca{display:flex;gap:13px;align-items:center;min-width:0}',
+  '.brasao{width:66px;height:69px;object-fit:contain;flex-shrink:0}.orgao{border-left:3px solid #33844c;padding-left:12px}',
+  '.orgao h2{font-size:17px;line-height:1.2;color:#123e64}.orgao p{font-size:11px;line-height:1.55;margin-top:5px;color:#53687b}',
+  '.sistema{border-left:1px solid #b7cbd9;padding-left:12px;text-align:right;flex-shrink:0;white-space:nowrap}.sistema b{font-size:19px;color:#123f67;letter-spacing:1.4px}.sistema span{display:block;font-size:10px;color:#5c7080}',
+  '.titulo{text-align:center;margin:0 0 18px}.titulo h1{font-size:23px;letter-spacing:.6px;color:#123f66;line-height:1.2}',
+  '.titulo p{display:inline-block;margin-top:9px;padding:7px 16px;background:#eaf3eb;color:#205a3e;font-size:11px;font-weight:700;letter-spacing:.35px;border-bottom:2px solid #328c56}',
+  '.resumo{display:grid;grid-template-columns:1fr 1.15fr 1.35fr 1fr;border:1px solid #c8d8e4;border-radius:8px;overflow:hidden;margin-bottom:16px}',
+  '.resumo .item{min-width:0;padding:11px 10px;background:#f4f8fb;border-right:1px solid #dbe4eb}.resumo .item:last-child{border-right:0;background:#e8f4eb}',
+  '.resumo small{display:block;color:#5c7284;font-size:10px;font-weight:700;letter-spacing:.2px}.resumo strong{display:block;font-size:13px;line-height:1.4;margin-top:4px;color:#173e61;overflow-wrap:anywhere}',
+  '.resumo .total strong{font-size:18px;color:#14633b;white-space:nowrap}',
+  '.bloco{border:1px solid #cadbe6;border-radius:8px;overflow:hidden;margin:0 0 15px}',
+  '.bloco-cab{display:flex;align-items:center;justify-content:space-between;background:#eaf2f8;border-bottom:1px solid #cadbe6;padding:13px 15px;gap:12px}',
+  '.rotulo{font-size:10px;color:#4e677c;text-transform:uppercase;font-weight:700;letter-spacing:.5px}.bloco-cab h2{font-size:17px;color:#17486f;margin:4px 0}.bloco-cab p{color:#4e6375;font-size:11px}',
+  '.tab{width:100%;border-collapse:collapse}.tab th{width:34%;background:#f7f9fb;text-align:left;font-size:10px;color:#38576f;text-transform:uppercase;letter-spacing:.25px}',
+  '.tab th,.tab td{padding:8px 11px;border-bottom:1px solid #dce5ed;font-size:12px;vertical-align:top}.tab tr:last-child th,.tab tr:last-child td{border-bottom:0}',
+  '.lista th{width:auto}.lista td.v,.lista th.v{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.lista tfoot td{font-weight:700;background:#edf4f9;border-top:1px solid #cbdbe6}',
+  '.quadro-total{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#edf7ee;border:1px solid #92c3a0;border-radius:8px;padding:13px 15px;color:#1b5c39}',
+  '.quadro-total span{font-size:12px;font-weight:700}.quadro-total strong{font-size:22px;white-space:nowrap}.quadro-total em{display:block;font-size:11px;font-weight:400;color:#2f6a49;margin-top:3px}',
+  '.historico{margin-top:14px;border:1px dashed #9db6c8;border-radius:8px;padding:10px 13px;background:#fbfdff}.historico small{display:block;font-size:10px;font-weight:700;color:#4e677c;letter-spacing:.4px}.historico p{font:600 13px/1.45 "Courier New",monospace;color:#123e64;margin-top:4px}',
+  '.nota{margin-top:13px;color:#526578;font-size:11px;line-height:1.55;text-align:justify}',
+  '.assinaturas{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;margin-top:auto;padding-top:46px;text-align:center;color:#465d72;font-size:10px}.assinaturas span{display:block;border-top:1px solid #70899d;padding-top:7px}',
+  '.rodape{border-top:1px solid #d1dce6;margin-top:22px;padding-top:8px;display:flex;justify-content:space-between;gap:12px;color:#748493;font-size:10px}',
+  '.paper{break-after:page;page-break-after:always}.paper:last-of-type{break-after:auto;page-break-after:auto}',
+  '@media screen and (max-width:850px){.paper{max-width:calc(100% - 20px);padding:20px}.resumo{grid-template-columns:1fr 1fr}.topo{flex-wrap:wrap}}',
+  '@media print{*{-webkit-print-color-adjust:exact;print-color-adjust:exact}html,body{background:#fff!important;width:210mm}.toolbar{display:none!important}.paper{width:210mm;min-height:296mm;max-width:none;margin:0;padding:12mm 14mm 10mm;box-shadow:none}tr{break-inside:avoid}thead{display:table-header-group}}'
+].join('');
+
+function cabecalhoDoc(cfg, subtitulo) {
+  const orgao = String(cfg.orgao || 'PREFEITURA MUNICIPAL DE FREI INOCÊNCIO').replace(/^PREFEITURA MUNICIPAL DE\s*/i, '');
+  return `<header class="topo"><div class="marca"><img class="brasao doc-logo" src="${escH(cfg.logo || '')}" alt="Brasão do Município">
+    <div class="orgao"><h2>PREFEITURA MUNICIPAL DE<br>${escH(orgao)}</h2><p>Estado de Minas Gerais${cfg.cnpj ? ' · CNPJ ' + escH(cfg.cnpj) : ''}<br>Secretaria Municipal da Fazenda · Setor de Contabilidade</p></div></div>
+    <div class="sistema"><b>SISDIFI</b><span>${escH(subtitulo)}</span></div></header><div class="barra"></div>`;
+}
+const toolbarDoc = texto => `<div class="toolbar"><span><b>Visualização A4</b> · ${escH(texto)}</span><div class="acoes"><button id="doc-imprimir" type="button">Imprimir / Salvar em PDF</button><button id="doc-fechar" type="button" class="fechar">Fechar</button></div></div>`;
+
+/** HTML (uma folha A4 por retenção) do Comprovante de Retenção. cfg: { orgao, cnpj, responsavel, cargo, logo, banco, geradoEm, geradoPor } */
 export function comprovanteHTML(lista, cfg = {}) {
-  const orgao = cfg.orgao || 'PREFEITURA MUNICIPAL DE FREI INOCÊNCIO';
   const paginas = lista.map(r => {
     const o = ORIGENS[r.origem] || { nome: r.origem, sigla: r.origem };
     const rb = RUBRICAS[r.rubrica] || { nome: r.rubrica };
     const credor = r.credor || rb.credor || rb.nome;
-    const linhaBase = r.base_centavos ? `<tr><th>Base de cálculo (cota)</th><td>${dinheiro(r.base_centavos)}${rb.aliquota ? ` · alíquota ${String(rb.aliquota * 100).replace('.', ',')}%` : ''}</td></tr>` : '';
-    return `<section class="pagina">
-  <header><img src="${escH(cfg.logo || '')}" alt=""><div><strong>${escH(orgao)}</strong>${cfg.cnpj ? `<br>CNPJ ${escH(cfg.cnpj)}` : ''}<br>Setor de Contabilidade</div><div class="num"><small>Nº</small><b>${escH(r.numero || '')}</b></div></header>
-  <h1>COMPROVANTE DE RETENÇÃO EM TRANSFERÊNCIA CONSTITUCIONAL</h1>
-  <p class="intro">Declaramos, para instruir a liquidação da despesa, que o valor abaixo foi <b>retido/descontado na fonte</b> pelo agente financeiro no repasse da transferência indicada, sem saída de numerário da conta do Município, devendo ser empenhado e liquidado em favor do credor e baixado contra a própria conta da transferência.</p>
-  <table>
-    <tr><th>Transferência</th><td>${escH(o.nome)}</td></tr>
-    <tr><th>Conta bancária</th><td>${escH(cfg.banco || 'Banco do Brasil')} · conta ${escH(r.conta || o.conta || '—')}</td></tr>
-    <tr><th>Data do crédito/desconto</th><td>${dataBR(r.data)} · ${textoDecendio(r.decendio, r.competencia)}</td></tr>
-    <tr><th>Retenção</th><td><b>${escH(rb.nome)}</b></td></tr>
-    <tr><th>Credor</th><td>${escH(credor)}</td></tr>
-    ${linhaBase}
-    <tr class="destaque"><th>Valor retido</th><td><b>${dinheiro(r.centavos)}</b></td></tr>
-    <tr><th>Por extenso</th><td><em>${escH(valorPorExtenso(r.centavos / 100))}</em></td></tr>
-    <tr><th>Empenho / ficha</th><td>${escH(r.empenho || '____________')}${r.ficha ? ' · ficha ' + escH(r.ficha) : ''}${r.liquidacao ? ' · liquidação ' + escH(r.liquidacao) : ''}</td></tr>
-    <tr><th>Histórico no demonstrativo</th><td>${escH(r.historico || '—')}</td></tr>
-    ${r.detalhe_ipi ? `<tr><th>Planilha SEF/MG</th><td>${escH(r.detalhe_ipi.titulo)}<br>Índice ${String(r.detalhe_ipi.indice).replace('.', ',')} · Bruto ${dinheiro(r.detalhe_ipi.bruto)} · FUNDEB ${dinheiro(r.detalhe_ipi.fundeb)} · <b>PASEP ${dinheiro(r.detalhe_ipi.pasep)}</b> · Saúde ${dinheiro(r.detalhe_ipi.saude)} · Líquido ${dinheiro(r.detalhe_ipi.liquido)}</td></tr>` : ''}
-    ${rb.base_legal ? `<tr><th>Fundamento</th><td>${escH(rb.base_legal)}</td></tr>` : ''}
-    ${r.observacao ? `<tr><th>Observação</th><td>${escH(r.observacao)}</td></tr>` : ''}
-  </table>
-  <p class="fonte">Fonte: ${r.arquivo ? 'arquivo ' + escH(r.arquivo) + ' — ' : ''}${r.detalhe_ipi ? 'Planilha de repasse decendial do IPI aos municípios (Secretaria de Estado de Fazenda de Minas Gerais) e extrato da conta da transferência.' : 'Demonstrativo de Distribuição da Arrecadação Federal (Banco do Brasil) e extrato da conta da transferência.'}</p>
-  <div class="assin"><span>${escH(cfg.responsavel || 'Responsável pela Contabilidade')}<br><small>${escH(cfg.cargo || 'Contador(a)')}</small></span><span>Ordenador(a) da despesa</span></div>
-  <footer>Gerado pelo SISDIFI em ${escH(cfg.geradoEm || '')}${cfg.geradoPor ? ' por ' + escH(cfg.geradoPor) : ''} · código de verificação <b>${codigoVerificacao(r)}</b></footer>
-</section>`;
+    const conta = r.conta || o.conta || '';
+    const hist = historicoContabil(r, conta);
+    const ipi = r.detalhe_ipi;
+    const linhas = [
+      ['Transferência', escH(o.nome)],
+      ['Conta bancária', `${escH(cfg.banco || 'Banco do Brasil')} · conta ${escH(conta || '—')}`],
+      ['Data do crédito / desconto', `${dataBR(r.data)} · ${escH(textoDecendio(r.decendio, r.competencia))}`],
+      ['Credor', escH(credor)],
+      r.base_centavos ? ['Base de cálculo (cota)', `${dinheiro(r.base_centavos)}${rb.aliquota ? ` · alíquota ${String(rb.aliquota * 100).replace('.', ',')}%` : ''}`] : null,
+      ['Empenho / ficha', `${escH(r.empenho || '____________')}${r.ficha ? ' · ficha ' + escH(r.ficha) : ''}${r.liquidacao ? ' · liquidação ' + escH(r.liquidacao) : ''}`],
+      ['Histórico no demonstrativo', escH(r.historico || '—')],
+      ipi ? ['Planilha SEF/MG', `${escH(ipi.titulo)}<br>Índice ${String(ipi.indice).replace('.', ',')} · Bruto ${dinheiro(ipi.bruto)} · FUNDEB ${dinheiro(ipi.fundeb)} · <b>PASEP ${dinheiro(ipi.pasep)}</b> · Saúde ${dinheiro(ipi.saude)} · Líquido ${dinheiro(ipi.liquido)}`] : null,
+      rb.base_legal ? ['Fundamento', escH(rb.base_legal)] : null,
+      r.observacao ? ['Observação', escH(r.observacao)] : null
+    ].filter(Boolean).map(([t, v]) => `<tr><th>${t}</th><td>${v}</td></tr>`).join('');
+    const fonte = ipi ? 'planilha de repasse decendial do IPI aos municípios (Secretaria de Estado de Fazenda de Minas Gerais)'
+      : 'Demonstrativo de Distribuição da Arrecadação Federal (Banco do Brasil)';
+    return `<main class="paper">${cabecalhoDoc(cfg, 'Retenções nas transferências')}
+  <div class="titulo"><h1>COMPROVANTE DE RETENÇÃO</h1><p>TRANSFERÊNCIA CONSTITUCIONAL · RETENÇÃO NA FONTE</p></div>
+  <div class="resumo"><div class="item"><small>Nº DO COMPROVANTE</small><strong>${escH(r.numero || '—')}</strong></div>
+    <div class="item"><small>DATA · DECÊNDIO</small><strong>${dataBR(r.data)}<br>${escH(textoDecendio(r.decendio, r.competencia))}</strong></div>
+    <div class="item"><small>TRANSFERÊNCIA / CONTA</small><strong>${escH(o.sigla)}${conta ? ' · ' + escH(conta) : ''}</strong></div>
+    <div class="item total"><small>VALOR RETIDO</small><strong>${dinheiro(r.centavos)}</strong></div></div>
+  <section class="bloco"><div class="bloco-cab"><div><span class="rotulo">Identificação da retenção</span><h2>${escH(rb.nome)}</h2><p>${escH(credor)}</p></div>
+    <div style="text-align:right"><span class="rotulo">Empenho</span><h2>${escH(r.empenho || '—')}</h2></div></div>
+    <table class="tab"><tbody>${linhas}</tbody></table></section>
+  <div class="quadro-total"><span>VALOR RETIDO A LIQUIDAR<em>${escH(valorPorExtenso(r.centavos / 100))}</em></span><strong>${dinheiro(r.centavos)}</strong></div>
+  ${hist ? `<div class="historico"><small>HISTÓRICO CONTÁBIL</small><p>${escH(hist)}</p></div>` : ''}
+  <p class="nota">Declaramos, para instruir a liquidação da despesa, que o valor acima foi <b>retido/descontado na fonte</b> pelo agente financeiro no repasse da transferência indicada, sem saída de numerário da conta do Município, devendo ser empenhado e liquidado em favor do credor e baixado contra a própria conta da transferência. Fonte: ${fonte} e extrato da conta da transferência${r.arquivo ? ' (arquivo ' + escH(r.arquivo) + ')' : ''}.</p>
+  <div class="assinaturas"><span>Responsável pela conferência</span><span>${escH(cfg.responsavel || 'Setor de Contabilidade')}<br>${escH(cfg.cargo || 'Contador(a)')}</span><span>Ordenador(a) da despesa</span></div>
+  <footer class="rodape"><span>Prefeitura Municipal · SISDIFI · código de verificação <b>${codigoVerificacao(r)}</b></span><span>Emitido em ${escH(cfg.geradoEm || '')}${cfg.geradoPor ? ' por ' + escH(cfg.geradoPor) : ''}</span></footer>
+</main>`;
   }).join('');
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Comprovante de retenção${lista.length === 1 ? ' ' + escH(lista[0].numero || '') : 's'}</title><style>
-@page{size:A4;margin:14mm}body{font:12px Arial,sans-serif;color:#18324a;margin:0}
-.pagina{break-after:page;min-height:250mm;display:flex;flex-direction:column}.pagina:last-child{break-after:auto}
-header{display:flex;gap:12px;align-items:center;border-bottom:3px solid #1d5d8a;padding-bottom:10px}header img{width:62px;height:62px;object-fit:contain}
-header div{flex:1}.num{flex:0 0 auto;text-align:right;border:1px solid #9fb6c8;padding:6px 10px;border-radius:6px}.num small{display:block;color:#5b7083}.num b{font-size:15px}
-h1{font-size:15px;text-align:center;margin:18px 0 8px;letter-spacing:.3px}.intro{text-align:justify;line-height:1.5}
-table{width:100%;border-collapse:collapse;margin-top:10px}th,td{text-align:left;padding:8px;border:1px solid #cfdbe5;vertical-align:top}th{width:32%;background:#eef4f9;font-weight:600}
-tr.destaque td{font-size:16px;background:#f2f8f3}.fonte{color:#566b7d;font-size:10.5px;margin-top:10px}
-.assin{display:flex;gap:30px;margin-top:auto;padding-top:60px}.assin span{flex:1;border-top:1px solid #7c90a3;text-align:center;padding-top:6px}
-footer{margin-top:22px;color:#5d7183;font-size:10px;text-align:center;border-top:1px dashed #b9c9d6;padding-top:6px}
-</style></head><body>${paginas}</body></html>`;
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Comprovante de retenção${lista.length === 1 ? ' ' + escH(lista[0].numero || '') : 's'}</title><style>${CSS_DOC}</style></head><body>${toolbarDoc(lista.length === 1 ? 'Comprovante de retenção' : lista.length + ' comprovantes de retenção (uma folha cada)')}${paginas}</body></html>`;
 }
 
-/** Demonstrativo (uma página) das retenções de um período, para conferência ou anexo único. */
+/** Demonstrativo (uma folha) das retenções de um período, para conferência ou anexo único. */
 export function demonstrativoHTML(lista, cfg = {}, titulo = '') {
   const ativos = lista.filter(r => !r.anulado);
   const r = resumo(ativos);
   const linhas = ativos.map(x => `<tr><td>${escH(x.numero)}</td><td>${dataBR(x.data)}</td><td>${escH(ORIGENS[x.origem]?.sigla || x.origem)}</td><td>${escH(RUBRICAS[x.rubrica]?.nome || x.rubrica)}</td><td>${escH(x.empenho || '—')}</td><td class="v">${dinheiro(x.centavos)}</td></tr>`).join('');
-  const porRub = Object.entries(r.porRubrica).map(([k, v]) => `<tr><td>${escH(RUBRICAS[k]?.nome || k)}</td><td class="v">${dinheiro(v)}</td></tr>`).join('');
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Demonstrativo de retenções</title><style>
-@page{size:A4;margin:13mm}body{font:11px Arial,sans-serif;color:#18324a}header{display:flex;gap:12px;align-items:center;border-bottom:3px solid #1d5d8a;padding-bottom:8px}header img{width:52px;height:52px;object-fit:contain}
-h1{font-size:15px}table{width:100%;border-collapse:collapse;margin:8px 0}th,td{padding:6px;border-bottom:1px solid #d5e0e8;text-align:left}th{background:#eef4f9}.v{text-align:right;white-space:nowrap}tfoot td{font-weight:700;background:#f2f8f3}
-.assin{display:flex;gap:25px;margin-top:50px}.assin span{flex:1;border-top:1px solid #7c90a3;text-align:center;padding-top:6px}</style></head><body>
-<header><img src="${escH(cfg.logo || '')}" alt=""><div><strong>${escH(cfg.orgao || 'PREFEITURA MUNICIPAL DE FREI INOCÊNCIO')}</strong><br>Setor de Contabilidade · SISDIFI</div></header>
-<h1>DEMONSTRATIVO DAS RETENÇÕES NAS TRANSFERÊNCIAS${titulo ? ' — ' + escH(titulo) : ''}</h1>
-<table><thead><tr><th>Nº</th><th>Data</th><th>Fundo</th><th>Retenção</th><th>Empenho</th><th class="v">Valor</th></tr></thead><tbody>${linhas || '<tr><td colspan="6">Nenhuma retenção no período.</td></tr>'}</tbody>
-<tfoot><tr><td colspan="5">TOTAL (${r.quantidade})</td><td class="v">${dinheiro(r.total)}</td></tr></tfoot></table>
-<h2 style="font-size:13px">Resumo por retenção</h2><table><tbody>${porRub}</tbody></table>
-<div class="assin"><span>${escH(cfg.responsavel || 'Responsável pela Contabilidade')}</span><span>Ordenador(a) da despesa</span></div></body></html>`;
+  const porRub = Object.entries(r.porRubrica).map(([k, v]) => `<tr><td>${escH(RUBRICAS[k]?.nome || k)}</td><td>${escH([...new Set(ativos.filter(a => a.rubrica === k).map(a => a.empenho).filter(Boolean))].join(', ') || '—')}</td><td class="v">${dinheiro(v)}</td></tr>`).join('');
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Demonstrativo de retenções</title><style>${CSS_DOC}</style></head><body>${toolbarDoc('Demonstrativo das retenções')}
+<main class="paper">${cabecalhoDoc(cfg, 'Retenções nas transferências')}
+<div class="titulo"><h1>DEMONSTRATIVO DAS RETENÇÕES</h1><p>TRANSFERÊNCIAS CONSTITUCIONAIS${titulo ? ' · ' + escH(titulo).toUpperCase() : ''}</p></div>
+<section class="bloco"><table class="tab lista"><thead><tr><th>Nº</th><th>Data</th><th>Fundo</th><th>Retenção</th><th>Empenho</th><th class="v">Valor</th></tr></thead><tbody>${linhas || '<tr><td colspan="6">Nenhuma retenção no período.</td></tr>'}</tbody>
+<tfoot><tr><td colspan="5">TOTAL (${r.quantidade} retenção(ões))</td><td class="v">${dinheiro(r.total)}</td></tr></tfoot></table></section>
+<section class="bloco"><div class="bloco-cab"><div><span class="rotulo">Resumo por retenção</span></div></div><table class="tab lista"><tbody>${porRub}</tbody></table></section>
+<div class="quadro-total"><span>TOTAL RETIDO NO PERÍODO</span><strong>${dinheiro(r.total)}</strong></div>
+<div class="assinaturas"><span>Responsável pela conferência</span><span>${escH(cfg.responsavel || 'Setor de Contabilidade')}</span><span>Ordenador(a) da despesa</span></div>
+<footer class="rodape"><span>Prefeitura Municipal · SISDIFI</span><span>Emitido em ${escH(cfg.geradoEm || '')}</span></footer></main></body></html>`;
 }
 
 /** CSV para planilha. */
