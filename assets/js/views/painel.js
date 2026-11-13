@@ -8,6 +8,7 @@ import { esc, $, $$, dataBR, lerForm } from '../ui.js';
 import { aguardando, cabecalho, anosDisponiveis, MESES } from './comum.js';
 import { analisarPendencias } from './conferencia.js';
 import { pendentePrestacao } from './solicitacoes.js';
+import { blocoContabilidade, blocoAdministracao } from './painel-contabil.js?v=3.23.0';
 
 const filtro = { ano: String(new Date().getFullYear()), mes: '' };
 window.addEventListener('sisdifi:exercicio', e => { filtro.ano = String(e.detail); filtro.mes = ''; });
@@ -54,7 +55,10 @@ export function telaPainel(el) {
   const rotulo = filtro.mes ? `${MESES[Number(filtro.mes) - 1]} de ${filtro.ano || 'todos os anos'}` : (filtro.ano ? `Ano de ${filtro.ano}` : 'Todo o período');
 
   el.innerHTML = `
-    ${cabecalho('Painel', pode.solicitar() ? '<a class="btn" href="#/solicitacoes/nova">＋ Nova solicitação</a>' : '', `Olá, ${esc(estado.sessao.nome.split(' ')[0])}. Indicadores pela data de saída da viagem (solicitações canceladas não entram).`)}
+    ${cabecalho('Painel', pode.solicitar() ? '<a class="btn" href="#/solicitacoes/nova">＋ Nova solicitação</a>' : '', `Olá, ${esc(estado.sessao.nome.split(' ')[0])}. ${pode.admin() ? 'Visão geral do sistema: Contabilidade, diárias e administração.' : pode.contabil() ? 'Sua central: retenções, repasses e a fila das diárias.' : 'Indicadores das diárias pela data de saída da viagem (solicitações canceladas não entram).'}`)}
+    ${blocoAdministracao()}
+    ${blocoContabilidade()}
+    ${pode.contabil() ? '<h2 class="titulo-secao" style="margin-top:8px">Diárias</h2>' : ''}
     ${(() => { const p = analisarPendencias(); const n = p.grupos.length + p.distancias.length + p.cpfs.length;
       return n ? `<a class="alerta alerta-link" href="#/conferencia">⚠ A conferência automática encontrou ${n} ponto(s) para revisar (${p.grupos.length} viagem(ns) sobreposta(s), ${p.distancias.length} destino(s) com km divergente, ${p.cpfs.length} CPF(s) inválido(s)). Clique para ver.</a>` : ''; })()}
     ${avisoExercicio()}
