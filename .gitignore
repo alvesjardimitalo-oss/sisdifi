@@ -5,3 +5,5 @@
 *.csv
 node_modules/
 .DS_Store
+# exceção: exemplos públicos usados nos testes (repasses do município, sem dados pessoais)
+!tests/fixtures/*.csv
