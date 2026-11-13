@@ -7,7 +7,7 @@ import { estado, pode } from '../estado.js';
 import { esc, modal, confirmar, toast, mensagemErro, hojeISO, baixarArquivo, csv } from '../ui.js';
 import {
   ORIGENS, RUBRICAS, CODIGOS_RUBRICA, dinheiro, dataBR, decendioDe, textoDecendio, lerArquivo, lerExtratoTexto, lerPlanilhaIPI, movimentosIPI, proporLancamentos,
-  validarLancamento, centavosDe, VALOR_RATEIO_CISDOCE, empenhoPadrao, CHAVES_EMPENHO, historicoContabil, ordemCronologica, renumerarPorData, foraDeOrdem, situacao, lancamentosAtivos, resumo, comprovanteHTML, demonstrativoHTML, linhasCSV
+  validarLancamento, centavosDe, VALOR_RATEIO_CISDOCE, empenhoPadrao, CHAVES_EMPENHO, historicoContabil, ordemCronologica, linhasExtrato, renumerarPorData, foraDeOrdem, situacao, lancamentosAtivos, resumo, comprovanteHTML, demonstrativoHTML, linhasCSV
 } from '../retencoes.js';
 
 const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -19,7 +19,7 @@ const estilo = '<style>' +
 '.ret .r-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:10px 0}.ret .r-kpi{background:#fff;border:1px solid #dce6ef;border-radius:11px;padding:14px}.ret .r-kpi small{display:block;color:#587081;font-size:.76rem;margin-bottom:5px}.ret .r-kpi strong{font-size:1.3rem;color:#174368}' +
 '.ret .r-box{background:#fff;border:1px solid #d8e3ed;border-radius:12px;padding:14px;margin:12px 0}.ret .r-tab{overflow-x:auto}.ret table{border-collapse:collapse;width:100%;min-width:900px}.ret th{background:#eef4fa;font-size:.72rem;text-transform:uppercase;color:#506e83;letter-spacing:.3px}.ret td,.ret th{padding:8px;border-bottom:1px solid #e3eaf0;text-align:left;vertical-align:top}' +
 '.ret .v{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.ret .r-et{display:inline-block;border-radius:999px;padding:2px 9px;font-size:.74rem;font-weight:700;background:#fff3d8;color:#835615;white-space:nowrap}.ret .r-et.ok{background:#e8f5ec;color:#276846}.ret .r-et.azul{background:#e6f0fa;color:#1f5582}.ret .r-et.cinza{background:#eceff2;color:#66737f}' +
-'.ret .r-acoes{display:flex;gap:5px;flex-wrap:wrap}.ret .r-hist{display:flex;gap:6px;align-items:center;margin-top:4px;font:600 .74rem/1.3 "Courier New",monospace;color:#1d4f75}.ret .r-hist button{border:1px solid #b9cbd9;background:#f3f8fc;border-radius:5px;padding:2px 7px;font:600 .72rem Arial;color:#1d4f75;cursor:pointer;white-space:nowrap}.ret .r-alerta{border-left:4px solid #c88e38;background:#fff8e8;color:#76551e;border-radius:5px;padding:10px 12px;margin:8px 0}.ret .r-anulado td{color:#8a97a3;text-decoration:line-through}.ret .r-resumo{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.ret .r-resumo span{background:#f3f7fb;border-radius:8px;padding:6px 10px;font-size:.85rem}' +
+'.ret .r-acoes{display:flex;gap:5px;flex-wrap:wrap}.ret tr.r-dia td{background:#f2f8f3;font-weight:700;color:#1b5c39;font-size:.82rem;border-bottom:2px solid #cfe3d5}.ret .r-hist{display:flex;gap:6px;align-items:center;margin-top:4px;font:600 .74rem/1.3 "Courier New",monospace;color:#1d4f75}.ret .r-hist button{border:1px solid #b9cbd9;background:#f3f8fc;border-radius:5px;padding:2px 7px;font:600 .72rem Arial;color:#1d4f75;cursor:pointer;white-space:nowrap}.ret .r-alerta{border-left:4px solid #c88e38;background:#fff8e8;color:#76551e;border-radius:5px;padding:10px 12px;margin:8px 0}.ret .r-anulado td{color:#8a97a3;text-decoration:line-through}.ret .r-resumo{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.ret .r-resumo span{background:#f3f7fb;border-radius:8px;padding:6px 10px;font-size:.85rem}' +
 '.r-prev{overflow:auto;max-height:55vh}.r-prev table{border-collapse:collapse;width:100%;font-size:.86rem}.r-prev td,.r-prev th{padding:5px;border-bottom:1px solid #e3eaf0;text-align:left;vertical-align:top}.r-prev th{background:#eef4fa;position:sticky;top:0}.r-prev select,.r-prev input{font-size:.85rem;padding:3px;max-width:150px}.r-prev .aviso{color:#8a5a12;font-size:.78rem;display:block}.r-prev tr.dup{background:#f6f6f6;color:#7d8790}' +
 '.r-grade{display:grid;grid-template-columns:1fr 160px;gap:6px 12px;align-items:center}.r-grade label{font-weight:600}' +
 '@media(max-width:760px){.ret .r-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}' +
@@ -72,7 +72,7 @@ export function telaRetencoes(el) {
           <button class="btn btn-sec btn-peq" id="r-emp-sel" disabled>Informar empenho nos selecionados</button>
           <button class="btn btn-sec btn-peq" id="r-emp-padrao">Preencher empenhos padrão</button>
           <button class="btn btn-sec btn-peq" id="r-reordenar" title="Renumera as retenções do exercício pela data do desconto">Reordenar por data</button></div>
-        <div class="r-grupo"><button class="btn btn-sec btn-peq" id="r-demo">Demonstrativo do filtro</button><button class="btn btn-sec btn-peq" id="r-csv">Exportar planilha</button></div>
+        <div class="r-grupo"><button class="btn btn-sec btn-peq" id="r-demo">Extrato do filtro</button><button class="btn btn-sec btn-peq" id="r-csv">Exportar planilha</button></div>
       </div>
       <div id="r-lista" class="r-tab"></div>
       <div id="r-resumo" class="r-resumo"></div>
@@ -104,12 +104,13 @@ export function telaRetencoes(el) {
       .map(([t, v]) => `<div class="r-kpi"><small>${t}</small><strong>${v}</strong></div>`).join('');
     const ids = new Set(lista.map(x => x.id));
     for (const id of [...selecionados]) if (!ids.has(id)) selecionados.delete(id);
-    $('#r-lista').innerHTML = lista.length ? `<table><thead><tr><th><input type="checkbox" id="r-todos" aria-label="Selecionar todos"></th><th>Nº</th><th>Data</th><th>Decêndio</th><th>Fundo</th><th>Retenção</th><th class="v">Valor</th><th>Empenho</th><th>Situação</th><th>Ações</th></tr></thead><tbody>${
-      lista.map(x => { const s = situacao(x); return `<tr class="${x.anulado ? 'r-anulado' : ''}">
+    $('#r-lista').innerHTML = lista.length ? `<table><thead><tr><th><input type="checkbox" id="r-todos" aria-label="Selecionar todos"></th><th>Nº</th><th>Data</th><th>Decêndio</th><th>Fundo</th><th>Retenção</th><th class="v">Valor</th><th class="v">Acumulado</th><th>Empenho</th><th>Situação</th><th>Ações</th></tr></thead><tbody>${
+      linhasExtrato(lista).map(l => { if (l.tipo === 'dia') return `<tr class="r-dia"><td></td><td colspan="5">Total do dia ${dataBR(l.data)} · ${l.quantidade} retenção(ões)</td><td class="v">${dinheiro(l.total)}</td><td class="v">${dinheiro(l.acumulado)}</td><td colspan="3"></td></tr>`;
+        const x = l.r, s = situacao(x); return `<tr class="${x.anulado ? 'r-anulado' : ''}">
         <td>${x.anulado ? '' : `<input type="checkbox" data-sel="${esc(x.id)}" ${selecionados.has(x.id) ? 'checked' : ''} aria-label="Selecionar ${esc(x.numero)}">`}</td>
         <td><strong>${esc(x.numero)}</strong></td><td>${dataBR(x.data)}</td><td>${esc(textoDecendio(x.decendio, x.competencia))}</td>
         <td>${esc(ORIGENS[x.origem]?.sigla || x.origem)}</td><td>${esc(RUBRICAS[x.rubrica]?.nome || x.rubrica)}${x.historico ? `<small class="bloco r-muted">${esc(x.historico)}</small>` : ''}${x.anulado ? '' : `<div class="r-hist"><span>${esc(historicoDe(x))}</span><button type="button" data-copiar="${esc(x.id)}" title="Copiar o histórico para colar no empenho/liquidação">Copiar</button></div>`}</td>
-        <td class="v"><strong>${dinheiro(x.centavos)}</strong></td><td>${esc(x.empenho || '—')}${x.liquidacao ? `<small class="bloco r-muted">liq. ${esc(x.liquidacao)}</small>` : ''}</td>
+        <td class="v"><strong>${dinheiro(x.centavos)}</strong></td><td class="v r-muted">${x.anulado ? '' : dinheiro(l.acumulado)}</td><td>${esc(x.empenho || '—')}${x.liquidacao ? `<small class="bloco r-muted">liq. ${esc(x.liquidacao)}</small>` : ''}</td>
         <td><span class="r-et ${s === 'Liquidado' ? 'ok' : s === 'Empenhado' ? 'azul' : s === 'Anulado' ? 'cinza' : ''}">${s}</span></td>
         <td><div class="r-acoes">${x.anulado ? '' : `<button class="btn btn-peq" data-comp="${esc(x.id)}">Comprovante</button><button class="btn btn-sec btn-peq" data-editar="${esc(x.id)}">Editar</button><button class="btn btn-sec btn-peq" data-anular="${esc(x.id)}">Anular</button>`}</div></td></tr>`; }).join('')
     }</tbody></table>` : `<p class="r-muted" style="text-align:center;padding:24px">Nenhuma retenção ${mes ? 'em ' + MESES[Number(mes) - 1] + '/' + ano : 'em ' + ano} com esse filtro. Suba o extrato do FPM ou a consulta do DAF.</p>`;
@@ -463,8 +464,8 @@ export function telaRetencoes(el) {
       toast('Empenho preenchido em ' + sem.length + ' retenção(ões).');
     } catch (e) { toast(mensagemErro(e), 'erro'); }
   };
-  $('#r-demo').onclick = () => abrirJanela(demonstrativoHTML(filtrados().slice().reverse(), cfgImpressao(), (mes ? MESES[Number(mes) - 1] + '/' : '') + ano));
-  $('#r-csv').onclick = () => baixarArquivo(`retencoes-${ano}${mes ? '-' + mes : ''}.csv`, csv(linhasCSV(filtrados().slice().reverse())));
+  $('#r-demo').onclick = () => abrirJanela(demonstrativoHTML(filtrados(), cfgImpressao(), (mes ? MESES[Number(mes) - 1] + '/' : '') + ano));
+  $('#r-csv').onclick = () => baixarArquivo(`retencoes-${ano}${mes ? '-' + mes : ''}.csv`, csv(linhasCSV(filtrados())));
 
   // ---------- configuração ----------
   $('#r-config').onclick = () => {

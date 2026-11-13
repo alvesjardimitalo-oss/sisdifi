@@ -240,3 +240,19 @@ console.log('retencoes (IPI): ok');
   assert.match(comprovanteHTML([reg]), /DATA DO DESCONTO \/ LIQUIDAÇÃO/);
 }
 console.log('retencoes (ordem): ok');
+
+// ---------- lista como extrato ----------
+{
+  const { linhasExtrato } = await import('../assets/js/retencoes.js');
+  const ex = linhasExtrato([
+    { seq: 3, data: '2026-10-30', origem: 'FPM', rubrica: 'PASEP', centavos: 522982 },
+    { seq: 1, data: '2026-10-20', origem: 'FPM', rubrica: 'PASEP', centavos: 242174 },
+    { seq: 2, data: '2026-10-20', origem: 'ITR', rubrica: 'PASEP', centavos: 950 },
+    { seq: 4, data: '2026-10-30', origem: 'ITR', rubrica: 'PASEP', centavos: 1839, anulado: true }
+  ]);
+  assert.deepEqual(ex.map(l => l.tipo === 'dia' ? ['dia', l.data, l.total, l.acumulado] : [l.r.seq, l.acumulado]),
+    [[1, 242174], [2, 243124], ['dia', '2026-10-20', 243124, 243124], [3, 766106], [4, 766106], ['dia', '2026-10-30', 522982, 766106]]);
+  assert.match(demonstrativoHTML([reg]), /EXTRATO DAS RETENÇÕES/);
+  assert.equal(linhasCSV([reg])[0][9], 'Acumulado');
+}
+console.log('retencoes (extrato): ok');

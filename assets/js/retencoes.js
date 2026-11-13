@@ -494,7 +494,23 @@ export function situacao(r) {
 
 export function lancamentosAtivos(doc) {
   return Object.entries(doc?.lancamentos || {}).map(([id, r]) => ({ id, ...r }))
-    .sort((a, b) => String(b.data).localeCompare(String(a.data)) || (b.seq || 0) - (a.seq || 0));
+    .sort(ordemCronologica); // como um extrato: da data mais antiga para a mais nova
+}
+
+/**
+ * Linhas no formato de extrato: cada retenção com o saldo acumulado e, ao fim de cada dia, o total do dia.
+ * Anuladas aparecem, mas não somam. [{ tipo: 'mov', r, acumulado } | { tipo: 'dia', data, total, quantidade, acumulado }]
+ */
+export function linhasExtrato(lista) {
+  const saida = []; let acumulado = 0, dia = null, totalDia = 0, qtd = 0;
+  const fechar = () => { if (dia !== null) saida.push({ tipo: 'dia', data: dia, total: totalDia, quantidade: qtd, acumulado }); };
+  for (const r of [...lista].sort(ordemCronologica)) {
+    if (r.data !== dia) { fechar(); dia = r.data; totalDia = 0; qtd = 0; }
+    if (!r.anulado) { acumulado += r.centavos; totalDia += r.centavos; qtd++; }
+    saida.push({ tipo: 'mov', r, acumulado });
+  }
+  fechar();
+  return saida;
 }
 
 /** Totais por rubrica e por fundo de uma lista (ignora anulados). */
@@ -579,13 +595,15 @@ export function comprovanteHTML(lista, cfg = {}) {
 export function demonstrativoHTML(lista, cfg = {}, titulo = '') {
   const ativos = lista.filter(r => !r.anulado);
   const r = resumo(ativos);
-  const linhas = ativos.map(x => `<tr><td>${escH(x.numero)}</td><td>${dataBR(x.data)}</td><td>${escH(ORIGENS[x.origem]?.sigla || x.origem)}</td><td>${escH(RUBRICAS[x.rubrica]?.nome || x.rubrica)}</td><td>${escH(x.empenho || '—')}</td><td class="v">${dinheiro(x.centavos)}</td></tr>`).join('');
+  const linhas = linhasExtrato(ativos).map(l => l.tipo === 'dia'
+    ? `<tr class="dia"><td colspan="5">Total do dia ${dataBR(l.data)} (${l.quantidade})</td><td class="v">${dinheiro(l.total)}</td><td class="v">${dinheiro(l.acumulado)}</td></tr>`
+    : `<tr><td>${escH(l.r.numero)}</td><td>${dataBR(l.r.data)}</td><td>${escH(ORIGENS[l.r.origem]?.sigla || l.r.origem)}${l.r.conta ? ' ' + escH(l.r.conta) : ''}</td><td>${escH(RUBRICAS[l.r.rubrica]?.nome || l.r.rubrica)}</td><td>${escH(l.r.empenho || '—')}</td><td class="v">${dinheiro(l.r.centavos)}</td><td class="v">${dinheiro(l.acumulado)}</td></tr>`).join('');
   const porRub = Object.entries(r.porRubrica).map(([k, v]) => `<tr><td>${escH(RUBRICAS[k]?.nome || k)}</td><td>${escH([...new Set(ativos.filter(a => a.rubrica === k).map(a => a.empenho).filter(Boolean))].join(', ') || '—')}</td><td class="v">${dinheiro(v)}</td></tr>`).join('');
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Demonstrativo de retenções</title><style>${CSS_DOC}</style></head><body>${toolbarDoc('Demonstrativo das retenções')}
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Extrato das retenções</title><style>${CSS_DOC}.lista tr.dia td{background:#f2f8f3;font-weight:700;color:#1b5c39;font-size:11px}</style></head><body>${toolbarDoc('Extrato das retenções')}
 <main class="paper">${cabecalhoDoc(cfg, 'Retenções nas transferências')}
-<div class="titulo"><h1>DEMONSTRATIVO DAS RETENÇÕES</h1><p>TRANSFERÊNCIAS CONSTITUCIONAIS${titulo ? ' · ' + escH(titulo).toUpperCase() : ''}</p></div>
-<section class="bloco"><table class="tab lista"><thead><tr><th>Nº</th><th>Data</th><th>Fundo</th><th>Retenção</th><th>Empenho</th><th class="v">Valor</th></tr></thead><tbody>${linhas || '<tr><td colspan="6">Nenhuma retenção no período.</td></tr>'}</tbody>
-<tfoot><tr><td colspan="5">TOTAL (${r.quantidade} retenção(ões))</td><td class="v">${dinheiro(r.total)}</td></tr></tfoot></table></section>
+<div class="titulo"><h1>EXTRATO DAS RETENÇÕES</h1><p>TRANSFERÊNCIAS CONSTITUCIONAIS${titulo ? ' · ' + escH(titulo).toUpperCase() : ''}</p></div>
+<section class="bloco"><table class="tab lista"><thead><tr><th>Nº</th><th>Data</th><th>Fundo / conta</th><th>Retenção</th><th>Empenho</th><th class="v">Valor</th><th class="v">Acumulado</th></tr></thead><tbody>${linhas || '<tr><td colspan="7">Nenhuma retenção no período.</td></tr>'}</tbody>
+<tfoot><tr><td colspan="5">TOTAL (${r.quantidade} retenção(ões))</td><td class="v">${dinheiro(r.total)}</td><td class="v">${dinheiro(r.total)}</td></tr></tfoot></table></section>
 <section class="bloco"><div class="bloco-cab"><div><span class="rotulo">Resumo por retenção</span></div></div><table class="tab lista"><tbody>${porRub}</tbody></table></section>
 <div class="quadro-total"><span>TOTAL RETIDO NO PERÍODO</span><strong>${dinheiro(r.total)}</strong></div>
 <div class="assinaturas"><span>Responsável pela conferência</span><span>${escH(cfg.responsavel || 'Setor de Contabilidade')}</span><span>Ordenador(a) da despesa</span></div>
@@ -594,8 +612,8 @@ export function demonstrativoHTML(lista, cfg = {}, titulo = '') {
 
 /** CSV para planilha. */
 export function linhasCSV(lista) {
-  return [['Número', 'Data', 'Decêndio', 'Competência', 'Fundo', 'Conta', 'Retenção', 'Credor', 'Valor', 'Base (cota bruta)', 'Empenho', 'Ficha', 'Liquidação', 'Situação', 'Histórico', 'Observação'],
-    ...lista.map(r => [r.numero, dataBR(r.data), r.decendio + 'º', r.competencia, ORIGENS[r.origem]?.sigla || r.origem, r.conta, RUBRICAS[r.rubrica]?.nome || r.rubrica,
-      r.credor || RUBRICAS[r.rubrica]?.credor || '', (r.centavos / 100).toFixed(2).replace('.', ','), r.base_centavos ? (r.base_centavos / 100).toFixed(2).replace('.', ',') : '',
-      r.empenho, r.ficha, r.liquidacao, situacao(r), r.historico, r.observacao])];
+  return [['Número', 'Data', 'Decêndio', 'Competência', 'Fundo', 'Conta', 'Retenção', 'Credor', 'Valor', 'Acumulado', 'Base (cota bruta)', 'Empenho', 'Ficha', 'Liquidação', 'Situação', 'Histórico contábil', 'Histórico no demonstrativo', 'Observação'],
+    ...linhasExtrato(lista).filter(l => l.tipo === 'mov').map(({ r, acumulado }) => [r.numero, dataBR(r.data), r.decendio + 'º', r.competencia, ORIGENS[r.origem]?.sigla || r.origem, r.conta, RUBRICAS[r.rubrica]?.nome || r.rubrica,
+      r.credor || RUBRICAS[r.rubrica]?.credor || '', (r.centavos / 100).toFixed(2).replace('.', ','), (acumulado / 100).toFixed(2).replace('.', ','), r.base_centavos ? (r.base_centavos / 100).toFixed(2).replace('.', ',') : '',
+      r.empenho, r.ficha, r.liquidacao, situacao(r), historicoContabil(r), r.historico, r.observacao])];
 }
