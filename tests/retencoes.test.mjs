@@ -163,16 +163,22 @@ const mEx = pEx.filter(p => p.marcado);
 const porRub = {}; for (const p of mEx) porRub[p.rubrica] = (porRub[p.rubrica] || 0) + p.centavos;
 assert.deepEqual(porRub, {
   EMATER: 288990 * 3 + 288991, CNM: 91000 * 2, ARDOCE: 171639 * 3,
-  CISDOCE_RATEIO: 2726851 + 2502100 + 322168 + 10070644 + 322168 + 322168 + 2502100 + 322168, AMM: 88052 });
+  CISDOCE_RATEIO: 322168 * 4, CISDOCE_SERVICOS: 2726851 + 2502100 + 10070644 + 2502100, AMM: 88052 });
+// rateio (3.221,68) em todo decêndio; serviços (outros valores) só no dia 10
+assert.ok(mEx.filter(p => p.rubrica === 'CISDOCE_SERVICOS').every(p => ['2026-10-09', '2026-11-10'].includes(p.data) && !p.avisos.some(a => /dia 10/.test(a))));
+assert.ok(mEx.find(p => p.data === '2026-10-09' && p.rubrica === 'CISDOCE_RATEIO' && /decêndio anterior/.test(p.observacao)));
+// 10/11: o rateio estornado em 30/10 volta junto com o do decêndio (e um deles foi estornado de novo no dia)
+assert.equal(mEx.filter(p => p.data === '2026-11-10' && p.rubrica === 'CISDOCE_RATEIO').length, 1);
 assert.ok(pEx.filter(p => p.rubrica === 'PASEP').every(p => !p.marcado && !p.avisos.some(a => /diferente/.test(a))), 'PASEP do extrato soma 1% no dia');
-assert.equal(pEx.filter(p => p.avisos.some(a => /estornado/.test(a))).length, 4);
+assert.equal(pEx.filter(p => p.avisos.some(a => /Débito estornado/.test(a))).length, 4);
 assert.ok(!mEx.some(p => p.data === '2026-11-03'), 'ARDOCE de 03/11 foi estornado');
 // lançado de novo: tudo vira duplicado, inclusive os dois CISDOCE iguais do mesmo dia
 const jaEx = mEx.map(p => ({ data: p.data, origem: p.origem, rubrica: p.rubrica, centavos: p.centavos }));
 assert.equal(proporLancamentos(mvEx, jaEx, { fonte: 'extrato' }).filter(p => p.marcado).length, 0);
-// CISDOCE aprende rateio x serviços pelo último lançamento do mesmo valor
-const comHist = proporLancamentos(mvEx, [{ data: '2026-09-10', origem: 'FPM', rubrica: 'CISDOCE_SERVICOS', centavos: 2502100 }], { fonte: 'extrato' });
-assert.ok(comHist.filter(p => p.centavos === 2502100).every(p => p.rubrica === 'CISDOCE_SERVICOS'));
-assert.equal(comHist.find(p => p.centavos === 2726851).rubrica, 'CISDOCE_RATEIO');
+// valor do rateio configurável
+const outroRateio = proporLancamentos(mvEx, [], { fonte: 'extrato', valorRateioCisdoce: 2502100 });
+assert.ok(outroRateio.filter(p => p.centavos === 2502100).every(p => p.rubrica === 'CISDOCE_RATEIO'));
+assert.ok(outroRateio.filter(p => p.centavos === 322168).every(p => p.rubrica === 'CISDOCE_SERVICOS'));
+assert.ok(outroRateio.some(p => p.data === '2026-10-20' && p.rubrica === 'CISDOCE_SERVICOS' && p.avisos.some(a => /dia 10/.test(a))));
 
 console.log('retencoes: ok');

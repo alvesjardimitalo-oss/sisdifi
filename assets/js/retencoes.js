@@ -314,10 +314,11 @@ export const chaveDuplicidade = r => [r.data, r.origem, r.rubrica, r.centavos].j
  * - vêm marcadas só as rubricas lançadas por aquela fonte (PASEP pelo DAF; convênios pelo extrato);
  * - estorno de débito anula o débito de mesmo favorecido e valor no mesmo dia;
  * - PASEP é conferido contra 1% da cota (bruta, ou líquida do FUNDEB, como no ITR);
- * - CISDOCE sem indicação de rateio/serviços usa o que foi lançado antes com o mesmo valor;
+ * - CISDOCE: valor igual ao do rateio (padrão R$ 3.221,68, todo decêndio) = rateio; qualquer outro valor = serviços (dia 10);
  * - linhas já lançadas (mesma data, fundo, rubrica e valor, contando repetições) ficam desmarcadas.
  */
-export function proporLancamentos(movimentos, existentes = [], { fonte = '' } = {}) {
+export const VALOR_RATEIO_CISDOCE = 322168;
+export function proporLancamentos(movimentos, existentes = [], { fonte = '', valorRateioCisdoce = VALOR_RATEIO_CISDOCE } = {}) {
   const ativos = existentes.filter(e => !e.anulado);
   const restantes = new Map();
   for (const e of ativos) { const k = chaveDuplicidade(e); restantes.set(k, (restantes.get(k) || 0) + 1); }
@@ -335,15 +336,25 @@ export function proporLancamentos(movimentos, existentes = [], { fonte = '' } = 
     const j = movimentos.findIndex((d, k) => k !== i && !d.estorno && !estornado.has(k) && d.sinal === 'D' && d.data === e.data && d.rubrica === e.rubrica && d.centavos === e.centavos);
     estornado.add(i); if (j >= 0) estornado.add(j);
   });
-  const anteriorCisdoce = c => ativos.filter(r => /^CISDOCE_/.test(r.rubrica) && r.centavos === c).sort((a, b) => String(b.data).localeCompare(String(a.data)))[0]?.rubrica;
+  // CISDOCE: o rateio é um valor fixo cobrado em todo decêndio; qualquer outro valor é serviço (cobrado só no 1º decêndio, dia 10)
+  const rateioDia = {};
+  const estornosRateio = movimentos.filter(m => m.estorno && /^CISDOCE_/.test(m.rubrica) && m.centavos === valorRateioCisdoce).map(m => m.data).sort();
   return movimentos.map((m, i) => ({ m, i })).filter(({ m }) => m.rubrica !== 'BASE' && m.rubrica !== 'IGNORAR' && !(m.bloco && !RUBRICAS[m.rubrica])).map(({ m, i }) => {
     const p = { ...m, avisos: [], base_centavos: 0, duplicado: false };
-    const rb = RUBRICAS[p.rubrica];
-    if (p.rubrica === 'CISDOCE_RATEIO' && !/RATEIO/i.test(p.historico)) {
-      const ant = anteriorCisdoce(p.centavos);
-      if (ant) { p.rubrica = ant; p.avisos.push(`CISDOCE: usei "${RUBRICAS[ant].nome}" como no último lançamento deste valor — confira.`); }
-      else p.avisos.push('CISDOCE: o extrato não diz se é rateio ou serviços — confira.');
+    if (/^CISDOCE_/.test(p.rubrica) && !/RATEIO|SERVIC/i.test(p.historico.replace(/PRESTA[CÇ][AÃ]O DE SERVI[CÇ]OS/i, ''))) {
+      p.rubrica = p.centavos === valorRateioCisdoce ? 'CISDOCE_RATEIO' : 'CISDOCE_SERVICOS';
+      if (p.rubrica === 'CISDOCE_RATEIO' && !p.estorno && !estornado.has(i)) {
+        rateioDia[p.data] = (rateioDia[p.data] || 0) + 1;
+        if (rateioDia[p.data] > 1) {
+          // rateio estornado volta a ser cobrado no decêndio seguinte, junto com o rateio do próprio decêndio
+          const est = estornosRateio.filter(d => d < p.data).pop();
+          p.observacao = 'Rateio CISDOCE do decêndio anterior' + (est ? `, estornado em ${dataBR(est)}` : ' (estornado)') + ', cobrado novamente neste decêndio.';
+          p.avisos.push(est ? `Rateio a mais: é o estornado em ${dataBR(est)}, cobrado de novo agora.` : 'Rateio a mais no dia: deve ser o do decêndio anterior, estornado — confira.');
+        }
+      }
+      if (p.rubrica === 'CISDOCE_SERVICOS' && decendioDe(p.data)?.decendio !== 1) p.avisos.push('CISDOCE serviços normalmente só é descontado no dia 10 — confira.');
     }
+    const rb = RUBRICAS[p.rubrica];
     if (estornado.has(i)) p.avisos.push(p.estorno ? 'Estorno de débito: anula o débito igual do mesmo dia.' : 'Débito estornado no mesmo dia: não lançar.');
     if (p.bloco) p.avisos.push(`Fundo ${p.bloco} do DAF: escolha a qual transferência lançar.`);
     else if (!p.origem) p.avisos.push('Fundo não identificado: escolha FPM, ITR, IPI, LC 176 ou FEP.');
