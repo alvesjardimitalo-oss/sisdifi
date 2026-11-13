@@ -21,8 +21,11 @@ com baixa contra a própria conta da transferência. A aba registra cada retenç
 2. **⬆ Extrato da conta do FPM** — CSV, OFX, PDF do extrato ou o **scan em PDF/foto** (lido por OCR no navegador, Tesseract.js).
    O favorecido vem na linha de baixo do lançamento ("240 Contribuição" / "CISDOCE"). Vêm marcados EMATER, CISDOCE, ARDOCE, AMM
    ("ASSOCIACAO MIN MUNICIPIOS") e CNM ("CONFED NACIONAL MUNICIPIO"). **Estorno de débito** anula o débito igual do mesmo dia.
-   O PASEP do extrato fica desmarcado (vem em duas linhas; é lançado pelo DAF). CISDOCE não diz se é rateio ou serviços: o sistema
-   usa a rubrica do último lançamento com o mesmo valor e avisa para conferir.
+   O PASEP do extrato fica desmarcado (vem em duas linhas; é lançado pelo DAF). **CISDOCE**: o extrato não diz se é rateio ou
+   serviços. Regra da Contabilidade: o **rateio** é o valor fixo (R$ 3.221,68, editável em Configurar) descontado em todo decêndio;
+   **qualquer outro valor é serviços**, conforme a demanda, descontado só no dia 10 (aviso se aparecer em outro decêndio).
+   Rateio **estornado** volta no decêndio seguinte: dois rateios no mesmo dia são lançados, e o a mais recebe a observação
+   "Rateio CISDOCE do decêndio anterior, estornado em …, cobrado novamente neste decêndio" (sai no comprovante).
 3. **+ Lançar decêndio** — digitação rápida de todas as retenções de uma data, quando não houver arquivo.
 4. **+ Lançamento avulso** — qualquer retenção, inclusive "Outra retenção" com credor próprio (ex.: ADO LC 176 ocasional).
 
@@ -34,6 +37,19 @@ rubrica e valor) também. Ao gravar, o sistema oferece gerar os comprovantes.
 
 Depois de empenhar, use **Editar** (ou **Informar empenho nos selecionados**) para gravar nº do empenho, ficha e liquidação; o comprovante
 passa a sair com esses dados. **Anular** tira do total sem reaproveitar o número.
+
+## Planilha do IPI (SEF-MG)
+**⬆ Planilha do IPI (SEF-MG)** aceita uma ou várias planilhas `.xlsx` baixadas em
+`fazenda.mg.gov.br/.../previsao_repasse_IPI/repasse_decendial/` (uma a cada decêndio, todos os municípios). O sistema acha a linha
+de Frei Inocêncio (nome do município em Parâmetros), lê a data do título ("PARA O DIA 20/10/2026") e lança o **PASEP do IPI**
+(conta 92998-8), conferindo 1% sobre Bruto − FUNDEB. O comprovante traz a linha da planilha (índice, bruto, FUNDEB, PASEP, saúde,
+líquido) — não é preciso imprimir a planilha.
+
+## Empenhos anuais
+Cada retenção recebe o empenho do exercício automaticamente (editável na conferência e em Configurar). 2026:
+PASEP de FPM, ITR, IPI e LC 176 → 2/2026 · PASEP do FEP → 4/2026 · CISDOCE Rateio → 5/2026 · CISDOCE Serviços → 6/2026 ·
+ARDOCE → 7/2026 · EMATER → 8/2026 · CNM → 9/2026 · AMM → 32/2026. **Preencher empenhos padrão** completa os lançamentos antigos.
+A dedução do FUNDEB não é listada.
 
 ## Configurar
 CNPJ, responsável que assina, contas (inclusive a do LC 176) e nome de cada credor no comprovante. Fica em `retencoes_config/geral`.

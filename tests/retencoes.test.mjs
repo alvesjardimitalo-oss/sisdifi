@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   lerValor, lerData, decendioDe, classificar, origemDe, lerCSV, lerArquivo, proporLancamentos,
-  validarLancamento, numeroRetencao, situacao, resumo, codigoVerificacao, comprovanteHTML, demonstrativoHTML, linhasCSV, centavosDe
+  validarLancamento, numeroRetencao, empenhoPadrao, situacao, resumo, codigoVerificacao, comprovanteHTML, demonstrativoHTML, linhasCSV, centavosDe
 } from '../assets/js/retencoes.js';
 
 // valores
@@ -69,7 +69,7 @@ assert.deepEqual(pasep.map(m => [m.data, m.origem, m.centavos]), [
 const prop = proporLancamentos(movs);
 const marcados = prop.filter(p => p.marcado);
 assert.equal(marcados.length, 3);
-assert.equal(prop.find(p => p.rubrica === 'FUNDEB').marcado, false);
+assert.ok(!prop.some(p => p.rubrica === 'FUNDEB'), 'FUNDEB não aparece');
 assert.equal(marcados[0].base_centavos, 100000000);
 assert.ok(marcados[1].avisos.some(a => /1% da cota/.test(a)), 'PASEP de 4.000 sobre 500.000 deve avisar');
 assert.equal(marcados[0].avisos.length, 0);
@@ -152,7 +152,8 @@ assert.ok(mDaf.every(p => p.rubrica === 'PASEP' && !p.avisos.length), 'PASEP do 
 assert.equal(mDaf[0].base_centavos, 24217626);
 assert.equal(mDaf[4].base_centavos, 118796 - 23759);
 assert.equal(pDaf.filter(p => p.rubrica === 'RFB_DARF').length, 2);
-assert.ok(pDaf.filter(p => p.rubrica === 'RFB_DARF' || p.rubrica === 'FUNDEB').every(p => !p.marcado));
+assert.ok(pDaf.filter(p => p.rubrica === 'RFB_DARF').every(p => !p.marcado));
+assert.ok(!pDaf.some(p => p.rubrica === 'FUNDEB'));
 assert.equal(pDaf.reduce((s, p) => s + (p.rubrica === 'PASEP' ? p.centavos : 0), 0), 1969270 + 41866 + 5807 + 3544);
 
 // Extrato do FPM escaneado (texto do OCR): convênios marcados, estornos anulam o débito, PASEP fica para o DAF
@@ -163,16 +164,48 @@ const mEx = pEx.filter(p => p.marcado);
 const porRub = {}; for (const p of mEx) porRub[p.rubrica] = (porRub[p.rubrica] || 0) + p.centavos;
 assert.deepEqual(porRub, {
   EMATER: 288990 * 3 + 288991, CNM: 91000 * 2, ARDOCE: 171639 * 3,
-  CISDOCE_RATEIO: 2726851 + 2502100 + 322168 + 10070644 + 322168 + 322168 + 2502100 + 322168, AMM: 88052 });
+  CISDOCE_RATEIO: 322168 * 4, CISDOCE_SERVICOS: 2726851 + 2502100 + 10070644 + 2502100, AMM: 88052 });
+// rateio (3.221,68) em todo decêndio; serviços (outros valores) só no dia 10
+assert.ok(mEx.filter(p => p.rubrica === 'CISDOCE_SERVICOS').every(p => ['2026-10-09', '2026-11-10'].includes(p.data) && !p.avisos.some(a => /dia 10/.test(a))));
+assert.ok(mEx.find(p => p.data === '2026-10-09' && p.rubrica === 'CISDOCE_RATEIO' && /decêndio anterior/.test(p.observacao)));
+// 10/11: o rateio estornado em 30/10 volta junto com o do decêndio (e um deles foi estornado de novo no dia)
+assert.equal(mEx.filter(p => p.data === '2026-11-10' && p.rubrica === 'CISDOCE_RATEIO').length, 1);
 assert.ok(pEx.filter(p => p.rubrica === 'PASEP').every(p => !p.marcado && !p.avisos.some(a => /diferente/.test(a))), 'PASEP do extrato soma 1% no dia');
-assert.equal(pEx.filter(p => p.avisos.some(a => /estornado/.test(a))).length, 4);
+assert.equal(pEx.filter(p => p.avisos.some(a => /Débito estornado/.test(a))).length, 4);
 assert.ok(!mEx.some(p => p.data === '2026-11-03'), 'ARDOCE de 03/11 foi estornado');
 // lançado de novo: tudo vira duplicado, inclusive os dois CISDOCE iguais do mesmo dia
 const jaEx = mEx.map(p => ({ data: p.data, origem: p.origem, rubrica: p.rubrica, centavos: p.centavos }));
 assert.equal(proporLancamentos(mvEx, jaEx, { fonte: 'extrato' }).filter(p => p.marcado).length, 0);
-// CISDOCE aprende rateio x serviços pelo último lançamento do mesmo valor
-const comHist = proporLancamentos(mvEx, [{ data: '2026-09-10', origem: 'FPM', rubrica: 'CISDOCE_SERVICOS', centavos: 2502100 }], { fonte: 'extrato' });
-assert.ok(comHist.filter(p => p.centavos === 2502100).every(p => p.rubrica === 'CISDOCE_SERVICOS'));
-assert.equal(comHist.find(p => p.centavos === 2726851).rubrica, 'CISDOCE_RATEIO');
+// valor do rateio configurável
+const outroRateio = proporLancamentos(mvEx, [], { fonte: 'extrato', valorRateioCisdoce: 2502100 });
+assert.ok(outroRateio.filter(p => p.centavos === 2502100).every(p => p.rubrica === 'CISDOCE_RATEIO'));
+assert.ok(outroRateio.filter(p => p.centavos === 322168).every(p => p.rubrica === 'CISDOCE_SERVICOS'));
+assert.ok(outroRateio.some(p => p.data === '2026-10-20' && p.rubrica === 'CISDOCE_SERVICOS' && p.avisos.some(a => /dia 10/.test(a))));
+
+// empenhos anuais
+const E = (rb, og, d = '2026-11-10') => empenhoPadrao({}, rb, og, d);
+assert.deepEqual([E('PASEP', 'FPM'), E('PASEP', 'ITR'), E('PASEP', 'IPI'), E('PASEP', 'LC176'), E('PASEP', 'FEP')], ['2/2026', '2/2026', '2/2026', '2/2026', '4/2026']);
+assert.deepEqual([E('CISDOCE_RATEIO', 'FPM'), E('CISDOCE_SERVICOS', 'FPM'), E('ARDOCE', 'FPM'), E('EMATER', 'FPM'), E('CNM', 'FPM'), E('AMM', 'FPM')],
+  ['5/2026', '6/2026', '7/2026', '8/2026', '9/2026', '32/2026']);
+assert.equal(E('RFB_DARF', 'FPM'), '');
+assert.equal(E('PASEP', 'FPM', '2027-01-10'), '');
+assert.equal(empenhoPadrao({ 2026: { EMATER: '15/2026' } }, 'EMATER', 'FPM', '2026-11-10'), '15/2026');
 
 console.log('retencoes: ok');
+
+// ---------- planilha decendial do IPI (SEF/MG) ----------
+const { lerXlsx } = await import('../assets/js/xlsx-leitor.js');
+const { lerPlanilhaIPI, movimentosIPI } = await import('../assets/js/retencoes.js');
+const linhasIPI = await lerXlsx(readFileSync(new URL('./fixtures/ipi-20261020.xlsx', import.meta.url)));
+const ipi = lerPlanilhaIPI(linhasIPI, 'Frei Inocêncio');
+assert.deepEqual({ ...ipi, titulo: undefined }, { data: '2026-10-20', titulo: undefined, indice: 0.02775952, bruto: 136684, fundeb: 27337, pasep: 1093, saude: 0, liquido: 108254 });
+assert.match(ipi.titulo, /20\/10\/2026/);
+assert.throws(() => lerPlanilhaIPI(linhasIPI, 'MUNICIPIO INEXISTENTE'));
+const pIpi = proporLancamentos(movimentosIPI(ipi), []);
+assert.equal(pIpi.length, 1);
+assert.deepEqual([pIpi[0].marcado, pIpi[0].origem, pIpi[0].rubrica, pIpi[0].centavos, pIpi[0].base_centavos, pIpi[0].avisos.length], [true, 'IPI', 'PASEP', 1093, 109347, 0]);
+const regIpi = { ...validarLancamento({ ...pIpi[0], detalhe_ipi: pIpi[0].detalhe_ipi }), numero: 'RET 0009/2026' };
+assert.equal(regIpi.detalhe_ipi.liquido, 108254);
+const htmlIpi = comprovanteHTML([regIpi]);
+assert.match(htmlIpi, /Planilha SEF\/MG/); assert.match(htmlIpi, /PASEP R\$\s?10,93/); assert.match(htmlIpi, /Secretaria de Estado de Fazenda/);
+console.log('retencoes (IPI): ok');

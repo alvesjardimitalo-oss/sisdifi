@@ -277,6 +277,41 @@ export function lerExtratoTexto(linhas, { origemPadrao = 'FPM' } = {}) {
 /** Texto do extrato parece legível? (tem lançamentos com data e valor) */
 export const extratoLegivel = linhas => linhas.filter(l => /^\s*\d{2}\/\d{2}\/\d{4}\s.*\d,\d{2}\s*[CD€]/i.test(l)).length >= 2;
 
+// ---------------- Planilha decendial do IPI (SEF/MG) ----------------
+/**
+ * Linhas da planilha "REPASSE DE RECEITA DO IPI AOS MUNICÍPIOS PARA O DIA 20/10/2026 - ÍNDICE OUTUBRO"
+ * (colunas: Código Portaria | Município | Índice | Valor Bruto | Valor FUNDEB | Valor PASEP | Valor Dedução Saúde | Valor Líquido).
+ * Devolve a linha do município ou lança erro.
+ */
+export function lerPlanilhaIPI(linhas, municipio = 'FREI INOCENCIO') {
+  const titulo = (linhas.find(l => l.some(c => /REPASSE .*IPI/i.test(String(c ?? '')))) || []).find(c => /REPASSE/i.test(String(c ?? ''))) || '';
+  const data = lerData((/DIA\s+(\d{2}\/\d{2}\/\d{4})/i.exec(titulo) || [])[1] || '');
+  const iCab = linhas.findIndex(l => l.some(c => /MUNIC/i.test(String(c ?? ''))) && l.some(c => /PASEP/i.test(String(c ?? ''))));
+  if (iCab < 0) throw Error('Não encontrei o cabeçalho da planilha do IPI (Município / Valor PASEP).');
+  const cab = linhas[iCab].map(c => norm(c));
+  const col = re => cab.findIndex(c => re.test(c));
+  const c = { mun: col(/MUNIC/), indice: col(/INDICE/), bruto: col(/BRUTO/), fundeb: col(/FUNDEB/), pasep: col(/PASEP/), saude: col(/SAUDE/), liquido: col(/LIQUIDO/) };
+  const alvo = norm(municipio);
+  const linha = linhas.slice(iCab + 1).find(l => norm(l[c.mun]) === alvo);
+  if (!linha) throw Error(`Município ${municipio} não encontrado na planilha.`);
+  const cent = v => typeof v === 'number' ? Math.round(v * 100) : (lerValor(v)?.centavos || 0);
+  return {
+    data, titulo: String(titulo).trim(), indice: typeof linha[c.indice] === 'number' ? linha[c.indice] : Number(linha[c.indice]) || 0,
+    bruto: cent(linha[c.bruto]), fundeb: cent(linha[c.fundeb]), pasep: cent(linha[c.pasep]),
+    saude: c.saude >= 0 ? cent(linha[c.saude]) : 0, liquido: cent(linha[c.liquido])
+  };
+}
+
+/** Linha do IPI → movimentos (cota líquida do FUNDEB como base + PASEP), para a mesma conferência dos outros arquivos. */
+export function movimentosIPI(ipi) {
+  if (!ipi.data) throw Error('A planilha não informa a data do repasse no título.');
+  const detalhe_ipi = { titulo: ipi.titulo, indice: ipi.indice, bruto: ipi.bruto, fundeb: ipi.fundeb, pasep: ipi.pasep, saude: ipi.saude, liquido: ipi.liquido };
+  return [
+    { linha: 1, data: ipi.data, origem: 'IPI', historico: 'Valor bruto menos FUNDEB (planilha SEF/MG)', centavos: ipi.bruto - ipi.fundeb, sinal: 'C', rubrica: 'BASE', estorno: false },
+    { linha: 2, data: ipi.data, origem: 'IPI', historico: `PASEP — repasse IPI-Exportação SEF/MG de ${dataBR(ipi.data)}`, centavos: ipi.pasep, sinal: 'D', rubrica: 'PASEP', estorno: false, detalhe_ipi }
+  ].filter(m => m.centavos > 0);
+}
+
 // ---------------- OFX (extrato BB) ----------------
 export function lerOFX(texto) {
   const t = String(texto ?? '');
@@ -314,10 +349,11 @@ export const chaveDuplicidade = r => [r.data, r.origem, r.rubrica, r.centavos].j
  * - vêm marcadas só as rubricas lançadas por aquela fonte (PASEP pelo DAF; convênios pelo extrato);
  * - estorno de débito anula o débito de mesmo favorecido e valor no mesmo dia;
  * - PASEP é conferido contra 1% da cota (bruta, ou líquida do FUNDEB, como no ITR);
- * - CISDOCE sem indicação de rateio/serviços usa o que foi lançado antes com o mesmo valor;
+ * - CISDOCE: valor igual ao do rateio (padrão R$ 3.221,68, todo decêndio) = rateio; qualquer outro valor = serviços (dia 10);
  * - linhas já lançadas (mesma data, fundo, rubrica e valor, contando repetições) ficam desmarcadas.
  */
-export function proporLancamentos(movimentos, existentes = [], { fonte = '' } = {}) {
+export const VALOR_RATEIO_CISDOCE = 322168;
+export function proporLancamentos(movimentos, existentes = [], { fonte = '', valorRateioCisdoce = VALOR_RATEIO_CISDOCE } = {}) {
   const ativos = existentes.filter(e => !e.anulado);
   const restantes = new Map();
   for (const e of ativos) { const k = chaveDuplicidade(e); restantes.set(k, (restantes.get(k) || 0) + 1); }
@@ -335,20 +371,29 @@ export function proporLancamentos(movimentos, existentes = [], { fonte = '' } = 
     const j = movimentos.findIndex((d, k) => k !== i && !d.estorno && !estornado.has(k) && d.sinal === 'D' && d.data === e.data && d.rubrica === e.rubrica && d.centavos === e.centavos);
     estornado.add(i); if (j >= 0) estornado.add(j);
   });
-  const anteriorCisdoce = c => ativos.filter(r => /^CISDOCE_/.test(r.rubrica) && r.centavos === c).sort((a, b) => String(b.data).localeCompare(String(a.data)))[0]?.rubrica;
-  return movimentos.map((m, i) => ({ m, i })).filter(({ m }) => m.rubrica !== 'BASE' && m.rubrica !== 'IGNORAR' && !(m.bloco && !RUBRICAS[m.rubrica])).map(({ m, i }) => {
+  // CISDOCE: o rateio é um valor fixo cobrado em todo decêndio; qualquer outro valor é serviço (cobrado só no 1º decêndio, dia 10)
+  const rateioDia = {};
+  const estornosRateio = movimentos.filter(m => m.estorno && /^CISDOCE_/.test(m.rubrica) && m.centavos === valorRateioCisdoce).map(m => m.data).sort();
+  return movimentos.map((m, i) => ({ m, i })).filter(({ m }) => !['BASE', 'IGNORAR', 'FUNDEB'].includes(m.rubrica) && !(m.bloco && !RUBRICAS[m.rubrica])).map(({ m, i }) => {
     const p = { ...m, avisos: [], base_centavos: 0, duplicado: false };
-    const rb = RUBRICAS[p.rubrica];
-    if (p.rubrica === 'CISDOCE_RATEIO' && !/RATEIO/i.test(p.historico)) {
-      const ant = anteriorCisdoce(p.centavos);
-      if (ant) { p.rubrica = ant; p.avisos.push(`CISDOCE: usei "${RUBRICAS[ant].nome}" como no último lançamento deste valor — confira.`); }
-      else p.avisos.push('CISDOCE: o extrato não diz se é rateio ou serviços — confira.');
+    if (/^CISDOCE_/.test(p.rubrica) && !/RATEIO|SERVIC/i.test(p.historico.replace(/PRESTA[CÇ][AÃ]O DE SERVI[CÇ]OS/i, ''))) {
+      p.rubrica = p.centavos === valorRateioCisdoce ? 'CISDOCE_RATEIO' : 'CISDOCE_SERVICOS';
+      if (p.rubrica === 'CISDOCE_RATEIO' && !p.estorno && !estornado.has(i)) {
+        rateioDia[p.data] = (rateioDia[p.data] || 0) + 1;
+        if (rateioDia[p.data] > 1) {
+          // rateio estornado volta a ser cobrado no decêndio seguinte, junto com o rateio do próprio decêndio
+          const est = estornosRateio.filter(d => d < p.data).pop();
+          p.observacao = 'Rateio CISDOCE do decêndio anterior' + (est ? `, estornado em ${dataBR(est)}` : ' (estornado)') + ', cobrado novamente neste decêndio.';
+          p.avisos.push(est ? `Rateio a mais: é o estornado em ${dataBR(est)}, cobrado de novo agora.` : 'Rateio a mais no dia: deve ser o do decêndio anterior, estornado — confira.');
+        }
+      }
+      if (p.rubrica === 'CISDOCE_SERVICOS' && decendioDe(p.data)?.decendio !== 1) p.avisos.push('CISDOCE serviços normalmente só é descontado no dia 10 — confira.');
     }
+    const rb = RUBRICAS[p.rubrica];
     if (estornado.has(i)) p.avisos.push(p.estorno ? 'Estorno de débito: anula o débito igual do mesmo dia.' : 'Débito estornado no mesmo dia: não lançar.');
     if (p.bloco) p.avisos.push(`Fundo ${p.bloco} do DAF: escolha a qual transferência lançar.`);
     else if (!p.origem) p.avisos.push('Fundo não identificado: escolha FPM, ITR, IPI, LC 176 ou FEP.');
     if (!p.data) p.avisos.push('Sem data na linha: informe a data.');
-    if (p.rubrica === 'FUNDEB') p.avisos.push('Dedução do FUNDEB: é dedução de receita, não se liquida por empenho.');
     if (!p.rubrica) p.avisos.push('Histórico não reconhecido: escolha a rubrica se for uma retenção.');
     if (rb && fonte && rb.fonte !== fonte) p.avisos.push(rb.fonte === 'daf' ? 'O PASEP é lançado pela consulta do DAF (traz o total por fundo).'
       : rb.fonte === 'extrato' ? 'Esta retenção é lançada pelo extrato do FPM.' : 'Confira se esta retenção é liquidada por empenho antes de marcar.');
@@ -372,6 +417,28 @@ export function proporLancamentos(movimentos, existentes = [], { fonte = '' } = 
   });
 }
 
+// ---------------- Empenhos anuais (estimativos) ----------------
+/**
+ * Empenho padrão de cada retenção por exercício. Chave "RUBRICA" ou "RUBRICA:ORIGEM" (a mais específica vale).
+ * Valores informados pela Contabilidade para 2026; editáveis em Configurar.
+ */
+export const EMPENHOS_PADRAO = {
+  2026: { PASEP: '2/2026', 'PASEP:FEP': '4/2026', CISDOCE_RATEIO: '5/2026', CISDOCE_SERVICOS: '6/2026',
+          ARDOCE: '7/2026', EMATER: '8/2026', CNM: '9/2026', AMM: '32/2026' }
+};
+/** Campos de empenho exibidos em Configurar (rubrica[:origem], rótulo). */
+export const CHAVES_EMPENHO = [
+  ['PASEP', 'PASEP — FPM, ITR, IPI e LC 176'], ['PASEP:FEP', 'PASEP — FEP'], ['EMATER', 'EMATER'], ['ARDOCE', 'ARDOCE'],
+  ['CISDOCE_RATEIO', 'CISDOCE — Rateio'], ['CISDOCE_SERVICOS', 'CISDOCE — Serviços'], ['AMM', 'AMM'], ['CNM', 'CNM'],
+  ['RFB_DARF', 'RFB — Retenção DARF']
+];
+/** empenhos: { '2026': { chave: 'nº' } } (configuração salva); cai no padrão do código quando não houver. */
+export function empenhoPadrao(empenhos, rubrica, origem, data) {
+  const ano = String(data || '').slice(0, 4);
+  const tabela = { ...(EMPENHOS_PADRAO[ano] || {}), ...((empenhos || {})[ano] || {}) };
+  return String(tabela[rubrica + ':' + origem] || tabela[rubrica] || '').trim();
+}
+
 // ---------------- Validação e numeração ----------------
 export function validarLancamento(d) {
   if (!dataValida(d.data)) throw Error('Informe a data do desconto/crédito.');
@@ -388,7 +455,10 @@ export function validarLancamento(d) {
     data: d.data, origem: d.origem, conta: txt(d.conta, 30), rubrica: d.rubrica, credor: txt(d.credor, 160),
     centavos, base_centavos: Number.isSafeInteger(Number(d.base_centavos)) && Number(d.base_centavos) > 0 ? Number(d.base_centavos) : 0,
     decendio, competencia, empenho: txt(d.empenho, 40), ficha: txt(d.ficha, 40), liquidacao: txt(d.liquidacao, 40),
-    historico: txt(d.historico, 300), observacao: txt(d.observacao, 500), arquivo: txt(d.arquivo, 120)
+    historico: txt(d.historico, 300), observacao: txt(d.observacao, 500), arquivo: txt(d.arquivo, 120),
+    ...(d.detalhe_ipi && typeof d.detalhe_ipi === 'object' ? { detalhe_ipi: {
+      titulo: txt(d.detalhe_ipi.titulo, 200), indice: Number(d.detalhe_ipi.indice) || 0,
+      ...Object.fromEntries(['bruto', 'fundeb', 'pasep', 'saude', 'liquido'].map(k => [k, Math.round(Number(d.detalhe_ipi[k]) || 0)])) } } : {})
   };
 }
 
@@ -436,7 +506,7 @@ export function comprovanteHTML(lista, cfg = {}) {
     const o = ORIGENS[r.origem] || { nome: r.origem, sigla: r.origem };
     const rb = RUBRICAS[r.rubrica] || { nome: r.rubrica };
     const credor = r.credor || rb.credor || rb.nome;
-    const linhaBase = r.base_centavos ? `<tr><th>Valor bruto da cota</th><td>${dinheiro(r.base_centavos)}${rb.aliquota ? ` · alíquota ${String(rb.aliquota * 100).replace('.', ',')}%` : ''}</td></tr>` : '';
+    const linhaBase = r.base_centavos ? `<tr><th>Base de cálculo (cota)</th><td>${dinheiro(r.base_centavos)}${rb.aliquota ? ` · alíquota ${String(rb.aliquota * 100).replace('.', ',')}%` : ''}</td></tr>` : '';
     return `<section class="pagina">
   <header><img src="${escH(cfg.logo || '')}" alt=""><div><strong>${escH(orgao)}</strong>${cfg.cnpj ? `<br>CNPJ ${escH(cfg.cnpj)}` : ''}<br>Setor de Contabilidade</div><div class="num"><small>Nº</small><b>${escH(r.numero || '')}</b></div></header>
   <h1>COMPROVANTE DE RETENÇÃO EM TRANSFERÊNCIA CONSTITUCIONAL</h1>
@@ -452,10 +522,11 @@ export function comprovanteHTML(lista, cfg = {}) {
     <tr><th>Por extenso</th><td><em>${escH(valorPorExtenso(r.centavos / 100))}</em></td></tr>
     <tr><th>Empenho / ficha</th><td>${escH(r.empenho || '____________')}${r.ficha ? ' · ficha ' + escH(r.ficha) : ''}${r.liquidacao ? ' · liquidação ' + escH(r.liquidacao) : ''}</td></tr>
     <tr><th>Histórico no demonstrativo</th><td>${escH(r.historico || '—')}</td></tr>
+    ${r.detalhe_ipi ? `<tr><th>Planilha SEF/MG</th><td>${escH(r.detalhe_ipi.titulo)}<br>Índice ${String(r.detalhe_ipi.indice).replace('.', ',')} · Bruto ${dinheiro(r.detalhe_ipi.bruto)} · FUNDEB ${dinheiro(r.detalhe_ipi.fundeb)} · <b>PASEP ${dinheiro(r.detalhe_ipi.pasep)}</b> · Saúde ${dinheiro(r.detalhe_ipi.saude)} · Líquido ${dinheiro(r.detalhe_ipi.liquido)}</td></tr>` : ''}
     ${rb.base_legal ? `<tr><th>Fundamento</th><td>${escH(rb.base_legal)}</td></tr>` : ''}
     ${r.observacao ? `<tr><th>Observação</th><td>${escH(r.observacao)}</td></tr>` : ''}
   </table>
-  <p class="fonte">Fonte: ${r.arquivo ? 'arquivo ' + escH(r.arquivo) + ' — ' : ''}Demonstrativo de Distribuição da Arrecadação Federal (Banco do Brasil) e extrato da conta da transferência.</p>
+  <p class="fonte">Fonte: ${r.arquivo ? 'arquivo ' + escH(r.arquivo) + ' — ' : ''}${r.detalhe_ipi ? 'Planilha de repasse decendial do IPI aos municípios (Secretaria de Estado de Fazenda de Minas Gerais) e extrato da conta da transferência.' : 'Demonstrativo de Distribuição da Arrecadação Federal (Banco do Brasil) e extrato da conta da transferência.'}</p>
   <div class="assin"><span>${escH(cfg.responsavel || 'Responsável pela Contabilidade')}<br><small>${escH(cfg.cargo || 'Contador(a)')}</small></span><span>Ordenador(a) da despesa</span></div>
   <footer>Gerado pelo SISDIFI em ${escH(cfg.geradoEm || '')}${cfg.geradoPor ? ' por ' + escH(cfg.geradoPor) : ''} · código de verificação <b>${codigoVerificacao(r)}</b></footer>
 </section>`;

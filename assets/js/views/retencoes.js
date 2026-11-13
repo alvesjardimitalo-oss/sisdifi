@@ -6,12 +6,12 @@ import * as db from '../db.js';
 import { estado, pode } from '../estado.js';
 import { esc, modal, confirmar, toast, mensagemErro, hojeISO, baixarArquivo, csv } from '../ui.js';
 import {
-  ORIGENS, RUBRICAS, CODIGOS_RUBRICA, dinheiro, dataBR, decendioDe, textoDecendio, lerArquivo, lerExtratoTexto, proporLancamentos,
-  validarLancamento, centavosDe, situacao, lancamentosAtivos, resumo, comprovanteHTML, demonstrativoHTML, linhasCSV
+  ORIGENS, RUBRICAS, CODIGOS_RUBRICA, dinheiro, dataBR, decendioDe, textoDecendio, lerArquivo, lerExtratoTexto, lerPlanilhaIPI, movimentosIPI, proporLancamentos,
+  validarLancamento, centavosDe, VALOR_RATEIO_CISDOCE, empenhoPadrao, CHAVES_EMPENHO, situacao, lancamentosAtivos, resumo, comprovanteHTML, demonstrativoHTML, linhasCSV
 } from '../retencoes.js';
 
 const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-const CONFIG_PADRAO = { cnpj: '', responsavel: '', cargo: 'Contador(a)', contas: {}, credores: {} };
+const CONFIG_PADRAO = { cnpj: '', responsavel: '', cargo: 'Contador(a)', contas: {}, credores: {}, rateio_cisdoce_centavos: VALOR_RATEIO_CISDOCE, empenhos: {} };
 
 const estilo = '<style>' +
 '.ret{max-width:1280px;margin:0 auto;color:#21374d}.ret *{box-sizing:border-box}.ret h1{margin:0 0 4px;color:#153d61;font-size:1.6rem}.ret .r-muted{color:#617384;font-size:.88rem;margin:0}' +
@@ -42,13 +42,15 @@ export function telaRetencoes(el) {
       <div class="r-grupo">
         <button class="btn" id="r-imp-fpm" disabled>⬆ Extrato da conta do FPM</button>
         <button class="btn" id="r-imp-daf" disabled>⬆ Consulta do DAF (BB)</button>
+        <button class="btn" id="r-imp-ipi" disabled>⬆ Planilha do IPI (SEF-MG)</button>
         <button class="btn btn-sec" id="r-decendio" disabled>+ Lançar decêndio</button>
         <button class="btn btn-sec" id="r-avulso" disabled>+ Lançamento avulso</button>
-        <input type="file" id="r-arquivo" accept=".csv,.txt,.ofx,.pdf,image/*,text/csv,application/pdf" hidden>
+        <input type="file" id="r-arquivo" accept=".csv,.txt,.ofx,.pdf,.xlsx,image/*,text/csv,application/pdf" hidden>
       </div>
       <div class="r-grupo">
         <button class="btn btn-sec" id="r-config" disabled>Configurar</button>
         <a class="btn btn-sec" href="https://demonstrativos.apps.bb.com.br/arrecadacao-federal" target="_blank" rel="noopener noreferrer">Abrir DAF no BB ↗</a>
+        <a class="btn btn-sec" href="https://www.fazenda.mg.gov.br/governo/assuntos_municipais/previsao_repasses/previsao_repasse_IPI/repasse_decendial/" target="_blank" rel="noopener noreferrer">Planilhas IPI SEF-MG ↗</a>
       </div>
     </div>
     <div class="r-bar">
@@ -66,13 +68,14 @@ export function telaRetencoes(el) {
     <section class="r-box">
       <div class="r-bar" style="margin:0 0 8px">
         <div class="r-grupo"><button class="btn btn-peq" id="r-comp-sel" disabled>Comprovantes dos selecionados</button>
-          <button class="btn btn-sec btn-peq" id="r-emp-sel" disabled>Informar empenho nos selecionados</button></div>
+          <button class="btn btn-sec btn-peq" id="r-emp-sel" disabled>Informar empenho nos selecionados</button>
+          <button class="btn btn-sec btn-peq" id="r-emp-padrao">Preencher empenhos padrão</button></div>
         <div class="r-grupo"><button class="btn btn-sec btn-peq" id="r-demo">Demonstrativo do filtro</button><button class="btn btn-sec btn-peq" id="r-csv">Exportar planilha</button></div>
       </div>
       <div id="r-lista" class="r-tab"></div>
       <div id="r-resumo" class="r-resumo"></div>
     </section>
-    <p class="r-muted">O comprovante declara que o valor foi retido na fonte pelo agente financeiro, sem saída de numerário: o empenho é liquidado em favor do credor e baixado contra a conta da transferência. A dedução do FUNDEB aparece na conferência, mas não é lançada (é dedução de receita).</p>
+    <p class="r-muted">O comprovante declara que o valor foi retido na fonte pelo agente financeiro, sem saída de numerário: o empenho é liquidado em favor do credor e baixado contra a conta da transferência. A dedução do FUNDEB não é listada nem lançada (é dedução de receita).</p>
   </section>`;
 
   const contaDe = origem => config.contas?.[origem] || ORIGENS[origem]?.conta || '';
@@ -86,7 +89,7 @@ export function telaRetencoes(el) {
   }
   function botoes() {
     const bloq = carregando || !!erro;
-    for (const id of ['r-imp-fpm', 'r-imp-daf', 'r-decendio', 'r-avulso', 'r-config']) $('#' + id).disabled = bloq;
+    for (const id of ['r-imp-fpm', 'r-imp-daf', 'r-imp-ipi', 'r-decendio', 'r-avulso', 'r-config']) $('#' + id).disabled = bloq;
     $('#r-comp-sel').disabled = bloq || !selecionados.size;
     $('#r-emp-sel').disabled = bloq || !selecionados.size;
     $('#r-comp-sel').textContent = 'Comprovantes dos selecionados' + (selecionados.size ? ` (${selecionados.size})` : '');
@@ -135,7 +138,9 @@ export function telaRetencoes(el) {
   }
 
   // ---------- gravação ----------
+  const empenhoDe = r => empenhoPadrao(config.empenhos, r.rubrica, r.origem, r.data);
   async function gravarNovos(validos, origemDoLote) {
+    for (const v of validos) if (!v.empenho) v.empenho = empenhoDe(v);
     const porAno = {};
     for (const v of validos) (porAno[v.data.slice(0, 4)] ||= []).push(v);
     const criados = [];
@@ -150,9 +155,11 @@ export function telaRetencoes(el) {
 
   // ---------- importação ----------
   let tipoImport = 'fpm';
-  $('#r-imp-fpm').onclick = () => { tipoImport = 'fpm'; $('#r-arquivo').value = ''; $('#r-arquivo').click(); };
-  $('#r-imp-daf').onclick = () => { tipoImport = 'daf'; $('#r-arquivo').value = ''; $('#r-arquivo').click(); };
+  $('#r-imp-fpm').onclick = () => { tipoImport = 'fpm'; $('#r-arquivo').multiple = false; $('#r-arquivo').value = ''; $('#r-arquivo').click(); };
+  $('#r-imp-daf').onclick = () => { tipoImport = 'daf'; $('#r-arquivo').multiple = false; $('#r-arquivo').value = ''; $('#r-arquivo').click(); };
+  $('#r-imp-ipi').onclick = () => { tipoImport = 'ipi'; $('#r-arquivo').multiple = true; $('#r-arquivo').value = ''; $('#r-arquivo').click(); };
   $('#r-arquivo').onchange = async e => {
+    if (tipoImport === 'ipi') return importarIPI([...(e.target.files || [])]);
     const f = e.target.files?.[0]; if (!f) return;
     if (f.size > 25 * 1024 * 1024) return toast('Arquivo grande demais (máx. 25 MB).', 'erro');
     const binario = /\.(pdf|png|jpe?g|webp|bmp|tiff?)$/i.test(f.name) || /^(image\/|application\/pdf)/.test(f.type);
@@ -172,25 +179,44 @@ export function telaRetencoes(el) {
       movimentos = lerArquivo(texto, { origemPadrao: tipoImport === 'fpm' ? 'FPM' : '' });
     }
     if (!movimentos.length) return toast('Não encontrei lançamentos com valor nesse arquivo. Confira se é o arquivo certo.', 'erro');
-    const propostas = proporLancamentos(movimentos, registros(), { fonte: tipoImport === 'fpm' ? 'extrato' : 'daf' });
+    const propostas = proporLancamentos(movimentos, registros(), { fonte: tipoImport === 'fpm' ? 'extrato' : 'daf', valorRateioCisdoce: Number(config.rateio_cisdoce_centavos) || VALOR_RATEIO_CISDOCE });
     if (!propostas.length) return toast('O arquivo não tem retenções a lançar.', 'erro');
     previa(propostas, f.name);
   };
+
+  // Planilhas decendiais do IPI (SEF-MG): acha a linha do município em cada arquivo e propõe o PASEP do IPI
+  async function importarIPI(arquivos) {
+    if (!arquivos.length) return;
+    const municipio = estado.config?.origem?.cidade || 'Frei Inocêncio';
+    const { lerXlsx } = await import('../xlsx-leitor.js?v=3.19.0');
+    const movimentos = [], erros = [];
+    for (const f of arquivos) {
+      try {
+        if (!/\.xlsx$/i.test(f.name)) throw Error('use o arquivo .xlsx baixado do site da Fazenda');
+        movimentos.push(...movimentosIPI(lerPlanilhaIPI(await lerXlsx(new Uint8Array(await f.arrayBuffer())), municipio)).map(m => ({ ...m, arquivo: f.name })));
+      } catch (err) { erros.push(`${f.name}: ${mensagemErro(err)}`); }
+    }
+    if (erros.length) toast('Não li: ' + erros.join(' · '), 'erro');
+    if (!movimentos.length) return;
+    const propostas = proporLancamentos(movimentos, registros());
+    previa(propostas, arquivos.length === 1 ? arquivos[0].name : arquivos.length + ' planilhas do IPI');
+  }
 
   function previa(propostas, nomeArquivo) {
     const opOrigem = sel => Object.entries(ORIGENS).map(([k, o]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(o.sigla)}</option>`).join('');
     const opRub = sel => `<option value="">— não lançar —</option>` + CODIGOS_RUBRICA.map(k => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(RUBRICAS[k].nome)}</option>`).join('');
     const total = () => propostas.reduce((s, p, i) => s + (m.el.querySelector(`[data-m="${i}"]`)?.checked ? p.centavos : 0), 0);
     const m = modal({
-      titulo: tipoImport === 'fpm' ? 'Extrato do FPM — conferir retenções' : 'Consulta do DAF — conferir retenções', largura: 1100,
+      titulo: tipoImport === 'fpm' ? 'Extrato do FPM — conferir retenções' : tipoImport === 'ipi' ? 'Planilha do IPI (SEF-MG) — conferir PASEP' : 'Consulta do DAF — conferir retenções', largura: 1100,
       corpo: `<p class="muted">Arquivo <strong>${esc(nomeArquivo)}</strong>: ${propostas.length} linha(s) com valor. Vêm marcadas só as retenções reconhecidas; corrija o fundo ou a rubrica se precisar. Linhas já lançadas ficam desmarcadas.</p>
       ${tipoImport === 'daf' ? `<label class="campo" style="max-width:320px"><span>Fundo para linhas sem fundo identificado</span><select id="rp-origem"><option value="">—</option>${opOrigem('')}</select></label>` : ''}
-      <label style="display:inline-flex;gap:6px;align-items:center;margin:4px 0 8px"><input type="checkbox" id="rp-todas"> Mostrar também as ${propostas.filter(p => !p.marcado).length} linha(s) que não serão lançadas (${tipoImport === 'fpm' ? 'PASEP, ' : ''}FUNDEB, RFB, estornos, já lançadas)</label>
-      <div class="r-prev"><table><thead><tr><th></th><th>Data</th><th>Fundo</th><th>Retenção</th><th style="text-align:right">Valor</th><th>Histórico / avisos</th></tr></thead><tbody>${
+      <label style="display:inline-flex;gap:6px;align-items:center;margin:4px 0 8px"><input type="checkbox" id="rp-todas"> Mostrar também as ${propostas.filter(p => !p.marcado).length} linha(s) que não serão lançadas (${tipoImport === 'fpm' ? 'PASEP, ' : ''}RFB, estornos, já lançadas)</label>
+      <div class="r-prev"><table><thead><tr><th></th><th>Data</th><th>Fundo</th><th>Retenção</th><th style="text-align:right">Valor</th><th>Empenho</th><th>Histórico / avisos</th></tr></thead><tbody>${
         propostas.map((p, i) => `<tr class="${p.duplicado ? 'dup' : ''}" data-linha="${i}" ${p.marcado ? '' : 'hidden'}><td><input type="checkbox" data-m="${i}" ${p.marcado ? 'checked' : ''}></td>
         <td><input type="date" data-d="${i}" value="${esc(p.data)}"></td><td><select data-o="${i}"><option value="">—</option>${opOrigem(p.origem)}</select></td>
         <td><select data-r="${i}">${opRub(RUBRICAS[p.rubrica] ? p.rubrica : '')}</select>${p.rubrica === 'FUNDEB' ? '<span class="aviso">FUNDEB</span>' : ''}</td>
         <td style="text-align:right;white-space:nowrap">${p.sinal === 'D' ? '−' : ''}${dinheiro(p.centavos)}</td>
+        <td><input data-e="${i}" maxlength="40" style="max-width:90px" value="${esc(RUBRICAS[p.rubrica] ? empenhoDe(p) : '')}"></td>
         <td>${esc(p.historico || '—')}${p.avisos.map(a => `<span class="aviso">⚠ ${esc(a)}</span>`).join('')}</td></tr>`).join('')
       }</tbody></table></div>
       <p id="rp-total" style="margin:10px 0;font-weight:700"></p>
@@ -201,6 +227,8 @@ export function telaRetencoes(el) {
     m.el.querySelectorAll('[data-m]').forEach(c => c.onchange = atualizarTotal);
     m.el.querySelector('#rp-todas').onchange = e => m.el.querySelectorAll('[data-linha]').forEach(tr => { tr.hidden = !e.target.checked && !tr.querySelector('[data-m]').checked; });
     if (!propostas.some(p => p.marcado)) { m.el.querySelector('#rp-todas').checked = true; m.el.querySelectorAll('[data-linha]').forEach(tr => { tr.hidden = false; }); }
+    const reEmpenho = i => { const e = m.el.querySelector(`[data-e="${i}"]`); e.value = empenhoDe({ rubrica: m.el.querySelector(`[data-r="${i}"]`).value, origem: m.el.querySelector(`[data-o="${i}"]`).value, data: m.el.querySelector(`[data-d="${i}"]`).value }); };
+    m.el.querySelectorAll('[data-o],[data-d],[data-r]').forEach(x => x.addEventListener('change', () => reEmpenho(x.dataset.o ?? x.dataset.d ?? x.dataset.r)));
     m.el.querySelectorAll('[data-r]').forEach(s => s.onchange = () => { const c = m.el.querySelector(`[data-m="${s.dataset.r}"]`); if (s.value && !c.checked) c.checked = true; if (!s.value) c.checked = false; atualizarTotal(); });
     m.el.querySelector('#rp-origem')?.addEventListener('change', e => m.el.querySelectorAll('[data-o]').forEach(s => { if (!s.value) s.value = e.target.value; }));
     atualizarTotal();
@@ -214,14 +242,14 @@ export function telaRetencoes(el) {
           if (!m.el.querySelector(`[data-m="${i}"]`).checked) return;
           const origem = m.el.querySelector(`[data-o="${i}"]`).value, rubrica = m.el.querySelector(`[data-r="${i}"]`).value, data = m.el.querySelector(`[data-d="${i}"]`).value;
           try {
-            validos.push(validarLancamento({ data, origem, rubrica, centavos: p.centavos, base_centavos: p.base_centavos, historico: p.historico,
-              conta: contaDe(origem), credor: credorDe(rubrica), arquivo: nomeArquivo }));
+            validos.push(validarLancamento({ data, origem, rubrica, centavos: p.centavos, base_centavos: p.base_centavos, historico: p.historico, observacao: p.observacao,
+              conta: contaDe(origem), credor: credorDe(rubrica), arquivo: p.arquivo || nomeArquivo, detalhe_ipi: p.detalhe_ipi, empenho: m.el.querySelector(`[data-e="${i}"]`).value }));
           } catch (err) { throw Error(`Linha ${p.linha} (${dinheiro(p.centavos)}): ${err.message}`); }
         });
         if (!validos.length) throw Error('Marque ao menos uma retenção.');
         btn.disabled = true; btn.textContent = 'Lançando…';
         m.fechar();
-        await gravarNovos(validos, tipoImport === 'fpm' ? 'extrato_fpm' : 'daf');
+        await gravarNovos(validos, tipoImport === 'fpm' ? 'extrato_fpm' : tipoImport === 'ipi' ? 'planilha_ipi' : 'daf');
       } catch (err) { aviso.textContent = mensagemErro(err); btn.disabled = false; btn.textContent = 'Lançar marcadas'; if (!aviso.isConnected) toast(mensagemErro(err), 'erro'); }
     };
   }
@@ -296,7 +324,7 @@ export function telaRetencoes(el) {
         <label class="campo"><span>Competência</span><input type="month" name="competencia" value="${esc(a.competencia || decendioDe(a.data)?.competencia || '')}"></label>
         <label class="campo"><span>Credor</span><input name="credor" maxlength="160" value="${esc(a.credor || credorDe(a.rubrica))}"></label>
         <label class="campo"><span>Cota bruta (opcional)</span><input name="base" inputmode="decimal" value="${a.base_centavos ? (a.base_centavos / 100).toFixed(2).replace('.', ',') : ''}"></label>
-        <label class="campo"><span>Nº do empenho</span><input name="empenho" maxlength="40" value="${esc(a.empenho || '')}"></label>
+        <label class="campo"><span>Nº do empenho</span><input name="empenho" maxlength="40" value="${esc(a.empenho || (r ? '' : empenhoDe(a)))}"></label>
         <label class="campo"><span>Ficha</span><input name="ficha" maxlength="40" value="${esc(a.ficha || '')}"></label>
         <label class="campo"><span>Nº da liquidação</span><input name="liquidacao" maxlength="40" value="${esc(a.liquidacao || '')}"></label>
         <label class="campo"><span>Conta</span><input name="conta" maxlength="30" value="${esc(a.conta || contaDe(a.origem))}"></label>
@@ -307,7 +335,9 @@ export function telaRetencoes(el) {
     });
     const f = m.el.querySelector('#ra-form');
     f.origem.onchange = () => { f.conta.value = contaDe(f.origem.value); };
-    f.rubrica.onchange = () => { f.credor.value = credorDe(f.rubrica.value); };
+    const sugerir = () => { if (!r) f.empenho.value = empenhoDe({ rubrica: f.rubrica.value, origem: f.origem.value, data: f.data.value }); };
+    f.rubrica.onchange = () => { f.credor.value = credorDe(f.rubrica.value); sugerir(); };
+    f.origem.addEventListener('change', sugerir);
     f.data.onchange = () => { const d = decendioDe(f.data.value); if (d) { f.decendio.value = d.decendio; f.competencia.value = d.competencia; } };
     m.el.querySelector('#ra-cancelar').onclick = () => m.fechar();
     f.onsubmit = async e => {
@@ -368,6 +398,18 @@ export function telaRetencoes(el) {
       } catch (err) { toast(mensagemErro(err), 'erro'); }
     };
   };
+  $('#r-emp-padrao').onclick = async () => {
+    const sem = registros().filter(r => !r.anulado && !r.empenho && empenhoDe(r));
+    if (!sem.length) return toast('Nenhuma retenção sem empenho (ou sem empenho padrão configurado).');
+    if (!await confirmar(`Preencher o empenho padrão em ${sem.length} retenção(ões) sem empenho?`, { ok: 'Preencher' })) return;
+    try {
+      const porAno = {};
+      for (const r of sem) (porAno[String(r.data).slice(0, 4)] ||= {})[r.id] = { empenho: empenhoDe(r), atualizadoEm: new Date().toISOString(), atualizadoPor: estado.sessao.nome };
+      for (const [a, lanc] of Object.entries(porAno)) await db.salvar('retencoes_anos', a, { lancamentos: lanc });
+      db.registrarLog('retencoes.empenho_padrao', { quantidade: sem.length }).catch(() => {});
+      toast('Empenho preenchido em ' + sem.length + ' retenção(ões).');
+    } catch (e) { toast(mensagemErro(e), 'erro'); }
+  };
   $('#r-demo').onclick = () => abrirJanela(demonstrativoHTML(filtrados().slice().reverse(), cfgImpressao(), (mes ? MESES[Number(mes) - 1] + '/' : '') + ano));
   $('#r-csv').onclick = () => baixarArquivo(`retencoes-${ano}${mes ? '-' + mes : ''}.csv`, csv(linhasCSV(filtrados().slice().reverse())));
 
@@ -379,7 +421,10 @@ export function telaRetencoes(el) {
         <label class="campo"><span>CNPJ do Município</span><input name="cnpj" maxlength="20" value="${esc(config.cnpj || '')}"></label>
         <label class="campo"><span>Responsável (assina o comprovante)</span><input name="responsavel" maxlength="120" value="${esc(config.responsavel || '')}"></label>
         <label class="campo"><span>Cargo</span><input name="cargo" maxlength="80" value="${esc(config.cargo || '')}"></label>
-        <span></span>
+        <label class="campo"><span>Valor do rateio CISDOCE (todo decêndio)</span><input name="rateio" inputmode="decimal" value="${esc(((Number(config.rateio_cisdoce_centavos) || VALOR_RATEIO_CISDOCE) / 100).toFixed(2).replace('.', ','))}"></label>
+        <p class="dica" style="grid-column:1/-1">No extrato, CISDOCE com esse valor é lançado como <strong>rateio</strong>; qualquer outro valor como <strong>serviços</strong> (descontado só no dia 10).</p>
+        <h4 style="grid-column:1/-1;margin:6px 0 0">Empenhos do exercício ${ano}</h4>
+        ${CHAVES_EMPENHO.map(([k, t]) => { const [rb, og] = k.split(':'); return `<label class="campo"><span>${esc(t)}</span><input data-emp="${k}" maxlength="40" value="${esc(empenhoPadrao(config.empenhos, rb, og || 'FPM', ano + '-01-01'))}" placeholder="nº/${ano}"></label>`; }).join('')}
         <h4 style="grid-column:1/-1;margin:6px 0 0">Contas</h4>
         ${Object.entries(ORIGENS).map(([k, o]) => `<label class="campo"><span>${esc(o.sigla)}</span><input data-conta="${k}" maxlength="30" value="${esc(contaDe(k))}" placeholder="conta"></label>`).join('')}
         <h4 style="grid-column:1/-1;margin:6px 0 0">Credores (nome no comprovante)</h4>
@@ -390,9 +435,12 @@ export function telaRetencoes(el) {
     m.el.querySelector('#rc-c').onclick = () => m.fechar();
     f.onsubmit = async e => {
       e.preventDefault();
-      const dados = { cnpj: f.cnpj.value.trim(), responsavel: f.responsavel.value.trim(), cargo: f.cargo.value.trim(),
+      let rateio;
+      try { rateio = centavosDe(f.rateio.value); if (!rateio) throw Error(); } catch { return toast('Informe o valor do rateio do CISDOCE, ex.: 3.221,68.', 'erro'); }
+      const dados = { cnpj: f.cnpj.value.trim(), responsavel: f.responsavel.value.trim(), cargo: f.cargo.value.trim(), rateio_cisdoce_centavos: rateio,
         contas: Object.fromEntries([...f.querySelectorAll('[data-conta]')].map(i => [i.dataset.conta, i.value.trim()])),
-        credores: Object.fromEntries([...f.querySelectorAll('[data-credor]')].map(i => [i.dataset.credor, i.value.trim()])) };
+        credores: Object.fromEntries([...f.querySelectorAll('[data-credor]')].map(i => [i.dataset.credor, i.value.trim()])),
+        empenhos: { ...(config.empenhos || {}), [ano]: Object.fromEntries([...f.querySelectorAll('[data-emp]')].map(i => [i.dataset.emp, i.value.trim()])) } };
       try { await db.salvar('retencoes_config', 'geral', dados); toast('Configuração salva.'); m.fechar(); }
       catch (err) { toast(mensagemErro(err), 'erro'); }
     };
