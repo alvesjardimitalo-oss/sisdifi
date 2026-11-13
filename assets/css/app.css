@@ -144,6 +144,8 @@ main:focus { outline: none; }
 .cab-secao { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
 .cab-secao h3 { margin: 0; }
 .titulo-secao { font-size: 15px; color: var(--tinta); font-weight: 650; margin: 4px 0 10px; }
+.atalhos-painel { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: -6px 0 22px; }
+.atalhos-painel .muted { font-size: 12.5px; margin-right: 2px; }
 
 /* ---------- 6. Cartões e formulários ---------- */
 .cartao { background: var(--cartao); border: 1px solid var(--borda); border-radius: var(--raio); padding: 20px; box-shadow: var(--sombra); margin-bottom: var(--gap); min-width: 0; }
