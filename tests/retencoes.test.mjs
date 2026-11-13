@@ -113,11 +113,12 @@ assert.throws(() => validarLancamento({ data: '2026-11-10', origem: 'FPM', rubri
 assert.throws(() => validarLancamento({ data: '2026-11-10', origem: 'FPM', rubrica: 'OUTRA', centavos: 5 }));
 assert.equal(numeroRetencao(7, 2026), 'RET 0007/2026');
 assert.equal(situacao({}), 'Aguardando empenho');
-assert.equal(situacao({ empenho: '12' }), 'Empenhado');
+assert.equal(situacao({ empenho: '12' }), 'Aguardando liquidação');
+assert.equal(situacao({ empenho: '12', liquidado: true }), 'Liquidado');
 assert.equal(situacao({ empenho: '12', liquidacao: '3' }), 'Liquidado');
 assert.equal(situacao({ anulado: true }), 'Anulado');
 const rs = resumo([{ rubrica: 'PASEP', origem: 'FPM', centavos: 100 }, { rubrica: 'AMM', origem: 'FPM', centavos: 50, empenho: '1' }, { rubrica: 'AMM', origem: 'FPM', centavos: 999, anulado: true }]);
-assert.equal(rs.total, 150); assert.equal(rs.pendentes, 1); assert.equal(rs.porRubrica.AMM, 50);
+assert.equal(rs.total, 150); assert.equal(rs.pendentes, 2); assert.equal(rs.porRubrica.AMM, 50);
 
 // comprovante
 const reg = { ...v, numero: 'RET 0001/2026', empenho: '1234/2026', base_centavos: 100000000, historico: 'RETENCAO PASEP' };

@@ -57,6 +57,12 @@ ordem das retenções). Cada lote é numerado em ordem de data. Se um lote tiver
 (ex.: subir as planilhas do IPI depois do DAF), o sistema oferece **reordenar** antes de gerar os comprovantes. O botão
 **Reordenar por data** faz o mesmo a qualquer momento. Comprovantes impressos antes precisam ser gerados de novo.
 
+## Situação e liquidação
+O SISDIFI não consulta o sistema contábil: a situação vem do que está preenchido. Como os empenhos são anuais, toda retenção
+nasce **Aguardando liquidação** (com o empenho padrão). **Marcar como liquidado** (selecionadas) grava a liquidação com a
+**data do desconto** de cada retenção e, se informado, o nº da liquidação. **Pendentes de liquidação** filtra o que falta lançar.
+No Editar há a caixa "Liquidado" para desfazer ou marcar uma a uma.
+
 ## Lista como extrato
 A lista e o impresso (**Extrato do filtro**) ficam como um extrato: da data mais antiga para a mais nova, com o
 **acumulado** em cada linha e o **total do dia** ao fim de cada data. Filtrando por *Retenção = PASEP* e *Mês = Todos*,
