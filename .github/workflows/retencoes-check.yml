@@ -10,6 +10,7 @@ on:
       - 'tests/retencoes.test.mjs'
       - 'tests/fixtures/**'
       - 'assets/js/extrato-ocr.js'
+      - 'assets/js/xlsx-leitor.js'
       - '.github/workflows/retencoes-check.yml'
   pull_request:
     paths:
@@ -26,5 +27,5 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: '22' }
-      - run: node --check assets/js/retencoes.js && node --check assets/js/views/retencoes.js && node --check assets/js/extrato-ocr.js && node --check assets/js/app.js
+      - run: node --check assets/js/retencoes.js && node --check assets/js/views/retencoes.js && node --check assets/js/extrato-ocr.js && node --check assets/js/xlsx-leitor.js && node --check assets/js/app.js
       - run: node tests/retencoes.test.mjs

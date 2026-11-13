@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   lerValor, lerData, decendioDe, classificar, origemDe, lerCSV, lerArquivo, proporLancamentos,
-  validarLancamento, numeroRetencao, situacao, resumo, codigoVerificacao, comprovanteHTML, demonstrativoHTML, linhasCSV, centavosDe
+  validarLancamento, numeroRetencao, empenhoPadrao, situacao, resumo, codigoVerificacao, comprovanteHTML, demonstrativoHTML, linhasCSV, centavosDe
 } from '../assets/js/retencoes.js';
 
 // valores
@@ -69,7 +69,7 @@ assert.deepEqual(pasep.map(m => [m.data, m.origem, m.centavos]), [
 const prop = proporLancamentos(movs);
 const marcados = prop.filter(p => p.marcado);
 assert.equal(marcados.length, 3);
-assert.equal(prop.find(p => p.rubrica === 'FUNDEB').marcado, false);
+assert.ok(!prop.some(p => p.rubrica === 'FUNDEB'), 'FUNDEB não aparece');
 assert.equal(marcados[0].base_centavos, 100000000);
 assert.ok(marcados[1].avisos.some(a => /1% da cota/.test(a)), 'PASEP de 4.000 sobre 500.000 deve avisar');
 assert.equal(marcados[0].avisos.length, 0);
@@ -152,7 +152,8 @@ assert.ok(mDaf.every(p => p.rubrica === 'PASEP' && !p.avisos.length), 'PASEP do 
 assert.equal(mDaf[0].base_centavos, 24217626);
 assert.equal(mDaf[4].base_centavos, 118796 - 23759);
 assert.equal(pDaf.filter(p => p.rubrica === 'RFB_DARF').length, 2);
-assert.ok(pDaf.filter(p => p.rubrica === 'RFB_DARF' || p.rubrica === 'FUNDEB').every(p => !p.marcado));
+assert.ok(pDaf.filter(p => p.rubrica === 'RFB_DARF').every(p => !p.marcado));
+assert.ok(!pDaf.some(p => p.rubrica === 'FUNDEB'));
 assert.equal(pDaf.reduce((s, p) => s + (p.rubrica === 'PASEP' ? p.centavos : 0), 0), 1969270 + 41866 + 5807 + 3544);
 
 // Extrato do FPM escaneado (texto do OCR): convênios marcados, estornos anulam o débito, PASEP fica para o DAF
@@ -181,4 +182,30 @@ assert.ok(outroRateio.filter(p => p.centavos === 2502100).every(p => p.rubrica =
 assert.ok(outroRateio.filter(p => p.centavos === 322168).every(p => p.rubrica === 'CISDOCE_SERVICOS'));
 assert.ok(outroRateio.some(p => p.data === '2026-10-20' && p.rubrica === 'CISDOCE_SERVICOS' && p.avisos.some(a => /dia 10/.test(a))));
 
+// empenhos anuais
+const E = (rb, og, d = '2026-11-10') => empenhoPadrao({}, rb, og, d);
+assert.deepEqual([E('PASEP', 'FPM'), E('PASEP', 'ITR'), E('PASEP', 'IPI'), E('PASEP', 'LC176'), E('PASEP', 'FEP')], ['2/2026', '2/2026', '2/2026', '2/2026', '4/2026']);
+assert.deepEqual([E('CISDOCE_RATEIO', 'FPM'), E('CISDOCE_SERVICOS', 'FPM'), E('ARDOCE', 'FPM'), E('EMATER', 'FPM'), E('CNM', 'FPM'), E('AMM', 'FPM')],
+  ['5/2026', '6/2026', '7/2026', '8/2026', '9/2026', '32/2026']);
+assert.equal(E('RFB_DARF', 'FPM'), '');
+assert.equal(E('PASEP', 'FPM', '2027-01-10'), '');
+assert.equal(empenhoPadrao({ 2026: { EMATER: '15/2026' } }, 'EMATER', 'FPM', '2026-11-10'), '15/2026');
+
 console.log('retencoes: ok');
+
+// ---------- planilha decendial do IPI (SEF/MG) ----------
+const { lerXlsx } = await import('../assets/js/xlsx-leitor.js');
+const { lerPlanilhaIPI, movimentosIPI } = await import('../assets/js/retencoes.js');
+const linhasIPI = await lerXlsx(readFileSync(new URL('./fixtures/ipi-20261020.xlsx', import.meta.url)));
+const ipi = lerPlanilhaIPI(linhasIPI, 'Frei Inocêncio');
+assert.deepEqual({ ...ipi, titulo: undefined }, { data: '2026-10-20', titulo: undefined, indice: 0.02775952, bruto: 136684, fundeb: 27337, pasep: 1093, saude: 0, liquido: 108254 });
+assert.match(ipi.titulo, /20\/10\/2026/);
+assert.throws(() => lerPlanilhaIPI(linhasIPI, 'MUNICIPIO INEXISTENTE'));
+const pIpi = proporLancamentos(movimentosIPI(ipi), []);
+assert.equal(pIpi.length, 1);
+assert.deepEqual([pIpi[0].marcado, pIpi[0].origem, pIpi[0].rubrica, pIpi[0].centavos, pIpi[0].base_centavos, pIpi[0].avisos.length], [true, 'IPI', 'PASEP', 1093, 109347, 0]);
+const regIpi = { ...validarLancamento({ ...pIpi[0], detalhe_ipi: pIpi[0].detalhe_ipi }), numero: 'RET 0009/2026' };
+assert.equal(regIpi.detalhe_ipi.liquido, 108254);
+const htmlIpi = comprovanteHTML([regIpi]);
+assert.match(htmlIpi, /Planilha SEF\/MG/); assert.match(htmlIpi, /PASEP R\$\s?10,93/); assert.match(htmlIpi, /Secretaria de Estado de Fazenda/);
+console.log('retencoes (IPI): ok');

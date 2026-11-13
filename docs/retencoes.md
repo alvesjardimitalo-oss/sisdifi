@@ -38,6 +38,19 @@ rubrica e valor) também. Ao gravar, o sistema oferece gerar os comprovantes.
 Depois de empenhar, use **Editar** (ou **Informar empenho nos selecionados**) para gravar nº do empenho, ficha e liquidação; o comprovante
 passa a sair com esses dados. **Anular** tira do total sem reaproveitar o número.
 
+## Planilha do IPI (SEF-MG)
+**⬆ Planilha do IPI (SEF-MG)** aceita uma ou várias planilhas `.xlsx` baixadas em
+`fazenda.mg.gov.br/.../previsao_repasse_IPI/repasse_decendial/` (uma a cada decêndio, todos os municípios). O sistema acha a linha
+de Frei Inocêncio (nome do município em Parâmetros), lê a data do título ("PARA O DIA 20/10/2026") e lança o **PASEP do IPI**
+(conta 92998-8), conferindo 1% sobre Bruto − FUNDEB. O comprovante traz a linha da planilha (índice, bruto, FUNDEB, PASEP, saúde,
+líquido) — não é preciso imprimir a planilha.
+
+## Empenhos anuais
+Cada retenção recebe o empenho do exercício automaticamente (editável na conferência e em Configurar). 2026:
+PASEP de FPM, ITR, IPI e LC 176 → 2/2026 · PASEP do FEP → 4/2026 · CISDOCE Rateio → 5/2026 · CISDOCE Serviços → 6/2026 ·
+ARDOCE → 7/2026 · EMATER → 8/2026 · CNM → 9/2026 · AMM → 32/2026. **Preencher empenhos padrão** completa os lançamentos antigos.
+A dedução do FUNDEB não é listada.
+
 ## Configurar
 CNPJ, responsável que assina, contas (inclusive a do LC 176) e nome de cada credor no comprovante. Fica em `retencoes_config/geral`.
 
