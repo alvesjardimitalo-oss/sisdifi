@@ -465,6 +465,26 @@ export function validarLancamento(d) {
 
 export const numeroRetencao = (seq, ano) => 'RET ' + String(seq).padStart(4, '0') + '/' + ano;
 
+/** Ordem da numeração: data do desconto (= data da liquidação), depois fundo e retenção. */
+const ORDEM_ORIGEM = ['FPM', 'ITR', 'IPI', 'LC176', 'FEP'];
+export function ordemCronologica(a, b) {
+  const o = x => { const i = ORDEM_ORIGEM.indexOf(x.origem); return i < 0 ? 99 : i; };
+  const r = x => { const i = CODIGOS_RUBRICA.indexOf(x.rubrica); return i < 0 ? 99 : i; };
+  return String(a.data).localeCompare(String(b.data)) || o(a) - o(b) || r(a) - r(b) || (a.seq || 0) - (b.seq || 0) || (a.centavos || 0) - (b.centavos || 0);
+}
+/** Nova numeração de todos os lançamentos do ano pela data: { id: { seq, numero } } (só os que mudam) e o último número. */
+export function renumerarPorData(lancamentos, ano) {
+  const lista = Object.entries(lancamentos || {}).map(([id, r]) => ({ id, ...r })).sort(ordemCronologica);
+  const mudancas = {};
+  lista.forEach((r, i) => { const seq = i + 1; if (r.seq !== seq) mudancas[r.id] = { seq, numero: numeroRetencao(seq, ano) }; });
+  return { mudancas, ultimo: lista.length };
+}
+/** Os novos lançamentos ficaram com data anterior a algum já existente (numeração fora da ordem)? */
+export const foraDeOrdem = lancamentos => {
+  const l = Object.values(lancamentos || {}).sort((a, b) => (a.seq || 0) - (b.seq || 0));
+  return l.some((r, i) => i && ordemCronologica(l[i - 1], r) > 0);
+};
+
 export function situacao(r) {
   if (r.anulado) return 'Anulado';
   if (r.liquidacao) return 'Liquidado';
@@ -525,7 +545,7 @@ export function comprovanteHTML(lista, cfg = {}) {
     const linhas = [
       ['Transferência', escH(o.nome)],
       ['Conta bancária', `${escH(cfg.banco || 'Banco do Brasil')} · conta ${escH(conta || '—')}`],
-      ['Data do crédito / desconto', `${dataBR(r.data)} · ${escH(textoDecendio(r.decendio, r.competencia))}`],
+      ['Data do desconto / liquidação', `${dataBR(r.data)} · ${escH(textoDecendio(r.decendio, r.competencia))}`],
       ['Credor', escH(credor)],
       r.base_centavos ? ['Base de cálculo (cota)', `${dinheiro(r.base_centavos)}${rb.aliquota ? ` · alíquota ${String(rb.aliquota * 100).replace('.', ',')}%` : ''}`] : null,
       ['Empenho / ficha', `${escH(r.empenho || '____________')}${r.ficha ? ' · ficha ' + escH(r.ficha) : ''}${r.liquidacao ? ' · liquidação ' + escH(r.liquidacao) : ''}`],
@@ -539,7 +559,7 @@ export function comprovanteHTML(lista, cfg = {}) {
     return `<main class="paper">${cabecalhoDoc(cfg, 'Retenções nas transferências')}
   <div class="titulo"><h1>COMPROVANTE DE RETENÇÃO</h1><p>TRANSFERÊNCIA CONSTITUCIONAL · RETENÇÃO NA FONTE</p></div>
   <div class="resumo"><div class="item"><small>Nº DO COMPROVANTE</small><strong>${escH(r.numero || '—')}</strong></div>
-    <div class="item"><small>DATA · DECÊNDIO</small><strong>${dataBR(r.data)}<br>${escH(textoDecendio(r.decendio, r.competencia))}</strong></div>
+    <div class="item"><small>DATA DO DESCONTO / LIQUIDAÇÃO</small><strong>${dataBR(r.data)}<br>${escH(textoDecendio(r.decendio, r.competencia))}</strong></div>
     <div class="item"><small>TRANSFERÊNCIA / CONTA</small><strong>${escH(o.sigla)}${conta ? ' · ' + escH(conta) : ''}</strong></div>
     <div class="item total"><small>VALOR RETIDO</small><strong>${dinheiro(r.centavos)}</strong></div></div>
   <section class="bloco"><div class="bloco-cab"><div><span class="rotulo">Identificação da retenção</span><h2>${escH(rb.nome)}</h2><p>${escH(credor)}</p></div>

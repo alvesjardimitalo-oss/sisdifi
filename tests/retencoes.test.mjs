@@ -219,3 +219,24 @@ assert.equal(regIpi.detalhe_ipi.liquido, 108254);
 const htmlIpi = comprovanteHTML([regIpi]);
 assert.match(htmlIpi, /Planilha SEF\/MG/); assert.match(htmlIpi, /PASEP R\$\s?10,93/); assert.match(htmlIpi, /Secretaria de Estado de Fazenda/);
 console.log('retencoes (IPI): ok');
+
+// ---------- numeração pela data do desconto (= liquidação) ----------
+{
+  const { ordemCronologica, renumerarPorData, foraDeOrdem } = await import('../assets/js/retencoes.js');
+  const L = {
+    a: { seq: 1, data: '2026-11-10', origem: 'FPM', rubrica: 'EMATER', centavos: 1 },
+    b: { seq: 2, data: '2026-10-20', origem: 'ITR', rubrica: 'PASEP', centavos: 1 },
+    c: { seq: 3, data: '2026-10-20', origem: 'FPM', rubrica: 'PASEP', centavos: 1 },
+    d: { seq: 4, data: '2026-10-30', origem: 'IPI', rubrica: 'PASEP', centavos: 1 }
+  };
+  assert.equal(foraDeOrdem(L), true);
+  const { mudancas, ultimo } = renumerarPorData(L, 2026);
+  assert.equal(ultimo, 4);
+  assert.deepEqual(mudancas, { c: { seq: 1, numero: 'RET 0001/2026' }, d: { seq: 3, numero: 'RET 0003/2026' }, a: { seq: 4, numero: 'RET 0004/2026' } });
+  const ordenado = Object.fromEntries(Object.entries(L).map(([k, v]) => [k, { ...v, ...(mudancas[k] || {}) }]));
+  assert.equal(foraDeOrdem(ordenado), false);
+  assert.deepEqual(renumerarPorData(ordenado, 2026).mudancas, {});
+  assert.ok(ordemCronologica(L.c, L.b) < 0, 'mesmo dia: FPM antes de ITR');
+  assert.match(comprovanteHTML([reg]), /DATA DO DESCONTO \/ LIQUIDAÇÃO/);
+}
+console.log('retencoes (ordem): ok');
