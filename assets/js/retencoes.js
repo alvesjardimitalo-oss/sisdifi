@@ -456,6 +456,7 @@ export function validarLancamento(d) {
     data: d.data, origem: d.origem, conta: txt(d.conta, 30), rubrica: d.rubrica, credor: txt(d.credor, 160),
     centavos, base_centavos: Number.isSafeInteger(Number(d.base_centavos)) && Number(d.base_centavos) > 0 ? Number(d.base_centavos) : 0,
     decendio, competencia, empenho: txt(d.empenho, 40), ficha: txt(d.ficha, 40), liquidacao: txt(d.liquidacao, 40),
+    ...(d.liquidado ? { liquidado: true, dataLiquidacao: dataValida(d.dataLiquidacao) ? d.dataLiquidacao : d.data } : {}),
     historico: txt(d.historico, 300), observacao: txt(d.observacao, 500), arquivo: txt(d.arquivo, 120),
     ...(d.detalhe_ipi && typeof d.detalhe_ipi === 'object' ? { detalhe_ipi: {
       titulo: txt(d.detalhe_ipi.titulo, 200), indice: Number(d.detalhe_ipi.indice) || 0,
@@ -487,8 +488,8 @@ export const foraDeOrdem = lancamentos => {
 
 export function situacao(r) {
   if (r.anulado) return 'Anulado';
-  if (r.liquidacao) return 'Liquidado';
-  if (r.empenho) return 'Empenhado';
+  if (r.liquidado || r.liquidacao) return 'Liquidado';
+  if (r.empenho) return 'Aguardando liquidação';
   return 'Aguardando empenho';
 }
 
@@ -522,7 +523,7 @@ export function resumo(lista) {
     porOrigem[r.origem] = (porOrigem[r.origem] || 0) + r.centavos;
   }
   return { total: ativos.reduce((s, r) => s + r.centavos, 0), quantidade: ativos.length,
-    pendentes: ativos.filter(r => !r.empenho).length, porRubrica, porOrigem };
+    pendentes: ativos.filter(r => !(r.liquidado || r.liquidacao)).length, porRubrica, porOrigem };
 }
 
 /** Código de verificação curto (FNV-1a) dos dados essenciais do comprovante. */
@@ -565,6 +566,7 @@ export function comprovanteHTML(lista, cfg = {}) {
       ['Credor', escH(credor)],
       r.base_centavos ? ['Base de cálculo (cota)', `${dinheiro(r.base_centavos)}${rb.aliquota ? ` · alíquota ${String(rb.aliquota * 100).replace('.', ',')}%` : ''}`] : null,
       ['Empenho / ficha', `${escH(r.empenho || '____________')}${r.ficha ? ' · ficha ' + escH(r.ficha) : ''}${r.liquidacao ? ' · liquidação ' + escH(r.liquidacao) : ''}`],
+      (r.liquidado || r.liquidacao) ? ['Liquidação', `Liquidado em ${dataBR(r.dataLiquidacao || r.data)}${r.liquidacao ? ' · nº ' + escH(r.liquidacao) : ''}`] : null,
       ['Histórico no demonstrativo', escH(r.historico || '—')],
       ipi ? ['Planilha SEF/MG', `${escH(ipi.titulo)}<br>Índice ${String(ipi.indice).replace('.', ',')} · Bruto ${dinheiro(ipi.bruto)} · FUNDEB ${dinheiro(ipi.fundeb)} · <b>PASEP ${dinheiro(ipi.pasep)}</b> · Saúde ${dinheiro(ipi.saude)} · Líquido ${dinheiro(ipi.liquido)}`] : null,
       rb.base_legal ? ['Fundamento', escH(rb.base_legal)] : null,

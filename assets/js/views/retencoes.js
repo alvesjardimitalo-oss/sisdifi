@@ -59,7 +59,7 @@ export function telaRetencoes(el) {
         <label class="campo"><span>Mês</span><select id="r-mes"><option value="">Todos</option>${MESES.map((n, i) => { const v = String(i + 1).padStart(2, '0'); return `<option value="${v}" ${v === mes ? 'selected' : ''}>${n}</option>`; }).join('')}</select></label>
         <label class="campo"><span>Fundo</span><select id="r-origem"><option value="">Todos</option>${Object.entries(ORIGENS).map(([k, o]) => `<option value="${k}">${esc(o.sigla)}</option>`).join('')}</select></label>
         <label class="campo"><span>Retenção</span><select id="r-rubrica"><option value="">Todas</option>${CODIGOS_RUBRICA.map(k => `<option value="${k}">${esc(RUBRICAS[k].nome)}</option>`).join('')}</select></label>
-        <label class="campo"><span>Situação</span><select id="r-sit"><option value="">Todas</option><option>Aguardando empenho</option><option>Empenhado</option><option>Liquidado</option><option>Anulado</option></select></label>
+        <label class="campo"><span>Situação</span><select id="r-sit"><option value="">Todas</option><option>Aguardando liquidação</option><option>Aguardando empenho</option><option>Liquidado</option><option>Anulado</option></select></label>
         <label class="campo"><span>Buscar</span><input id="r-busca" placeholder="nº, empenho, histórico"></label>
       </div>
     </div>
@@ -69,6 +69,8 @@ export function telaRetencoes(el) {
     <section class="r-box">
       <div class="r-bar" style="margin:0 0 8px">
         <div class="r-grupo"><button class="btn btn-peq" id="r-comp-sel" disabled>Comprovantes dos selecionados</button>
+          <button class="btn btn-peq" id="r-liq-sel" disabled>Marcar como liquidado</button>
+          <button class="btn btn-sec btn-peq" id="r-pend">Pendentes de liquidação</button>
           <button class="btn btn-sec btn-peq" id="r-emp-sel" disabled>Informar empenho nos selecionados</button>
           <button class="btn btn-sec btn-peq" id="r-emp-padrao">Preencher empenhos padrão</button>
           <button class="btn btn-sec btn-peq" id="r-reordenar" title="Renumera as retenções do exercício pela data do desconto">Reordenar por data</button></div>
@@ -94,13 +96,15 @@ export function telaRetencoes(el) {
     for (const id of ['r-imp-fpm', 'r-imp-daf', 'r-imp-ipi', 'r-decendio', 'r-avulso', 'r-config']) $('#' + id).disabled = bloq;
     $('#r-comp-sel').disabled = bloq || !selecionados.size;
     $('#r-emp-sel').disabled = bloq || !selecionados.size;
+    $('#r-liq-sel').disabled = bloq || !selecionados.size;
+    $('#r-liq-sel').textContent = 'Marcar como liquidado' + (selecionados.size ? ` (${selecionados.size})` : '');
     $('#r-comp-sel').textContent = 'Comprovantes dos selecionados' + (selecionados.size ? ` (${selecionados.size})` : '');
   }
   function render() {
     if (cancelou) return;
     const lista = filtrados();
     const r = resumo(lista);
-    $('#r-kpis').innerHTML = [['Total retido no filtro', dinheiro(r.total)], ['Lançamentos', r.quantidade], ['Aguardando empenho', r.pendentes], ['PASEP no filtro', dinheiro(r.porRubrica.PASEP || 0)]]
+    $('#r-kpis').innerHTML = [['Total retido no filtro', dinheiro(r.total)], ['Lançamentos', r.quantidade], ['Pendentes de liquidação', r.pendentes], ['PASEP no filtro', dinheiro(r.porRubrica.PASEP || 0)]]
       .map(([t, v]) => `<div class="r-kpi"><small>${t}</small><strong>${v}</strong></div>`).join('');
     const ids = new Set(lista.map(x => x.id));
     for (const id of [...selecionados]) if (!ids.has(id)) selecionados.delete(id);
@@ -111,7 +115,7 @@ export function telaRetencoes(el) {
         <td><strong>${esc(x.numero)}</strong></td><td>${dataBR(x.data)}</td><td>${esc(textoDecendio(x.decendio, x.competencia))}</td>
         <td>${esc(ORIGENS[x.origem]?.sigla || x.origem)}</td><td>${esc(RUBRICAS[x.rubrica]?.nome || x.rubrica)}${x.historico ? `<small class="bloco r-muted">${esc(x.historico)}</small>` : ''}${x.anulado ? '' : `<div class="r-hist"><span>${esc(historicoDe(x))}</span><button type="button" data-copiar="${esc(x.id)}" title="Copiar o histórico para colar no empenho/liquidação">Copiar</button></div>`}</td>
         <td class="v"><strong>${dinheiro(x.centavos)}</strong></td><td class="v r-muted">${x.anulado ? '' : dinheiro(l.acumulado)}</td><td>${esc(x.empenho || '—')}${x.liquidacao ? `<small class="bloco r-muted">liq. ${esc(x.liquidacao)}</small>` : ''}</td>
-        <td><span class="r-et ${s === 'Liquidado' ? 'ok' : s === 'Empenhado' ? 'azul' : s === 'Anulado' ? 'cinza' : ''}">${s}</span></td>
+        <td><span class="r-et ${s === 'Liquidado' ? 'ok' : s === 'Aguardando liquidação' ? '' : s === 'Anulado' ? 'cinza' : ''}">${s}</span></td>
         <td><div class="r-acoes">${x.anulado ? '' : `<button class="btn btn-peq" data-comp="${esc(x.id)}">Comprovante</button><button class="btn btn-sec btn-peq" data-editar="${esc(x.id)}">Editar</button><button class="btn btn-sec btn-peq" data-anular="${esc(x.id)}">Anular</button>`}</div></td></tr>`; }).join('')
     }</tbody></table>` : `<p class="r-muted" style="text-align:center;padding:24px">Nenhuma retenção ${mes ? 'em ' + MESES[Number(mes) - 1] + '/' + ano : 'em ' + ano} com esse filtro. Suba o extrato do FPM ou a consulta do DAF.</p>`;
     $('#r-resumo').innerHTML = Object.entries(r.porRubrica).map(([k, v]) => `<span>${esc(RUBRICAS[k]?.nome || k)}: <strong>${dinheiro(v)}</strong></span>`).join('');
@@ -372,6 +376,7 @@ export function telaRetencoes(el) {
         <label class="campo"><span>Nº do empenho</span><input name="empenho" maxlength="40" value="${esc(a.empenho || (r ? '' : empenhoDe(a)))}"></label>
         <label class="campo"><span>Ficha</span><input name="ficha" maxlength="40" value="${esc(a.ficha || '')}"></label>
         <label class="campo"><span>Nº da liquidação</span><input name="liquidacao" maxlength="40" value="${esc(a.liquidacao || '')}"></label>
+        <label class="campo" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="liquidado" ${a.liquidado || a.liquidacao ? 'checked' : ''} style="width:auto"> <span>Liquidado (data = data do desconto)</span></label>
         <label class="campo"><span>Conta</span><input name="conta" maxlength="30" value="${esc(a.conta || contaDe(a.origem))}"></label>
         <label class="campo" style="grid-column:1/-1"><span>Histórico</span><input name="historico" maxlength="300" value="${esc(a.historico || '')}"></label>
         <label class="campo" style="grid-column:1/-1"><span>Observação</span><textarea name="observacao" rows="2" maxlength="500">${esc(a.observacao || '')}</textarea></label>
@@ -391,10 +396,11 @@ export function telaRetencoes(el) {
       try {
         const v = validarLancamento({ data: f.data.value, origem: f.origem.value, rubrica: f.rubrica.value, centavos: centavosDe(f.valor.value), decendio: f.decendio.value,
           competencia: f.competencia.value, credor: f.credor.value, base_centavos: centavosDe(f.base.value), empenho: f.empenho.value, ficha: f.ficha.value,
-          liquidacao: f.liquidacao.value, conta: f.conta.value, historico: f.historico.value, observacao: f.observacao.value, arquivo: r?.arquivo });
+          liquidacao: f.liquidacao.value, liquidado: f.liquidado.checked || !!f.liquidacao.value.trim(), dataLiquidacao: r?.dataLiquidacao, conta: f.conta.value, historico: f.historico.value, observacao: f.observacao.value, arquivo: r?.arquivo });
         if (!r) { m.fechar(); await gravarNovos([v], 'avulso').catch(err => toast(mensagemErro(err), 'erro')); return; }
         if (v.data.slice(0, 4) !== String(r.data).slice(0, 4)) throw Error('Para mudar o ano, anule este lançamento e faça outro no exercício certo.');
         const { id, ...antes } = r;
+        if (!v.liquidado) { v.liquidado = false; v.dataLiquidacao = ''; }
         await db.salvar('retencoes_anos', String(r.data).slice(0, 4), { lancamentos: { [id]: { ...antes, ...v, atualizadoEm: new Date().toISOString(), atualizadoPor: estado.sessao.nome } } });
         db.registrarLog('retencoes.editar', { numero: r.numero, empenho: v.empenho, liquidacao: v.liquidacao, centavos: v.centavos }).catch(() => {});
         toast(r.numero + ' atualizado.'); m.fechar();
@@ -418,6 +424,32 @@ export function telaRetencoes(el) {
 
   // ---------- em lote ----------
   $('#r-comp-sel').onclick = () => imprimirComprovantes(registros().filter(r => selecionados.has(r.id)));
+  // Liquidação em lote: data da liquidação = data do desconto de cada retenção
+  $('#r-pend').onclick = () => { filtroSituacao = 'Aguardando liquidação'; $('#r-sit').value = filtroSituacao; render(); };
+  $('#r-liq-sel').onclick = () => {
+    const lista = registros().filter(r => selecionados.has(r.id) && !r.anulado);
+    if (!lista.length) return;
+    const m = modal({
+      titulo: `Marcar ${lista.length} retenção(ões) como liquidada(s)`, largura: 500,
+      corpo: `<form id="rl-form"><p class="muted">Total ${dinheiro(lista.reduce((s, r) => s + r.centavos, 0))}. A data da liquidação de cada uma será a <b>data do desconto</b> (${[...new Set(lista.map(r => dataBR(r.data)))].join(', ')}).</p>
+        <label class="campo"><span>Nº da liquidação (opcional — deixe em branco se cada uma tem o seu)</span><input name="liquidacao" maxlength="40"></label>
+        <div class="acoes-form"><button class="btn btn-sec" type="button" id="rl-c">Cancelar</button><button class="btn" type="submit">Marcar como liquidado</button></div></form>`
+    });
+    const f = m.el.querySelector('#rl-form');
+    m.el.querySelector('#rl-c').onclick = () => m.fechar();
+    f.onsubmit = async e => {
+      e.preventDefault();
+      const nro = f.liquidacao.value.trim().slice(0, 40);
+      try {
+        const porAno = {};
+        for (const r of lista) (porAno[String(r.data).slice(0, 4)] ||= {})[r.id] = { liquidado: true, dataLiquidacao: r.data, ...(nro ? { liquidacao: nro } : {}), atualizadoEm: new Date().toISOString(), atualizadoPor: estado.sessao.nome };
+        for (const [a, lanc] of Object.entries(porAno)) await db.salvar('retencoes_anos', a, { lancamentos: lanc });
+        db.registrarLog('retencoes.liquidar', { numeros: lista.map(r => r.numero), liquidacao: nro }).catch(() => {});
+        selecionados.clear();
+        toast(`${lista.length} retenção(ões) marcada(s) como liquidada(s).`); m.fechar();
+      } catch (err) { toast(mensagemErro(err), 'erro'); }
+    };
+  };
   $('#r-emp-sel').onclick = () => {
     const lista = registros().filter(r => selecionados.has(r.id));
     const m = modal({
