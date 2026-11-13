@@ -224,6 +224,14 @@ service cloud.firestore {
       allow read, write: if operador();
     }
 
+    // Retenções nas transferências (PASEP, EMATER, CISDOCE, ARDOCE, AMM, CNM...): somente ADM e Contabilidade.
+    match /retencoes_anos/{ano} {
+      allow read, write: if operador();
+    }
+    match /retencoes_config/{id} {
+      allow read, write: if operador();
+    }
+
     // Numeração: quem solicita só avança o contador de 1 em 1 (dentro da transação de criação).
     match /contadores/{id} {
       allow read: if ativo();

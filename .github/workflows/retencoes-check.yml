@@ -1,0 +1,26 @@
+name: Retenções — testes
+on:
+  push:
+    paths:
+      - 'assets/js/retencoes.js'
+      - 'assets/js/views/retencoes.js'
+      - 'assets/js/app.js'
+      - 'assets/js/db.js'
+      - 'firestore.rules'
+      - 'tests/retencoes.test.mjs'
+      - '.github/workflows/retencoes-check.yml'
+  pull_request:
+    paths:
+      - 'assets/js/retencoes.js'
+      - 'assets/js/views/retencoes.js'
+      - 'assets/js/app.js'
+      - 'tests/retencoes.test.mjs'
+jobs:
+  testar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: node --check assets/js/retencoes.js && node --check assets/js/views/retencoes.js && node --check assets/js/app.js
+      - run: node tests/retencoes.test.mjs
