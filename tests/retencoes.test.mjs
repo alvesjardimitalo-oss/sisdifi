@@ -131,7 +131,7 @@ assert.match(html, /1234\/2026/);
 assert.match(html, /Lei nº 9\.715\/1998/);
 assert.match(html, new RegExp(codigoVerificacao(reg)));
 assert.ok(!comprovanteHTML([{ ...reg, historico: '<script>x</script>' }]).includes('<script>x'));
-assert.match(demonstrativoHTML([reg]), /TOTAL \(1\)/);
+assert.match(demonstrativoHTML([reg]), /TOTAL \(1 retenç/);
 assert.equal(linhasCSV([reg])[1][8], '10000,00');
 
 // ---------- arquivos reais (Frei Inocêncio, out–nov/2026) ----------
@@ -185,11 +185,20 @@ assert.ok(outroRateio.some(p => p.data === '2026-10-20' && p.rubrica === 'CISDOC
 // empenhos anuais
 const E = (rb, og, d = '2026-11-10') => empenhoPadrao({}, rb, og, d);
 assert.deepEqual([E('PASEP', 'FPM'), E('PASEP', 'ITR'), E('PASEP', 'IPI'), E('PASEP', 'LC176'), E('PASEP', 'FEP')], ['2/2026', '2/2026', '2/2026', '2/2026', '4/2026']);
-assert.deepEqual([E('CISDOCE_RATEIO', 'FPM'), E('CISDOCE_SERVICOS', 'FPM'), E('ARDOCE', 'FPM'), E('EMATER', 'FPM'), E('CNM', 'FPM'), E('AMM', 'FPM')],
+assert.deepEqual([E('CISDOCE_RATEIO', 'FPM'), E('CISDOCE_SERVICOS', 'FPM'), E('ARDOCE', 'FPM'), E('EMATER', 'FPM'), E('AMM', 'FPM'), E('CNM', 'FPM')],
   ['5/2026', '6/2026', '7/2026', '8/2026', '9/2026', '32/2026']);
 assert.equal(E('RFB_DARF', 'FPM'), '');
 assert.equal(E('PASEP', 'FPM', '2027-01-10'), '');
 assert.equal(empenhoPadrao({ 2026: { EMATER: '15/2026' } }, 'EMATER', 'FPM', '2026-11-10'), '15/2026');
+
+// histórico contábil para copiar
+const { historicoContabil } = await import('../assets/js/retencoes.js');
+assert.equal(historicoContabil({ data: '2026-11-10', origem: 'FPM' }, '3261-1'), 'REFERENTE AO PRIMEIRO DECENDIO DO MES DE NOVEMBRO, FPM 3261-1.');
+assert.equal(historicoContabil({ data: '2026-10-20', origem: 'IPI', conta: '92998-8' }), 'REFERENTE AO SEGUNDO DECENDIO DO MES DE OUTUBRO, IPI 92998-8.');
+assert.equal(historicoContabil({ data: '2026-11-03', origem: 'ITR' }, '6729-6'), 'REFERENTE AO TERCEIRO DECENDIO DO MES DE OUTUBRO, ITR 6729-6.');
+assert.equal(historicoContabil({ data: '2026-03-30', origem: 'FEP' }), 'REFERENTE AO TERCEIRO DECENDIO DO MES DE MARCO, FEP.');
+assert.equal(historicoContabil({ data: '2026-11-13', origem: 'FPM', decendio: 2, competencia: '2026-11' }, '3261-1'), 'REFERENTE AO SEGUNDO DECENDIO DO MES DE NOVEMBRO, FPM 3261-1.');
+assert.match(comprovanteHTML([{ ...reg, conta: '3261-1' }]), /REFERENTE AO PRIMEIRO DECENDIO DO MES DE NOVEMBRO, FPM 3261-1\./);
 
 console.log('retencoes: ok');
 
