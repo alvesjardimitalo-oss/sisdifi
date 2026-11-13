@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   lerValor, lerData, decendioDe, classificar, origemDe, lerCSV, lerArquivo, proporLancamentos,
   validarLancamento, numeroRetencao, situacao, resumo, codigoVerificacao, comprovanteHTML, demonstrativoHTML, linhasCSV, centavosDe
@@ -132,5 +133,46 @@ assert.match(html, new RegExp(codigoVerificacao(reg)));
 assert.ok(!comprovanteHTML([{ ...reg, historico: '<script>x</script>' }]).includes('<script>x'));
 assert.match(demonstrativoHTML([reg]), /TOTAL \(1\)/);
 assert.equal(linhasCSV([reg])[1][8], '10000,00');
+
+// ---------- arquivos reais (Frei Inocêncio, out–nov/2026) ----------
+const fx = n => readFileSync(new URL('./fixtures/' + n, import.meta.url), 'utf8');
+assert.deepEqual(lerValor('31.072_95C'), { centavos: 3107295, sinal: 'C' });
+assert.deepEqual(lerValor('9_50D'), { centavos: 950, sinal: 'D' });
+assert.deepEqual(lerValor('1.635,23 €'), { centavos: 163523, sinal: 'C' });
+
+// DAF: só o PASEP vem marcado; totais do bloco não duplicam; RFB e FUNDEB desmarcados
+const pDaf = proporLancamentos(lerArquivo(fx('daf-exemplo.csv')), [], { fonte: 'daf' });
+const mDaf = pDaf.filter(p => p.marcado);
+assert.deepEqual(mDaf.map(p => [p.data, p.origem, p.centavos]), [
+  ['2026-10-20', 'FPM', 242174], ['2026-10-30', 'FPM', 522982], ['2026-11-10', 'FPM', 1204114],
+  ['2026-10-28', 'FEP', 41866],
+  ['2026-10-20', 'ITR', 950], ['2026-10-30', 'ITR', 1839], ['2026-11-10', 'ITR', 3018],
+  ['2026-10-30', 'LC176', 3544]]);
+assert.ok(mDaf.every(p => p.rubrica === 'PASEP' && !p.avisos.length), 'PASEP do DAF confere com 1% (FPM bruto; ITR líquido do FUNDEB)');
+assert.equal(mDaf[0].base_centavos, 24217626);
+assert.equal(mDaf[4].base_centavos, 118796 - 23759);
+assert.equal(pDaf.filter(p => p.rubrica === 'RFB_DARF').length, 2);
+assert.ok(pDaf.filter(p => p.rubrica === 'RFB_DARF' || p.rubrica === 'FUNDEB').every(p => !p.marcado));
+assert.equal(pDaf.reduce((s, p) => s + (p.rubrica === 'PASEP' ? p.centavos : 0), 0), 1969270 + 41866 + 5807 + 3544);
+
+// Extrato do FPM escaneado (texto do OCR): convênios marcados, estornos anulam o débito, PASEP fica para o DAF
+const mvEx = lerArquivo(fx('extrato-fpm-ocr.txt'), { origemPadrao: 'FPM' });
+assert.ok(mvEx.every(m => m.origem === 'FPM'));
+const pEx = proporLancamentos(mvEx, [], { fonte: 'extrato' });
+const mEx = pEx.filter(p => p.marcado);
+const porRub = {}; for (const p of mEx) porRub[p.rubrica] = (porRub[p.rubrica] || 0) + p.centavos;
+assert.deepEqual(porRub, {
+  EMATER: 288990 * 3 + 288991, CNM: 91000 * 2, ARDOCE: 171639 * 3,
+  CISDOCE_RATEIO: 2726851 + 2502100 + 322168 + 10070644 + 322168 + 322168 + 2502100 + 322168, AMM: 88052 });
+assert.ok(pEx.filter(p => p.rubrica === 'PASEP').every(p => !p.marcado && !p.avisos.some(a => /diferente/.test(a))), 'PASEP do extrato soma 1% no dia');
+assert.equal(pEx.filter(p => p.avisos.some(a => /estornado/.test(a))).length, 4);
+assert.ok(!mEx.some(p => p.data === '2026-11-03'), 'ARDOCE de 03/11 foi estornado');
+// lançado de novo: tudo vira duplicado, inclusive os dois CISDOCE iguais do mesmo dia
+const jaEx = mEx.map(p => ({ data: p.data, origem: p.origem, rubrica: p.rubrica, centavos: p.centavos }));
+assert.equal(proporLancamentos(mvEx, jaEx, { fonte: 'extrato' }).filter(p => p.marcado).length, 0);
+// CISDOCE aprende rateio x serviços pelo último lançamento do mesmo valor
+const comHist = proporLancamentos(mvEx, [{ data: '2026-09-10', origem: 'FPM', rubrica: 'CISDOCE_SERVICOS', centavos: 2502100 }], { fonte: 'extrato' });
+assert.ok(comHist.filter(p => p.centavos === 2502100).every(p => p.rubrica === 'CISDOCE_SERVICOS'));
+assert.equal(comHist.find(p => p.centavos === 2726851).rubrica, 'CISDOCE_RATEIO');
 
 console.log('retencoes: ok');

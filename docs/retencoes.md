@@ -9,14 +9,20 @@ com baixa contra a própria conta da transferência. A aba registra cada retenç
 
 | Retenção | Onde aparece | Conta |
 |---|---|---|
-| PASEP (1% — Lei 9.715/1998, art. 2º, III, e art. 8º, III) | Consulta do DAF no BB | FPM 3261-1, ITR 6729-6, IPI 92998-8, LC 176 (configurar) |
+| PASEP (1% — Lei 9.715/1998, art. 2º, III, e art. 8º, III) | Consulta do DAF no BB | FPM 3261-1, ITR 6729-6, IPI 92998-8, FEP e LC 176 (configurar) |
 | EMATER, CISDOCE Rateio, CISDOCE Serviços, ARDOCE, AMM | Extrato da conta do FPM, dias 10/20/30 | FPM 3261-1 |
 | CNM | Extrato da conta do FPM, normalmente dia 20 | FPM 3261-1 |
 
 ## Como lançar
-1. **⬆ Extrato da conta do FPM** — CSV ou OFX do extrato do BB. Os débitos com EMATER, CISDOCE, ARDOCE, AMM e CNM vêm marcados.
-2. **⬆ Consulta do DAF (BB)** — CSV exportado em `demonstrativos.apps.bb.com.br/arrecadacao-federal`. As linhas de PASEP vêm marcadas,
-   com o fundo lido do cabeçalho do bloco (FPM, ITR, IPI, LC 176). Se houver linha da cota bruta, o sistema confere se o PASEP é 1%.
+1. **⬆ Consulta do DAF (BB)** — CSV exportado em `demonstrativos.apps.bb.com.br/arrecadacao-federal`. Formato real: blocos por fundo
+   (`FPM   - FUNDO DE PARTICIPACAO...`, `ITR`, `FEP`, `IPM`, `ADO - LC 176/2020`…), data só na 1ª linha do dia, valores `31.072_95C`.
+   Os totais "TOTAL POR PARCELA / NATUREZA" são ignorados. **Só o PASEP vem marcado**, por fundo; o sistema confere 1% da cota
+   (no FPM sobre a cota bruta; no ITR sobre a cota líquida do FUNDEB). "RFB-RET DARF" e FUNDEB aparecem desmarcados.
+2. **⬆ Extrato da conta do FPM** — CSV, OFX, PDF do extrato ou o **scan em PDF/foto** (lido por OCR no navegador, Tesseract.js).
+   O favorecido vem na linha de baixo do lançamento ("240 Contribuição" / "CISDOCE"). Vêm marcados EMATER, CISDOCE, ARDOCE, AMM
+   ("ASSOCIACAO MIN MUNICIPIOS") e CNM ("CONFED NACIONAL MUNICIPIO"). **Estorno de débito** anula o débito igual do mesmo dia.
+   O PASEP do extrato fica desmarcado (vem em duas linhas; é lançado pelo DAF). CISDOCE não diz se é rateio ou serviços: o sistema
+   usa a rubrica do último lançamento com o mesmo valor e avisa para conferir.
 3. **+ Lançar decêndio** — digitação rápida de todas as retenções de uma data, quando não houver arquivo.
 4. **+ Lançamento avulso** — qualquer retenção, inclusive "Outra retenção" com credor próprio (ex.: ADO LC 176 ocasional).
 
@@ -37,5 +43,5 @@ CNPJ, responsável que assina, contas (inclusive a do LC 176) e nome de cada cre
 - `firestore.rules`: leitura e escrita só `operador()` (admin/operador). **Publique as regras no Console do Firebase** antes de usar.
 
 ## Testes
-`node tests/retencoes.test.mjs` — leitura de valores/datas, decêndio, classificação, DAF em blocos, extrato CSV e OFX, conferência
+`node tests/retencoes.test.mjs` — inclui o CSV real do DAF (out–nov/2026) e o texto do extrato escaneado do FPM em `tests/fixtures/`; leitura de valores/datas, decêndio, classificação, DAF em blocos, extrato CSV e OFX, conferência
 do PASEP (1%), duplicidade, validação e comprovante. O layout real do CSV do DAF deve ser conferido com um arquivo exportado do BB.

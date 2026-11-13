@@ -6,7 +6,7 @@ import * as db from '../db.js';
 import { estado, pode } from '../estado.js';
 import { esc, modal, confirmar, toast, mensagemErro, hojeISO, baixarArquivo, csv } from '../ui.js';
 import {
-  ORIGENS, RUBRICAS, CODIGOS_RUBRICA, dinheiro, dataBR, decendioDe, textoDecendio, lerArquivo, proporLancamentos,
+  ORIGENS, RUBRICAS, CODIGOS_RUBRICA, dinheiro, dataBR, decendioDe, textoDecendio, lerArquivo, lerExtratoTexto, proporLancamentos,
   validarLancamento, centavosDe, situacao, lancamentosAtivos, resumo, comprovanteHTML, demonstrativoHTML, linhasCSV
 } from '../retencoes.js';
 
@@ -37,14 +37,14 @@ export function telaRetencoes(el) {
 
   el.innerHTML = estilo + `<section class="ret">
     <h1>Retenções nas transferências</h1>
-    <p class="r-muted">PASEP no FPM (${ORIGENS.FPM.conta}), ITR (${ORIGENS.ITR.conta}), IPI (${ORIGENS.IPI.conta}) e LC 176; EMATER, CISDOCE, ARDOCE, AMM e CNM descontados no extrato do FPM. Suba os arquivos, confira e gere o comprovante para anexar na liquidação do empenho.</p>
+    <p class="r-muted">PASEP pela consulta do DAF (FPM ${ORIGENS.FPM.conta}, ITR ${ORIGENS.ITR.conta}, IPI ${ORIGENS.IPI.conta}, FEP e LC 176); EMATER, CISDOCE, ARDOCE, AMM e CNM pelo extrato da conta do FPM (CSV, OFX, PDF ou scan). Suba os arquivos, confira e gere o comprovante para anexar na liquidação do empenho.</p>
     <div class="r-bar">
       <div class="r-grupo">
         <button class="btn" id="r-imp-fpm" disabled>⬆ Extrato da conta do FPM</button>
         <button class="btn" id="r-imp-daf" disabled>⬆ Consulta do DAF (BB)</button>
         <button class="btn btn-sec" id="r-decendio" disabled>+ Lançar decêndio</button>
         <button class="btn btn-sec" id="r-avulso" disabled>+ Lançamento avulso</button>
-        <input type="file" id="r-arquivo" accept=".csv,.txt,.ofx,text/csv" hidden>
+        <input type="file" id="r-arquivo" accept=".csv,.txt,.ofx,.pdf,image/*,text/csv,application/pdf" hidden>
       </div>
       <div class="r-grupo">
         <button class="btn btn-sec" id="r-config" disabled>Configurar</button>
@@ -154,12 +154,27 @@ export function telaRetencoes(el) {
   $('#r-imp-daf').onclick = () => { tipoImport = 'daf'; $('#r-arquivo').value = ''; $('#r-arquivo').click(); };
   $('#r-arquivo').onchange = async e => {
     const f = e.target.files?.[0]; if (!f) return;
-    if (f.size > 5 * 1024 * 1024) return toast('Arquivo grande demais (máx. 5 MB).', 'erro');
-    let texto = await f.text();
-    if (/�/.test(texto)) { try { texto = new TextDecoder('windows-1252').decode(await f.arrayBuffer()); } catch { /* mantém UTF-8 */ } }
-    const movimentos = lerArquivo(texto, { origemPadrao: tipoImport === 'fpm' ? 'FPM' : '' });
-    if (!movimentos.length) return toast('Não encontrei linhas com valores nesse arquivo. Confira se é o CSV/OFX certo — se for, me envie um exemplo para ajustar a leitura.', 'erro');
-    previa(proporLancamentos(movimentos, registros()), f.name);
+    if (f.size > 25 * 1024 * 1024) return toast('Arquivo grande demais (máx. 25 MB).', 'erro');
+    const binario = /\.(pdf|png|jpe?g|webp|bmp|tiff?)$/i.test(f.name) || /^(image\/|application\/pdf)/.test(f.type);
+    let movimentos;
+    if (binario) {
+      if (tipoImport === 'daf') return toast('Para o DAF use o CSV exportado no site do BB (botão de exportar/CSV).', 'erro');
+      const aviso = modal({ titulo: 'Lendo o extrato', largura: 440, corpo: '<p id="r-ocr-msg">Abrindo o arquivo…</p><p class="dica">PDF escaneado é lido por reconhecimento de texto no seu computador e pode levar até 1 minuto por página. O extrato salvo direto do site do BB (Imprimir → Salvar como PDF) é lido na hora.</p>' });
+      try {
+        const { linhasDoExtrato } = await import('../extrato-ocr.js?v=3.18.0');
+        const linhas = await linhasDoExtrato(f, t => { const p = document.getElementById('r-ocr-msg'); if (p) p.textContent = t; });
+        movimentos = lerExtratoTexto(linhas, { origemPadrao: 'FPM' });
+      } catch (err) { aviso.fechar(); return toast('Não foi possível ler o arquivo: ' + mensagemErro(err), 'erro'); }
+      aviso.fechar();
+    } else {
+      let texto = await f.text();
+      if (/�/.test(texto)) { try { texto = new TextDecoder('windows-1252').decode(await f.arrayBuffer()); } catch { /* mantém UTF-8 */ } }
+      movimentos = lerArquivo(texto, { origemPadrao: tipoImport === 'fpm' ? 'FPM' : '' });
+    }
+    if (!movimentos.length) return toast('Não encontrei lançamentos com valor nesse arquivo. Confira se é o arquivo certo.', 'erro');
+    const propostas = proporLancamentos(movimentos, registros(), { fonte: tipoImport === 'fpm' ? 'extrato' : 'daf' });
+    if (!propostas.length) return toast('O arquivo não tem retenções a lançar.', 'erro');
+    previa(propostas, f.name);
   };
 
   function previa(propostas, nomeArquivo) {
@@ -170,8 +185,9 @@ export function telaRetencoes(el) {
       titulo: tipoImport === 'fpm' ? 'Extrato do FPM — conferir retenções' : 'Consulta do DAF — conferir retenções', largura: 1100,
       corpo: `<p class="muted">Arquivo <strong>${esc(nomeArquivo)}</strong>: ${propostas.length} linha(s) com valor. Vêm marcadas só as retenções reconhecidas; corrija o fundo ou a rubrica se precisar. Linhas já lançadas ficam desmarcadas.</p>
       ${tipoImport === 'daf' ? `<label class="campo" style="max-width:320px"><span>Fundo para linhas sem fundo identificado</span><select id="rp-origem"><option value="">—</option>${opOrigem('')}</select></label>` : ''}
+      <label style="display:inline-flex;gap:6px;align-items:center;margin:4px 0 8px"><input type="checkbox" id="rp-todas"> Mostrar também as ${propostas.filter(p => !p.marcado).length} linha(s) que não serão lançadas (${tipoImport === 'fpm' ? 'PASEP, ' : ''}FUNDEB, RFB, estornos, já lançadas)</label>
       <div class="r-prev"><table><thead><tr><th></th><th>Data</th><th>Fundo</th><th>Retenção</th><th style="text-align:right">Valor</th><th>Histórico / avisos</th></tr></thead><tbody>${
-        propostas.map((p, i) => `<tr class="${p.duplicado ? 'dup' : ''}"><td><input type="checkbox" data-m="${i}" ${p.marcado ? 'checked' : ''}></td>
+        propostas.map((p, i) => `<tr class="${p.duplicado ? 'dup' : ''}" data-linha="${i}" ${p.marcado ? '' : 'hidden'}><td><input type="checkbox" data-m="${i}" ${p.marcado ? 'checked' : ''}></td>
         <td><input type="date" data-d="${i}" value="${esc(p.data)}"></td><td><select data-o="${i}"><option value="">—</option>${opOrigem(p.origem)}</select></td>
         <td><select data-r="${i}">${opRub(RUBRICAS[p.rubrica] ? p.rubrica : '')}</select>${p.rubrica === 'FUNDEB' ? '<span class="aviso">FUNDEB</span>' : ''}</td>
         <td style="text-align:right;white-space:nowrap">${p.sinal === 'D' ? '−' : ''}${dinheiro(p.centavos)}</td>
@@ -183,6 +199,8 @@ export function telaRetencoes(el) {
     });
     const atualizarTotal = () => { const n = propostas.filter((_, i) => m.el.querySelector(`[data-m="${i}"]`).checked).length; m.el.querySelector('#rp-total').textContent = `${n} marcada(s) · ${dinheiro(total())}`; };
     m.el.querySelectorAll('[data-m]').forEach(c => c.onchange = atualizarTotal);
+    m.el.querySelector('#rp-todas').onchange = e => m.el.querySelectorAll('[data-linha]').forEach(tr => { tr.hidden = !e.target.checked && !tr.querySelector('[data-m]').checked; });
+    if (!propostas.some(p => p.marcado)) { m.el.querySelector('#rp-todas').checked = true; m.el.querySelectorAll('[data-linha]').forEach(tr => { tr.hidden = false; }); }
     m.el.querySelectorAll('[data-r]').forEach(s => s.onchange = () => { const c = m.el.querySelector(`[data-m="${s.dataset.r}"]`); if (s.value && !c.checked) c.checked = true; if (!s.value) c.checked = false; atualizarTotal(); });
     m.el.querySelector('#rp-origem')?.addEventListener('change', e => m.el.querySelectorAll('[data-o]').forEach(s => { if (!s.value) s.value = e.target.value; }));
     atualizarTotal();
