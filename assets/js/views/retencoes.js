@@ -7,11 +7,11 @@ import { estado, pode } from '../estado.js';
 import { esc, modal, confirmar, toast, mensagemErro, hojeISO, baixarArquivo, csv } from '../ui.js';
 import {
   ORIGENS, RUBRICAS, CODIGOS_RUBRICA, dinheiro, dataBR, decendioDe, textoDecendio, lerArquivo, lerExtratoTexto, proporLancamentos,
-  validarLancamento, centavosDe, situacao, lancamentosAtivos, resumo, comprovanteHTML, demonstrativoHTML, linhasCSV
+  validarLancamento, centavosDe, VALOR_RATEIO_CISDOCE, situacao, lancamentosAtivos, resumo, comprovanteHTML, demonstrativoHTML, linhasCSV
 } from '../retencoes.js';
 
 const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-const CONFIG_PADRAO = { cnpj: '', responsavel: '', cargo: 'Contador(a)', contas: {}, credores: {} };
+const CONFIG_PADRAO = { cnpj: '', responsavel: '', cargo: 'Contador(a)', contas: {}, credores: {}, rateio_cisdoce_centavos: VALOR_RATEIO_CISDOCE };
 
 const estilo = '<style>' +
 '.ret{max-width:1280px;margin:0 auto;color:#21374d}.ret *{box-sizing:border-box}.ret h1{margin:0 0 4px;color:#153d61;font-size:1.6rem}.ret .r-muted{color:#617384;font-size:.88rem;margin:0}' +
@@ -172,7 +172,7 @@ export function telaRetencoes(el) {
       movimentos = lerArquivo(texto, { origemPadrao: tipoImport === 'fpm' ? 'FPM' : '' });
     }
     if (!movimentos.length) return toast('Não encontrei lançamentos com valor nesse arquivo. Confira se é o arquivo certo.', 'erro');
-    const propostas = proporLancamentos(movimentos, registros(), { fonte: tipoImport === 'fpm' ? 'extrato' : 'daf' });
+    const propostas = proporLancamentos(movimentos, registros(), { fonte: tipoImport === 'fpm' ? 'extrato' : 'daf', valorRateioCisdoce: Number(config.rateio_cisdoce_centavos) || VALOR_RATEIO_CISDOCE });
     if (!propostas.length) return toast('O arquivo não tem retenções a lançar.', 'erro');
     previa(propostas, f.name);
   };
@@ -379,7 +379,8 @@ export function telaRetencoes(el) {
         <label class="campo"><span>CNPJ do Município</span><input name="cnpj" maxlength="20" value="${esc(config.cnpj || '')}"></label>
         <label class="campo"><span>Responsável (assina o comprovante)</span><input name="responsavel" maxlength="120" value="${esc(config.responsavel || '')}"></label>
         <label class="campo"><span>Cargo</span><input name="cargo" maxlength="80" value="${esc(config.cargo || '')}"></label>
-        <span></span>
+        <label class="campo"><span>Valor do rateio CISDOCE (todo decêndio)</span><input name="rateio" inputmode="decimal" value="${esc(((Number(config.rateio_cisdoce_centavos) || VALOR_RATEIO_CISDOCE) / 100).toFixed(2).replace('.', ','))}"></label>
+        <p class="dica" style="grid-column:1/-1">No extrato, CISDOCE com esse valor é lançado como <strong>rateio</strong>; qualquer outro valor como <strong>serviços</strong> (descontado só no dia 10).</p>
         <h4 style="grid-column:1/-1;margin:6px 0 0">Contas</h4>
         ${Object.entries(ORIGENS).map(([k, o]) => `<label class="campo"><span>${esc(o.sigla)}</span><input data-conta="${k}" maxlength="30" value="${esc(contaDe(k))}" placeholder="conta"></label>`).join('')}
         <h4 style="grid-column:1/-1;margin:6px 0 0">Credores (nome no comprovante)</h4>
@@ -390,7 +391,9 @@ export function telaRetencoes(el) {
     m.el.querySelector('#rc-c').onclick = () => m.fechar();
     f.onsubmit = async e => {
       e.preventDefault();
-      const dados = { cnpj: f.cnpj.value.trim(), responsavel: f.responsavel.value.trim(), cargo: f.cargo.value.trim(),
+      let rateio;
+      try { rateio = centavosDe(f.rateio.value); if (!rateio) throw Error(); } catch { return toast('Informe o valor do rateio do CISDOCE, ex.: 3.221,68.', 'erro'); }
+      const dados = { cnpj: f.cnpj.value.trim(), responsavel: f.responsavel.value.trim(), cargo: f.cargo.value.trim(), rateio_cisdoce_centavos: rateio,
         contas: Object.fromEntries([...f.querySelectorAll('[data-conta]')].map(i => [i.dataset.conta, i.value.trim()])),
         credores: Object.fromEntries([...f.querySelectorAll('[data-credor]')].map(i => [i.dataset.credor, i.value.trim()])) };
       try { await db.salvar('retencoes_config', 'geral', dados); toast('Configuração salva.'); m.fechar(); }
