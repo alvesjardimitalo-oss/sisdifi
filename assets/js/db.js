@@ -286,6 +286,22 @@ export async function lancarRetencoes(ano, lista) {
   });
 }
 
+/**
+ * Renumera as retenções do ano (em transação). calcular(lancamentos) devolve { mudancas: { id: { seq, numero } }, ultimo }.
+ */
+export async function renumerarRetencoes(ano, calcular) {
+  if (!sessao || !['admin', 'operador'].includes(sessao.perfil)) throw Error('Acesso restrito à Contabilidade e ADM.');
+  const ref = doc(fs, 'retencoes_anos', String(ano));
+  return runTransaction(fs, async tx => {
+    const atual = await tx.get(ref);
+    if (!atual.exists()) return 0;
+    const { mudancas, ultimo } = calcular(atual.data().lancamentos || {});
+    const n = Object.keys(mudancas).length;
+    if (n) tx.set(ref, { ultimo, lancamentos: mudancas, atualizado_em: serverTimestamp(), atualizado_por: autor() }, { merge: true });
+    return n;
+  });
+}
+
 /** Gravação em lote (importação). operacoes = [{ colecao, id, dados }] */
 export async function gravarEmLote(operacoes, progresso) {
   const falhas = [];

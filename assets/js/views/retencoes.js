@@ -7,7 +7,7 @@ import { estado, pode } from '../estado.js';
 import { esc, modal, confirmar, toast, mensagemErro, hojeISO, baixarArquivo, csv } from '../ui.js';
 import {
   ORIGENS, RUBRICAS, CODIGOS_RUBRICA, dinheiro, dataBR, decendioDe, textoDecendio, lerArquivo, lerExtratoTexto, lerPlanilhaIPI, movimentosIPI, proporLancamentos,
-  validarLancamento, centavosDe, VALOR_RATEIO_CISDOCE, empenhoPadrao, CHAVES_EMPENHO, historicoContabil, situacao, lancamentosAtivos, resumo, comprovanteHTML, demonstrativoHTML, linhasCSV
+  validarLancamento, centavosDe, VALOR_RATEIO_CISDOCE, empenhoPadrao, CHAVES_EMPENHO, historicoContabil, ordemCronologica, renumerarPorData, foraDeOrdem, situacao, lancamentosAtivos, resumo, comprovanteHTML, demonstrativoHTML, linhasCSV
 } from '../retencoes.js';
 
 const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -70,7 +70,8 @@ export function telaRetencoes(el) {
       <div class="r-bar" style="margin:0 0 8px">
         <div class="r-grupo"><button class="btn btn-peq" id="r-comp-sel" disabled>Comprovantes dos selecionados</button>
           <button class="btn btn-sec btn-peq" id="r-emp-sel" disabled>Informar empenho nos selecionados</button>
-          <button class="btn btn-sec btn-peq" id="r-emp-padrao">Preencher empenhos padrão</button></div>
+          <button class="btn btn-sec btn-peq" id="r-emp-padrao">Preencher empenhos padrão</button>
+          <button class="btn btn-sec btn-peq" id="r-reordenar" title="Renumera as retenções do exercício pela data do desconto">Reordenar por data</button></div>
         <div class="r-grupo"><button class="btn btn-sec btn-peq" id="r-demo">Demonstrativo do filtro</button><button class="btn btn-sec btn-peq" id="r-csv">Exportar planilha</button></div>
       </div>
       <div id="r-lista" class="r-tab"></div>
@@ -171,6 +172,7 @@ export function telaRetencoes(el) {
   const empenhoDe = r => empenhoPadrao(config.empenhos, r.rubrica, r.origem, r.data);
   async function gravarNovos(validos, origemDoLote) {
     for (const v of validos) if (!v.empenho) v.empenho = empenhoDe(v);
+    validos.sort(ordemCronologica); // numera na ordem da data do desconto (= data da liquidação)
     const porAno = {};
     for (const v of validos) (porAno[v.data.slice(0, 4)] ||= []).push(v);
     const criados = [];
@@ -178,9 +180,21 @@ export function telaRetencoes(el) {
     db.registrarLog('retencoes.lancar', { origem: origemDoLote, quantidade: criados.length, total_centavos: criados.reduce((s, r) => s + r.centavos, 0), numeros: criados.map(r => r.numero) }).catch(() => {});
     toast(`${criados.length} retenção(ões) lançada(s): ${criados[0]?.numero}${criados.length > 1 ? ' a ' + criados.at(-1).numero : ''}.`);
     if (criados.some(r => r.data.slice(0, 4) !== String(ano))) toast('Há lançamentos de outro exercício: troque o ano para vê-los.');
+    // Lançou data anterior a outras já numeradas: oferece reordenar ANTES de imprimir, para o comprovante sair com o número certo.
+    let paraImprimir = criados;
+    for (const a of Object.keys(porAno)) {
+      const d = await db.lerDoc('retencoes_anos', a).catch(() => null);
+      if (!d || !foraDeOrdem(d.lancamentos)) continue;
+      if (!await confirmar(`Há retenções de ${a} com data anterior a outras já numeradas. Reordenar a numeração pela data do desconto agora? (comprovantes já impressos de ${a} precisarão ser gerados de novo)`, { titulo: 'Numeração fora da ordem das datas', ok: 'Reordenar', nao: 'Manter' })) continue;
+      const n = await db.renumerarRetencoes(a, l => renumerarPorData(l, a));
+      db.registrarLog('retencoes.reordenar', { ano: a, alterados: n }).catch(() => {});
+      const novo = await db.lerDoc('retencoes_anos', a).catch(() => null);
+      if (novo) paraImprimir = paraImprimir.map(r => r.data.startsWith(a) && novo.lancamentos?.[r.id] ? { id: r.id, ...novo.lancamentos[r.id] } : r);
+    }
+    paraImprimir.sort(ordemCronologica);
     if (await confirmar(`Gerar agora o${criados.length > 1 ? 's' : ''} comprovante${criados.length > 1 ? 's' : ''} de retenção para anexar na liquidação?`, { titulo: 'Lançamentos gravados', ok: 'Gerar comprovantes', nao: 'Depois' }))
-      imprimirComprovantes(criados);
-    return criados;
+      imprimirComprovantes(paraImprimir);
+    return paraImprimir;
   }
 
   // ---------- importação ----------
@@ -428,6 +442,15 @@ export function telaRetencoes(el) {
       } catch (err) { toast(mensagemErro(err), 'erro'); }
     };
   };
+  async function reordenar(perguntar = true) {
+    if (perguntar && !await confirmar(`Renumerar as retenções de ${ano} pela data do desconto (= data da liquidação)? Comprovantes já impressos precisam ser gerados de novo com o número novo.`, { titulo: 'Reordenar numeração', ok: 'Reordenar' })) return;
+    try {
+      const n = await db.renumerarRetencoes(ano, l => renumerarPorData(l, ano));
+      db.registrarLog('retencoes.reordenar', { ano, alterados: n }).catch(() => {});
+      toast(n ? `${n} retenção(ões) renumerada(s) pela data.` : 'A numeração já está na ordem das datas.');
+    } catch (e) { toast(mensagemErro(e), 'erro'); }
+  }
+  $('#r-reordenar').onclick = () => reordenar();
   $('#r-emp-padrao').onclick = async () => {
     const sem = registros().filter(r => !r.anulado && !r.empenho && empenhoDe(r));
     if (!sem.length) return toast('Nenhuma retenção sem empenho (ou sem empenho padrão configurado).');

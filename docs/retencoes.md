@@ -51,6 +51,12 @@ PASEP de FPM, ITR, IPI e LC 176 → 2/2026 · PASEP do FEP → 4/2026 · CISDOCE
 ARDOCE → 7/2026 · EMATER → 8/2026 · AMM → 9/2026 · CNM → 32/2026. **Preencher empenhos padrão** completa os lançamentos antigos.
 A dedução do FUNDEB não é listada.
 
+## Numeração (RET nº/ano)
+A numeração segue a **data do desconto, que é a data da liquidação** (no mesmo dia: FPM, ITR, IPI, LC 176, FEP; depois a
+ordem das retenções). Cada lote é numerado em ordem de data. Se um lote tiver data anterior a retenções já numeradas
+(ex.: subir as planilhas do IPI depois do DAF), o sistema oferece **reordenar** antes de gerar os comprovantes. O botão
+**Reordenar por data** faz o mesmo a qualquer momento. Comprovantes impressos antes precisam ser gerados de novo.
+
 ## Comprovante e histórico
 O comprovante segue o padrão da memória de cálculo das Consignações (folha A4, brasão, faixa azul/verde, quadro do valor,
 assinaturas, código de verificação). Cada retenção tem o **histórico contábil para copiar** (botão *Copiar* na lista, também
