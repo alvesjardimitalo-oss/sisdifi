@@ -1,0 +1,26 @@
+name: COPASA — testes
+on:
+  push:
+    paths:
+      - 'assets/js/copasa.js'
+      - 'assets/js/views/copasa.js'
+      - 'assets/js/doc-a4.js'
+      - 'assets/js/xlsx-leitor.js'
+      - 'assets/js/app.js'
+      - 'tests/copasa.test.mjs'
+      - 'tests/fixtures/copasa/**'
+      - '.github/workflows/copasa-check.yml'
+  pull_request:
+    paths:
+      - 'assets/js/copasa.js'
+      - 'assets/js/views/copasa.js'
+      - 'tests/copasa.test.mjs'
+jobs:
+  testar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: node --check assets/js/copasa.js && node --check assets/js/views/copasa.js && node --check assets/js/doc-a4.js && node --check assets/js/app.js
+      - run: node tests/copasa.test.mjs
