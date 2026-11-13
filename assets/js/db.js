@@ -261,6 +261,31 @@ export async function criarSolicitacoes(lista) {
   return criadas;
 }
 
+/**
+ * Retenções nas transferências (FPM, ITR, IPI, LC 176): grava novos lançamentos em retencoes_anos/{ano}
+ * com numeração sequencial (RET 0001/2026...) feita em transação — nunca repete número.
+ * lista = registros já validados (sem número). Retorna os registros com id, seq e numero.
+ */
+export async function lancarRetencoes(ano, lista) {
+  if (!sessao || !['admin', 'operador'].includes(sessao.perfil)) throw Error('Acesso restrito à Contabilidade e ADM.');
+  const ref = doc(fs, 'retencoes_anos', String(ano));
+  return runTransaction(fs, async tx => {
+    const atual = await tx.get(ref);
+    let seq = atual.exists() ? Number(atual.data().ultimo || 0) : 0;
+    const agora = new Date().toISOString(), quem = sessao.nome || sessao.email;
+    const novos = {}, saida = [];
+    for (const r of lista) {
+      seq += 1;
+      const id = crypto.randomUUID();
+      const numero = 'RET ' + String(seq).padStart(4, '0') + '/' + ano;
+      novos[id] = { ...r, seq, numero, anulado: false, criadoEm: agora, criadoPor: quem, atualizadoEm: agora, atualizadoPor: quem };
+      saida.push({ id, ...novos[id] });
+    }
+    tx.set(ref, { ano: Number(ano), ultimo: seq, lancamentos: novos, atualizado_em: serverTimestamp(), atualizado_por: autor() }, { merge: true });
+    return saida;
+  });
+}
+
 /** Gravação em lote (importação). operacoes = [{ colecao, id, dados }] */
 export async function gravarEmLote(operacoes, progresso) {
   const falhas = [];
