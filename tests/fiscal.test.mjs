@@ -270,3 +270,35 @@ process.exit(falhas ? 1 : 0);
   assert.equal(semCodigo.iss.aplica, true, 'sem código, segue o que a nota declara');
   console.log('ok  ISS por local devido');
 }
+
+// ---------- retenções que a nota declara e a ferramenta não calcula ----------
+{
+  // NF 42 real: ENGEQUALITY (Contagem) para a Prefeitura, manutenção 14.01.01.
+  // A nota retém PIS/COFINS/CSLL (4,65%); a conferência calcula IRRF e ISSQN.
+  // Antes isso virava só "líquido diferente", sem dizer de onde vinham os R$ 78,12.
+  const doc = { origem: 'pdf', servico: true, modelo: 'nfse', valor: 1680, emissao: '2026-11-13',
+    municipioEmissor: '3118601', municipioEmissorNome: 'Contagem', localPrestacao: '3126901',
+    codigoServico: '14.01.01', regimeNota: 'normal',
+    issAliquota: 4, issValor: 67.20, issRetidoNota: false,
+    irrfDestacado: 80.64, csrfRetido: 78.12,
+    totalRetencoesNota: 158.76, liquidoNota: 1521.24 };
+  const cad = { cnpj: '10781677000168', situacao: 'ATIVA', simples: false, fonte: 'RFB' };
+  const r = conferir({ doc, cadastro: cad, hoje: '2026-11-16' });
+
+  const linha = r.comparativo.find(l => /PIS\/COFINS\/CSLL/.test(l.item));
+  assert.ok(linha, 'a retenção declarada aparece no comparativo com o nome dela');
+  assert.equal(linha.nota, 78.12);
+  assert.equal(linha.conferido, null, 'não é calculada: não se inventa um valor conferido');
+  assert.equal(linha.diferenca, null, 'sem valor conferido não há diferença a apontar');
+
+  const aviso = r.problemas.find(p => /diferença de .* é a retenção/.test(p.titulo));
+  assert.ok(aviso, 'a diferença precisa ser nomeada, não só medida');
+  assert.equal(aviso.nivel, 'alerta', 'não é erro do fornecedor: é retenção fora do escopo');
+  assert.ok(!r.problemas.some(p => /Valor líquido da nota/.test(p.titulo)),
+    'não repete o erro genérico de líquido quando a diferença já está explicada');
+
+  // ISS: 14.01 não está nas exceções do art. 3º — é de Contagem, como a nota diz
+  assert.equal(r.iss.aplica, false);
+  assert.equal(r.localIss.aqui, false);
+  console.log('ok  retenções declaradas e não calculadas');
+}
