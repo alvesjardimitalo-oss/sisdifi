@@ -632,7 +632,7 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
     if (!prestadoAqui) {
       iss.motivo = 'Serviço prestado fora de Frei Inocêncio: em regra o ISS é devido no município do prestador (LC 116/2003, art. 3º)';
       add('info', 'Serviço prestado em outro município — ISS não retido por Frei Inocêncio', 'Confirme o local da prestação. Se o serviço foi executado em Frei Inocêncio, mude "Local da prestação" para Frei Inocêncio e o ISS de 5% passa a ser retido.');
-    } else if (mei) {    } else if (mei) {
+    } else if (mei) {
       iss.aplica = true; iss.motivo = 'MEI recolhe o ISS em valor fixo no DAS — não há retenção';
       if (doc.issValor > 0 || doc.issRetidoNota) add('alerta', 'MEI com ISS destacado/retido na nota', 'Não retenha ISS de MEI (LC 123/2006, art. 18-A). Peça ao fornecedor a correção da nota.');
     } else {
