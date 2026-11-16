@@ -237,3 +237,36 @@ process.exit(falhas ? 1 : 0);
     'MEI com ISS retido na nota precisa ser apontado: não se retém ISS de MEI');
   console.log('ok  MEI tratado');
 }
+
+// ---------- ISS: onde o imposto é devido (LC 116/2003, art. 3º) ----------
+{
+  const cad = { cnpj: '10781677000168', situacao: 'ATIVA', simples: false, fonte: 'RFB' };
+  // nota emitida em BH, serviço executado em Frei Inocêncio
+  const base = { origem: 'leitura', servico: true, modelo: 'nfse', valor: 10000, emissao: '2026-11-10',
+    municipioEmissor: '3106200', municipioEmissorNome: 'Belo Horizonte', localPrestacao: '3126901',
+    issAliquota: 5, issValor: 500 };
+  const roda = extra => conferir({ doc: { ...base, ...extra }, cadastro: cad,
+    naturezaId: 'servicos_gerais', hoje: '2026-11-16' });
+
+  // consultoria (17.01) não está nas exceções: o ISS é do município do prestador
+  const consultoria = roda({ codigoServico: '17.01.00' });
+  assert.equal(consultoria.iss.aplica, false, 'consultoria de empresa de fora não gera ISS aqui');
+  assert.equal(consultoria.iss.valor, 0);
+  assert.ok(consultoria.problemas.some(p => /devido em Belo Horizonte/.test(p.titulo)));
+
+  // a mesma nota mandando reter aqui é erro: o mesmo ISS seria pago duas vezes
+  const errada = roda({ codigoServico: '17.01.00', issRetidoNota: true });
+  assert.ok(errada.problemas.some(p => p.nivel === 'erro' && /manda reter o ISS aqui/.test(p.titulo)),
+    'ISS retido pelo tomador em serviço que não é daqui tem que ser erro');
+
+  // obra (7.02) é exceção do inciso III: vale onde foi executada
+  const obra = roda({ codigoServico: '07.02.00', issRetidoNota: true });
+  assert.equal(obra.iss.aplica, true, 'obra executada aqui gera ISS aqui');
+  assert.equal(obra.iss.valor, 500);
+  assert.match(obra.localIss.inciso, /^III$/);
+
+  // sem código não dá para aplicar a lei: cai no critério antigo em vez de chutar
+  const semCodigo = roda({ codigoServico: '', issRetidoNota: true });
+  assert.equal(semCodigo.iss.aplica, true, 'sem código, segue o que a nota declara');
+  console.log('ok  ISS por local devido');
+}

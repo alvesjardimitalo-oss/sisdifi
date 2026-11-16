@@ -623,36 +623,53 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
   // 5. ISSQN
   const iss = { aplica: false, aliquota: null, valor: 0, reter: false, motivo: '' };
   const servico = !!(nat.servico || doc.servico);
-  // O que decide a retenção é o LOCAL DA PRESTAÇÃO do serviço (padrão: Frei Inocêncio, onde a prefeitura contrata).
   const local = String(doc.localPrestacao || MUNICIPIO.ibge);
-  // A nota normalmente vem com "ISS retido pelo tomador": aí a retenção é feita aqui, mesmo com local diferente.
   const retidoPelaNota = doc.issRetidoNota === true;
-  const prestadoAqui = local === MUNICIPIO.ibge || retidoPelaNota;
-  if (servico && retidoPelaNota && local !== MUNICIPIO.ibge) add('info', 'A nota indica ISS retido pelo tomador', `O ISS será retido pelo Município. Confira se o local da prestação/incidência na nota é ${MUNICIPIO.nome}; se não for, peça a correção ao fornecedor.`);
   const emitidaFora = doc.municipioEmissor && String(doc.municipioEmissor) !== MUNICIPIO.ibge;
-  /* Onde o ISS e devido (LC 116/2003, art. 3º). A regra geral manda o imposto
-     para o municipio do PRESTADOR: executar o servico aqui nao basta. So as
-     excecoes dos incisos I a XXV mudam o destino.
-     Por ora isto so informa - a decisao de reter segue como estava ate
-     Tributos conferir a lista. */
+
+  /* Onde o ISS e devido: LC 116/2003, art. 3º. A regra geral manda o imposto
+     para o municipio do ESTABELECIMENTO DO PRESTADOR - executar o servico
+     aqui nao basta. So as excecoes dos incisos I a XXV mudam o destino.
+     Antes disto, qualquer nota com local de prestacao em Frei Inocencio
+     gerava retencao, inclusive consultoria de empresa de outra cidade: ISS
+     que nao e do Municipio, e que o fornecedor recolhe no municipio dele. */
   const localIss = servico ? issDevidoAqui({
     codigoServico: doc.codigoServico, ibgeMunicipio: MUNICIPIO.ibge,
     ibgePrestador: doc.municipioEmissor || '', ibgePrestacao: doc.localPrestacao || ''
   }) : null;
-  if (servico && emitidaFora && localIss && !localIss.indefinido) {
-    if (localIss.aqui === false) {
-      add('alerta', `Pela LC 116/2003 este ISS pode ser devido em ${doc.municipioEmissorNome || 'outro município'}, não em ${MUNICIPIO.nome}`,
-        `${localIss.fundamento} Confirme com o setor de Tributos antes de reter: se o Município retiver e o fornecedor recolher no município dele, o ISS é pago duas vezes.`,
-        localIss.inciso ? `Exceção do inciso ${localIss.inciso}` : 'Regra geral do caput');
-    } else if (localIss.aqui === true) {
-      add('info', `ISS devido em ${MUNICIPIO.nome} mesmo com a nota emitida fora`,
-        localIss.fundamento, localIss.inciso ? `Exceção do inciso ${localIss.inciso}` : '');
-    }
+
+  /* Sem codigo de tributacao a lei nao da resposta: cai no criterio antigo,
+     que ao menos reflete o que a nota declara. */
+  const indefinido = !localIss || localIss.indefinido || localIss.aqui == null;
+  const prestadoAqui = indefinido ? (local === MUNICIPIO.ibge || retidoPelaNota) : localIss.aqui;
+
+  if (servico && indefinido && emitidaFora) {
+    add('alerta', 'Não dá para saber em que município este ISS é devido',
+      `Informe o código de tributação da nota. Sem ele não é possível dizer se o serviço está nas exceções do art. 3º da LC 116/2003, e a nota foi emitida em ${doc.municipioEmissorNome || 'outro município'}.`);
+  }
+  if (servico && !indefinido && localIss.aqui === false) {
+    const onde = doc.municipioEmissorNome || 'o município do prestador';
+    add(retidoPelaNota ? 'erro' : 'info',
+      retidoPelaNota
+        ? `A nota manda reter o ISS aqui, mas ele é devido em ${onde}`
+        : `ISS devido em ${onde}, não em ${MUNICIPIO.nome}`,
+      retidoPelaNota
+        ? `${localIss.fundamento} Não retenha: se o Município retiver e o fornecedor recolher no município dele, o mesmo ISS é pago duas vezes. Peça a nota substituta sem a retenção pelo tomador.`
+        : `${localIss.fundamento} O fornecedor recolhe no município dele; o Município não retém.`,
+      localIss.inciso ? `Exceção do inciso ${localIss.inciso}` : 'Regra geral do caput');
+  }
+  if (servico && !indefinido && localIss.aqui === true && emitidaFora) {
+    add('info', `ISS devido em ${MUNICIPIO.nome} mesmo com a nota emitida fora`,
+      localIss.fundamento, localIss.inciso ? `Exceção do inciso ${localIss.inciso}` : '');
+  }
+  if (servico && retidoPelaNota && local !== MUNICIPIO.ibge && indefinido) {
+    add('info', 'A nota indica ISS retido pelo tomador', `O ISS será retido pelo Município. Confira se o local da prestação/incidência na nota é ${MUNICIPIO.nome}; se não for, peça a correção ao fornecedor.`);
   }
   if (servico) {
     if (!prestadoAqui) {
-      iss.motivo = 'Serviço prestado fora de Frei Inocêncio: em regra o ISS é devido no município do prestador (LC 116/2003, art. 3º)';
-      add('info', 'Serviço prestado em outro município — ISS não retido por Frei Inocêncio', 'Confirme o local da prestação. Se o serviço foi executado em Frei Inocêncio, mude "Local da prestação" para Frei Inocêncio e o ISS de 5% passa a ser retido.');
+      iss.motivo = localIss && !localIss.indefinido ? localIss.fundamento
+        : 'Serviço prestado fora de Frei Inocêncio: em regra o ISS é devido no município do prestador (LC 116/2003, art. 3º)';
+      if (indefinido) add('info', 'Serviço prestado em outro município — ISS não retido por Frei Inocêncio', 'Confirme o local da prestação. Se o serviço foi executado em Frei Inocêncio, mude "Local da prestação" para Frei Inocêncio e o ISS de 5% passa a ser retido.');
     } else if (mei) {
       iss.aplica = true; iss.motivo = 'MEI recolhe o ISS em valor fixo no DAS — não há retenção';
       if (doc.issValor > 0 || doc.issRetidoNota) add('alerta', 'MEI com ISS destacado/retido na nota', 'Não retenha ISS de MEI (LC 123/2006, art. 18-A). Peça ao fornecedor a correção da nota.');
