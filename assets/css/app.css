@@ -361,8 +361,8 @@ details summary { cursor: pointer; color: var(--azul); font-weight: 500; margin-
 .toast-erro { background: var(--vermelho); }
 .toast-aviso { background: #7a5200; }
 .toast.sair { opacity: 0; transform: translateY(8px); }
-.aviso-erro { max-width: 640px; margin: 40px auto; padding: 20px 24px; border: 1px solid var(--borda); border-left: 4px solid var(--erro, #c0392b); border-radius: 8px; background: var(--fundo-card, #fff); }
-.aviso-erro h2 { margin: 0 0 8px; font-size: 1.05rem; }
+.aviso-erro { max-width: 640px; margin: 40px auto; padding: 20px 24px; border: 1px solid var(--borda); border-left: 4px solid var(--vermelho); border-radius: var(--raio); background: var(--vermelho-claro); color: var(--texto); box-shadow: var(--sombra); }
+.aviso-erro h2 { margin: 0 0 8px; font-size: 1.05rem; color: var(--vermelho); }
 .aviso-erro ul { margin: 8px 0 12px 18px; }
 .aviso-erro li { margin: 2px 0; }
 .aviso-erro .btn { margin-top: 6px; }
