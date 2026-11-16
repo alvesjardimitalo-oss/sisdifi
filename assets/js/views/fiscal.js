@@ -4,10 +4,10 @@ import { estado } from '../estado.js';
 import { esc, $, toast, dataBR, hojeISO } from '../ui.js';
 import { cabecalho } from './comum.js';
 import { lerDanfsePDF } from '../danfse-pdf.js';
-import { auditoriaNota, monitorFiscalSituacao, VERSAO_POLITICA_FISCAL, FONTES_LEGISLATIVAS } from '../auditoria-fiscal.js?v=3.15.1';
+import { auditoriaNota, monitorFiscalSituacao, VERSAO_POLITICA_FISCAL, FONTES_LEGISLATIVAS } from '../auditoria-fiscal.js?v=3.16.0';
 import {
   lerCodigo, lerXML, consultarCnpj, conferir, sugerirNatureza, descreverTributacao, NATUREZAS, MUNICIPIO, ISS, MINIMO_RETENCAO_IR,
-  formatarCnpj, limparCnpj, cnpjValido, moeda, aliquotaIss, mensagemFornecedor
+  formatarCnpj, limparCnpj, cnpjValido, moeda, aliquotaIss, mensagemFornecedor, faltaParaDiagnostico
 } from '../fiscal.js';
 
 const PORTAL_SIMPLES = 'https://consopt.www8.receita.fazenda.gov.br/consultaoptantes';
@@ -182,7 +182,10 @@ async function processarCodigo(el, texto) {
   if (!(s.doc.origem === 'xml' && s.doc.chave === l.chave)) {
     s.confirmacoes = {};
     s.doc = { origem: 'leitura', cnpj: l.cnpj, documento: l.tipo === 'chave' ? l.documento : '', modelo: l.modelo || '', chave: l.chave || '', numero: l.numero || '', serie: l.serie || '',
-      municipioEmissor: l.municipio || '', servico: l.modelo === 'nfse', emissao: l.anoMes ? l.anoMes + '-01' : '' };
+      municipioEmissor: l.municipio || '', servico: l.modelo === 'nfse',
+      // A chave traz o mes, nao o dia. Preencher dia 01 e um palpite: marca
+      // como presumida para a tela pedir confirmacao em vez de passar por dado.
+      emissao: l.anoMes ? l.anoMes + '-01' : '', emissaoPresumida: Boolean(l.anoMes) };
     s.naturezaAuto = true;
   }
   if (l.tipo === 'cnpj' && !l.valida) { toast('CNPJ com dígito verificador inválido.', 'erro'); }
@@ -367,12 +370,32 @@ function desenharForm(el) {
       ibscbs: vCBS != null || vIBS != null || cstV || n(v.baseCbs) != null || ibsAnt.pCBS != null ? { ...ibsAnt, vCBS, vIBS, cst: cstV || '', classTrib: classV || '', base: n(v.baseCbs) } : null
     });
     if (mudouCodigo) s.doc.coopTransporte = null; // recalcula o tipo da cooperativa pelo novo código
+    // mexeu na data: deixa de ser o palpite do dia 01 que veio da chave
+    if (e?.target?.name === 'emissao') s.doc.emissaoPresumida = false;
     // campos que mudam o próprio formulário (código, documento, natureza sugerida) → redesenha mantendo o foco
     const redesenhar = mudouCodigo || ['documento', 'natureza'].includes(e?.target?.name) || (e?.target?.name === 'descricaoServico' && s.naturezaAuto);
     if (mudouCnpj) consultar(el); else { if (redesenhar) { const nome = e?.target?.name; desenharForm(el); if (nome) f.querySelector(`[name="${nome}"]`)?.focus(); } recalcular(el); }
   };
   f.onchange = ler;
   f.onsubmit = ev => { ev.preventDefault(); ler(ev); };
+}
+
+/**
+ * O que ainda falta para o diagnóstico fechar.
+ *
+ * A chave identifica a nota mas não traz valores, então depois de escanear
+ * sobra o formulário inteiro. Sem dizer o que falta, a conferência parece
+ * não ter fim — era por isso que o passo 3 nunca chegava.
+ */
+function painelFalta() {
+  const falta = faltaParaDiagnostico(s.doc);
+  if (!falta.length) return '<p class="alerta alerta-ok mt">Tudo que o diagnóstico precisa está preenchido.</p>';
+  const temArquivo = s.doc.origem === 'leitura';
+  return `<div class="fiscal-falta mt">
+    <p><strong>Falta ${falta.length === 1 ? 'preencher 1 campo' : `preencher ${falta.length} campos`}</strong> para o diagnóstico ficar completo:</p>
+    <ul>${falta.map(f => `<li><button type="button" class="link" data-ir="${esc(f.campo)}">${esc(f.rotulo)}</button> <small>${esc(f.porque)}</small></li>`).join('')}</ul>
+    ${temArquivo ? `<p class="dica">Se o fornecedor mandou a nota em arquivo, <button type="button" class="link" data-abrir-arquivo>abra o PDF ou o XML</button> e tudo isto é preenchido de uma vez.</p>` : ''}
+  </div>`;
 }
 
 function recalcular(el) {
@@ -510,7 +533,7 @@ function desenharResultado(el) {
     box.innerHTML = `<div class="cartao">${blocoFornecedor(cad)}
       <div class="fiscal-cartoes"><div class="fiscal-item"><span>Simples Nacional na data</span><strong>${r.simples == null ? 'Não confirmado' : r.mei ? 'MEI' : r.simples ? 'Optante' : 'Não optante'}</strong><small>${r.simples == null ? 'confira no Portal' : esc(r.fonteSimples)}</small></div>
       <div class="fiscal-item"><span>IRRF</span><strong>${r.simples ? 'Não reter' : 'Reter ' + pctTxt(r.natureza.ir)}</strong><small>${esc(r.simples ? r.ir.motivo : r.natureza.texto)}</small></div></div>
-      <p class="alerta alerta-info mt">Informe o <strong>valor bruto</strong>, confira a <strong>data de emissão</strong> e o <strong>código de tributação</strong> para calcular as retenções e conferir a nota.</p></div>`;
+      ${painelFalta()}</div>`;
     return;
   }
   if (!r) { box.innerHTML = `<div class="cartao"><h3>Como usar</h3><ol class="passos">
@@ -577,6 +600,7 @@ ${blocoFornecedor(cad, '<span class="fiscal-num">3</span> ')}
       <ul class="fiscal-verif">${r.verificacao.linhas.map(l => `<li class="${l.ok === true ? 'v-ok' : l.ok === false ? 'v-erro' : 'v-info'}"><span aria-hidden="true">${l.ok === true ? '✓' : l.ok === false ? '✕' : '•'}</span>
         <div><strong>${esc(l.titulo)}</strong><small>${esc(l.detalhe)}</small></div></li>`).join('')}</ul>
     </div>` : ''}
+    ${painelFalta()}
     <div class="fiscal-proxima"><button type="button" class="btn btn-sec fiscal-limpar" data-limpar>Limpar consulta e conferir outra nota</button></div>`;
   box.querySelectorAll('[data-fis-confirma]').forEach(cb=>cb.onchange=()=>{
     s.confirmacoes[cb.dataset.fisConfirma]=cb.checked;
@@ -584,6 +608,16 @@ ${blocoFornecedor(cad, '<span class="fiscal-num">3</span> ')}
   });
   box.querySelector('[data-fis-atualizar-lei]')?.addEventListener('click',()=>carregarLegislacao(el,true));
   box.querySelectorAll('[data-fis-aprovar-lei]').forEach(b=>b.onclick=()=>aprovarLegislacao(el,b.dataset.fisAprovarLei));
+  // Levar ao campo e melhor que so dizer o nome dele: o formulario e longo.
+  box.querySelectorAll('[data-ir]').forEach(b => b.onclick = () => {
+    const campo = $(`#fis-form [name="${b.dataset.ir}"]`, el);
+    if (!campo) return;
+    campo.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    campo.focus({ preventScroll: true });
+    campo.classList.add('campo-apontado');
+    setTimeout(() => campo.classList.remove('campo-apontado'), 1600);
+  });
+  box.querySelector('[data-abrir-arquivo]')?.addEventListener('click', () => $('#fis-xml', el)?.click());
   box.querySelector('[data-limpar]').onclick = () => limparConsulta(el);
   box.querySelector('[data-mensagem]').onclick = () => abrirMensagem();
 }

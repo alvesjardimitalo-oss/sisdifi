@@ -514,6 +514,30 @@ const difere = (a, b, tol = 0.05) => a != null && b != null && Math.abs(Number(a
  *   simplesManual — 'sim' | 'nao' | 'mei' | '' (quando a consulta automática não respondeu)
  *   hoje       — 'AAAA-MM-DD' (para testes)
  */
+/**
+ * O que ainda falta para o diagnóstico da nota ficar completo.
+ *
+ * A chave de acesso é um identificador: traz município, CNPJ, número e mês,
+ * e nada de valores. Depois de escanear sobra o formulário inteiro, e sem
+ * uma lista do que falta a conferência parece nunca terminar.
+ *
+ * Devolve só o que bloqueia, na ordem em que compensa preencher.
+ */
+export function faltaParaDiagnostico(doc = {}) {
+  const falta = [];
+  const vazio = v => v == null || v === '' || !Number.isFinite(Number(v)) || Number(v) <= 0;
+  if (vazio(doc.valor)) falta.push({ campo: 'valor', rotulo: 'Valor bruto da nota', porque: 'é a base de todas as retenções' });
+  if (!doc.emissao || doc.emissaoPresumida) {
+    falta.push({ campo: 'emissao', rotulo: 'Data de emissão',
+      porque: doc.emissaoPresumida ? 'a chave só informa o mês; confirme o dia na nota' : 'define o regime do fornecedor e os parâmetros do ano' });
+  }
+  const servico = doc.servico || doc.modelo === 'nfse';
+  if (servico && !String(doc.codigoServico || '').trim()) {
+    falta.push({ campo: 'codigoServico', rotulo: 'Código de tributação', porque: 'define a alíquota do ISS e a natureza do IRRF' });
+  }
+  return falta;
+}
+
 export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual = '', hoje = new Date().toISOString().slice(0, 10), chave = null, parametros = null } = {}) {
   const issMun = aliquotaIss(doc.codigoServico, parametros);
   const ISS_ALIQ = issMun.aliquota;

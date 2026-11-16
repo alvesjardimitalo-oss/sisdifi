@@ -192,3 +192,31 @@ r = conferir({ doc: { ...docT, descricaoServico: 'TRANSPORTE ESCOLAR ROTA 06' },
 ok(r.verificacao.linhas.length >= 2 && tem(r, 'não corresponde à descrição'), 'verificação dentro da conferência');
 console.log(falhas ? `${falhas} falha(s)` : 'fiscal: todos os testes passaram');
 process.exit(falhas ? 1 : 0);
+
+// ---------- falta para o diagnóstico ----------
+{
+  const { faltaParaDiagnostico } = await import('../assets/js/fiscal.js');
+  const campos = d => faltaParaDiagnostico(d).map(f => f.campo);
+
+  // logo depois de ler a chave: só identificação, nenhum valor
+  const daChave = { origem: 'leitura', modelo: 'nfse', servico: true, cnpj: '10781677000168',
+                    emissao: '2026-11-01', emissaoPresumida: true };
+  assert.deepEqual(campos(daChave), ['valor', 'emissao', 'codigoServico'],
+    'chave sozinha deixa valor, data e código em aberto');
+
+  // a data presumida continua pendente mesmo preenchida: a chave só dá o mês
+  assert.ok(campos({ ...daChave, valor: 1000, codigoServico: '16.01.01' }).includes('emissao'),
+    'data vinda da chave precisa de confirmação do dia');
+  assert.deepEqual(campos({ ...daChave, valor: 1000, codigoServico: '16.01.01', emissaoPresumida: false }), [],
+    'confirmando o dia, nada mais falta');
+
+  // nota de produto não tem código de tributação de serviço
+  assert.deepEqual(campos({ modelo: '55', servico: false, valor: 500, emissao: '2026-11-10' }), [],
+    'NF-e de produto não exige código de serviço');
+
+  // valor zero ou negativo não serve de base
+  assert.ok(campos({ ...daChave, valor: 0 }).includes('valor'), 'valor zero bloqueia');
+  assert.ok(campos({ ...daChave, valor: -5 }).includes('valor'), 'valor negativo bloqueia');
+
+  console.log('ok  falta para o diagnóstico');
+}
