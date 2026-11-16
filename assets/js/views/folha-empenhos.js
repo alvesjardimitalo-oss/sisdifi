@@ -1,7 +1,7 @@
 // SISDIFI — Folha de pagamentos: geração de relação prévia de empenhos.
 // Exclusivo de Contabilidade/ADM. Não grava dados de folha no Firebase.
 import {estado,pode} from '../estado.js';
-import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificacaoPessoal,FICHAS_PESSOAL_2026} from '../folha-orcamento-2026.js';
+import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificacaoPessoal,sugerirFichaDaLotacao,FICHAS_PESSOAL_2026} from '../folha-orcamento-2026.js';
 import {esc,toast} from '../ui.js';
 import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha} from '../folha-empenhos.js';
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
@@ -121,9 +121,26 @@ export function telaFolhaEmpenhos(el){
     if(!Object.values(arquivos).some(x=>x?.registros?.length))return null;
     const maternidade=consolidarMaternidade(pessoas,[arquivos.principal].filter(Boolean));
     // Completa a ação/unidade para fichas previamente salvas, sem remover edições manuais.
-    const mapaConsulta=Object.fromEntries(Object.entries(mapa).map(([chave,m])=>{
-      const ref=localizarFicha(m.ficha);
-      return [chave,{...m,secretaria:m.secretaria||ref?.unidade||'',lotacaoOrcamentaria:m.lotacaoOrcamentaria||ref?.acao||''}];
+    /* Sugere ficha, fonte e desdobramento a partir da lotação, para a
+       Contabilidade conferir e trocar conforme o saldo. O que já foi informado
+       à mão nunca é sobrescrito: a sugestão só preenche o que está em branco. */
+    const sugestoes={};
+    for(const a of arquivosLista())for(const r of (a.registros||[])){
+      const chave=a.tipo+'|'+r.lotacao;
+      if(mapa[chave]?.ficha)continue;
+      const s=sugerirFichaDaLotacao(r);
+      if(s.ficha||s.motivo)sugestoes[chave]=s;
+    }
+    const mapaConsulta=Object.fromEntries([...new Set([...Object.keys(mapa),...Object.keys(sugestoes)])].map(chave=>{
+      const m=mapa[chave]||{},sug=sugestoes[chave];
+      const ficha=m.ficha||sug?.ficha||'';
+      const ref=localizarFicha(ficha);
+      return [chave,{...m,ficha,
+        fonte:m.fonte||sug?.fonte||'',
+        desdobramento:m.desdobramento||sug?.desdobramento||'',
+        sugerida:!m.ficha&&!!sug?.ficha,confiancaFicha:m.ficha?'':(sug?.confianca||''),
+        motivoFicha:m.ficha?'':(sug?.motivo||''),
+        secretaria:m.secretaria||ref?.unidade||'',lotacaoOrcamentaria:m.lotacaoOrcamentaria||ref?.acao||''}];
     }));
     const previsao=prepararEmpenhos(arquivosLista(),primeiro,mapaConsulta,maternidade.ajustes);
     for(const emp of previsao.empenhos){

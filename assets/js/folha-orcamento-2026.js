@@ -110,3 +110,128 @@ export function classificacaoPessoal(naturezas=[]){
  if(vencimentos)return {codigo:'3.1.90.11.00',titulo:'Vencimentos e Vantagens Fixas — Pessoal Civil',conflito:false};
  return {codigo:'',titulo:'Não identificada na ficha',conflito:false};
 }
+
+/* =====================================================================
+   Sugestão da ficha a partir da lotação do RH
+   =====================================================================
+   A ficha de pessoal é sempre um par na mesma ação: 3.1.90.04 para
+   contratado por tempo determinado e 3.1.90.11 para os demais vínculos.
+   Quem diz o vínculo é o último nível da lotação ("PESSOAL CONTRATADO",
+   "EFETIVOS", "COMISSIONADOS", "AGENTE POLITICO"), e quem diz a ação é o
+   nível acima dele, que o resumo imprime por extenso.
+
+   O código da lotação do RH não corresponde ao da ação do orçamento, então
+   o casamento é pelo NOME. Daí a sugestão vir sempre com um grau de
+   confiança: ela é um ponto de partida para a Contabilidade conferir e
+   trocar conforme o saldo, nunca uma decisão automática.
+
+   Medido contra outubro/2026: 75 das 86 lotações com ficha conhecida. */
+
+/** Educação: regra confirmada pela Contabilidade, pelo 3º nível da lotação. */
+export const EDUCACAO_2026={
+ '002.004.214':{'04':'107','11':'108',fonte:'1.500.000.0000',desdobramento:'0000',nome:'Secretaria de Educação'},
+ '002.004.215':{'04':'186','11':'187',fonte:'1.540.000.0000',desdobramento:'1071',nome:'Creche 70%'},
+ '002.004.217':{'04':'173','11':'174',fonte:'1.540.000.0000',desdobramento:'1071',nome:'Ensino Fundamental 70%'},
+ '002.004.219':{'04':'191','11':'192',fonte:'1.540.000.0000',desdobramento:'1071',nome:'Ensino Infantil 70%'},
+ '002.004.221':{'04':'173','11':'174',fonte:'1.540.000.0000',desdobramento:'0000',nome:'Ensino Fundamental 30%'},
+ '002.004.223':{'04':'179','11':'180',fonte:'1.540.000.0000',desdobramento:'0000',nome:'Transporte Escolar'},
+ '002.004.230':{'04':'173','11':'174',fonte:'1.540.000.0000',desdobramento:'1073',nome:'Ensino Tempo Integral'}
+};
+const SEM_PESO=new Set(['DE','DA','DO','DAS','DOS','E','MANUT','MANUTENCAO','MANUETENCAO',
+ 'ATIV','ATIVIDADES','ATIVID','SECRET','SECRETARIA','MUNICIPAL','MUNIC','PREF']);
+/* Tira o plural: o resumo escreve "TRANSPORTES" e "OBRAS" onde o orçamento
+   escreve "TRANSPORTE" e "OBRA". Sem isso, quatro lotações de Transportes
+   casavam com o Gabinete. */
+const raiz=t=>t.length>3&&t.endsWith('S')?t.slice(0,-1):t;
+const palavras=s=>normalizar(s).replace(/[^A-Z0-9%]+/g,' ').split(' ')
+ .filter(t=>t&&!SEM_PESO.has(t)).map(raiz);
+const parecenca=(a,b)=>{const A=new Set(palavras(a)),B=new Set(palavras(b));
+ if(!A.size||!B.size)return 0;let i=0;for(const t of B)if(A.has(t))i++;
+ return i/Math.max(A.size,B.size);};
+
+/* Fichas fixas, conferidas na LOA 2026. Aposentadoria e pensão ficam na
+   Secretaria de Administração, na ação MANUTENÇÃO INATIVOS E PENSIONISTAS;
+   a bolsa de estágio é serviço de terceiros na secretaria onde o estagiário
+   trabalha, e em 2026 é a 303 da Ação Social. Nenhuma das três é despesa de
+   pessoal ativo, então não têm par 04/11 e ficam fora do casamento por nome. */
+export const FICHAS_FIXAS_2026={
+ aposentadoria:{ficha:'81',natureza:'3.1.90.01.00',fonte:'1.500.000.0000',
+   nome:'Aposentadorias, reserva remunerada e reforma',unidade:'Secretaria Municipal de Administração'},
+ pensao:{ficha:'82',natureza:'3.1.90.03.00',fonte:'1.500.000.0000',
+   nome:'Pensões',unidade:'Secretaria Municipal de Administração'},
+ estagio:{ficha:'303',natureza:'3.3.90.36.00',fonte:'',
+   nome:'Bolsa de estágio (outros serviços de terceiros, pessoa física)',unidade:'Secretaria Municipal de Ação Social'}
+};
+/** Aposentadoria e pensão dividem a mesma ação: quem separa é o nível do vínculo. */
+function fichaFixaDoVinculo(vinculo='',acao=''){
+ for(const t of [vinculo,acao]){
+  const n=normalizar(t);
+  if(/PENS/.test(n))return FICHAS_FIXAS_2026.pensao;
+  if(/APOSENT|INATIV/.test(n))return FICHAS_FIXAS_2026.aposentadoria;
+ }
+ return null;
+}
+
+/** Elemento pelo vínculo: contratado por tempo determinado ou os demais. */
+export function elementoDoVinculo(texto=''){
+ const n=normalizar(texto);
+ if(/CONTRATAD|PESSOAS CONTRATADAS/.test(n))return '04';
+ // Aposentadoria (3.1.90.01) e pensão (3.1.90.03) não são ficha de pessoal ativo.
+ if(/APOSENT|INATIV|PENSOES|PENSIONISTA/.test(n))return '';
+ return '11';
+}
+
+/**
+ * Sugere ficha, fonte e desdobramento para uma lotação do resumo de verbas.
+ * `registro` é o que analisarResumoVerbas devolve: precisa de `lotacao`,
+ * `caminho` (unidade, ação e, quando existe, o vínculo) e `rubricas`.
+ * Devolve sempre `confianca`, para a tela mostrar o que merece conferência:
+ *   confirmada — regra fechada com a Contabilidade (educação)
+ *   provavel   — um único candidato claramente à frente
+ *   incerta    — casou mal ou houve empate: conferir antes de empenhar
+ *   manual     — não é ficha de pessoal; a Contabilidade informa
+ */
+export function sugerirFichaDaLotacao(registro={}){
+ const caminho=registro.caminho||[];
+ const unidade=caminho[0]||'';
+ const vinculo=caminho.length>=3?caminho[2]:'';
+ // Sem o nível do vínculo, o nome que sobra é o da própria ação.
+ const acao=caminho.length>=3?(caminho[1]||''):'';
+ const elemento=elementoDoVinculo(vinculo||caminho[1]||registro.lotacao||'');
+ const vazio={ficha:'',fonte:'',desdobramento:'',elemento,confianca:'manual',motivo:''};
+
+ // Bolsa de estágio não é despesa de pessoal: vai em serviços de terceiros.
+ const rubricas=registro.rubricas||[];
+ if(rubricas.length&&rubricas.every(r=>r.codigo==='370')){
+   const e=FICHAS_FIXAS_2026.estagio;
+   return {...vazio,ficha:e.ficha,fonte:e.fonte,confianca:'confirmada',
+     motivo:e.nome+': ficha fixa na LOA 2026, '+e.natureza+'. Conferir a fonte.'};
+ }
+ if(!elemento){
+   const f=fichaFixaDoVinculo(vinculo,caminho[1]||'');
+   if(f)return {...vazio,ficha:f.ficha,fonte:f.fonte,confianca:'confirmada',
+     motivo:f.nome+': ficha fixa na LOA 2026, '+f.natureza+'.'};
+   return {...vazio,motivo:'Aposentadoria ou pensão: ficha própria, fora do catálogo de pessoal.'};
+ }
+
+ const grupo=String(registro.lotacao||'').split('.').slice(0,3).join('.');
+ const edu=EDUCACAO_2026[grupo];
+ if(edu&&edu[elemento])
+   return {ficha:edu[elemento],fonte:edu.fonte,desdobramento:edu.desdobramento,elemento,
+     confianca:'confirmada',motivo:edu.nome+': regra confirmada pela Contabilidade.'};
+
+ const candidatas=FICHAS_PESSOAL_2026.filter(f=>f.natureza==='3.1.90.'+elemento+'.00');
+ const pontuadas=candidatas
+   .map(f=>({f,p:acao?parecenca(f.acao,acao)*3+parecenca(f.unidade,unidade)*0.5:parecenca(f.unidade,unidade)*3}))
+   .sort((a,b)=>b.p-a.p);
+ const melhor=pontuadas[0];
+ if(!melhor||melhor.p<0.8)
+   return {...vazio,ficha:melhor?.f.ficha||'',confianca:'incerta',
+     motivo:'Nenhuma ação do orçamento se parece com "'+(acao||unidade)+'".'};
+ const folga=melhor.p-(pontuadas[1]?.p||0);
+ const fonte=melhor.f.fontes.length===1?melhor.f.fontes[0]:'';
+ return {ficha:melhor.f.ficha,fonte,desdobramento:'',elemento,
+   confianca:folga>0.25?'provavel':'incerta',
+   motivo:(folga>0.25?'':'Empate com outra ação. ')+'Ficha '+melhor.f.ficha+' — '+melhor.f.acao+
+     (fonte?'':' (a ficha admite mais de uma fonte: informar).')};
+}

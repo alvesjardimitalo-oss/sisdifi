@@ -274,7 +274,8 @@ export function descontarFolhasProprias(arquivos=[]){
   const proprios=lista.filter(a=>a!==mensal&&(a.tipo==='decimo'||a.tipo==='rescisao'));
   if(!mensal||!proprios.length)return {arquivos:lista,avisos:[],descontados:0};
   const avisos=[];
-  const restantes=new Map(mensal.registros.map(r=>[r.lotacao,{...r,valores:{...r.valores}}]));
+  const restantes=new Map(mensal.registros.map(r=>[r.lotacao,{...r,valores:{...r.valores},
+    rubricasDesconto:(r.rubricasDesconto||[]).map(d=>({...d}))}]));
   let descontados=0;
   for(const a of proprios){
     for(const r of a.registros){
@@ -288,6 +289,28 @@ export function descontarFolhasProprias(arquivos=[]){
         const v=r.valores?.[k];
         if(Number.isSafeInteger(v)&&v!==0)alvo.valores[k]=(alvo.valores[k]||0)-v;
       }
+      /* As rubricas de desconto também saem, senão o consignado da rescisão
+         entra duas vezes e o banco receberia em dobro. Em outubro a rescisão
+         só tinha INSS, então o erro não aparecia nos bancos — mas apareceria
+         na primeira rescisão com empréstimo. */
+      for(const d of r.rubricasDesconto||[]){
+        const i=(alvo.rubricasDesconto||[]).findIndex(x=>x.codigo===d.codigo);
+        if(i<0){
+          avisos.push('Rubrica '+d.codigo+' ('+(d.descricao||'')+') aparece no desconto da '+
+            a.tipo+' da lotação '+r.lotacao+' mas não na folha mensal. Confira antes de pagar o consignado.');
+          continue;
+        }
+        const atual=alvo.rubricasDesconto[i];
+        alvo.rubricasDesconto[i]={...atual,valor:atual.valor-d.valor};
+      }
+      alvo.rubricasDesconto=(alvo.rubricasDesconto||[]).filter(d=>d.valor!==0);
+      alvo.composicao=Object.fromEntries(CATEGORIAS_DESCONTOS.map(k=>[k,0]));
+      for(const d of alvo.rubricasDesconto)alvo.composicao[d.categoria]+=d.valor;
+      alvo.composicaoTotal=Object.values(alvo.composicao).reduce((n,v)=>n+v,0);
+      alvo.inss=alvo.composicao.INSS;
+      alvo.bancos={Caixa:alvo.composicao.Caixa,Sicoob:alvo.composicao.Sicoob,
+        Bradesco:alvo.composicao.Bradesco,Pensao:alvo.composicao.Pensao};
+      alvo.diferencaComposicao=alvo.valores.desconto==null?null:alvo.valores.desconto-alvo.composicaoTotal;
       descontados++;
     }
   }
@@ -445,6 +468,10 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
       id:r.tipo+'|'+r.lotacao,empenho:Number(primeiro)+i,tipo:r.tipo,lotacao:r.lotacao,
       secretaria:destino.secretaria||r.secretaria,vinculo:destino.vinculo||r.vinculo,
       ficha:String(destino.ficha||''),fonte:String(destino.fonte||''),conta:String(destino.conta||''),
+      desdobramento:String(destino.desdobramento||''),
+      // De onde veio a ficha, para a tela mostrar o que merece conferência.
+      fichaSugerida:!!destino.sugerida,confiancaFicha:String(destino.confiancaFicha||''),
+      motivoFicha:String(destino.motivoFicha||''),
       lotacaoOrcamentaria:String(destino.lotacaoOrcamentaria||''),origemFicha:String(destino.origemFicha||''),
       bruto,brutoRH,incentivo,enfermagemIncluidaNoBruto:decisao||'',
       descontoRH:desconto,descontoAjustado,liquido,maisInssExtra:inssExtra,
@@ -483,6 +510,34 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
         &&Number.isSafeInteger(r.valores?.liquido)
         ?r.valores.bruto-r.valores.desconto-r.valores.liquido:0),0),
     pendentes:empenhos.filter(r=>r.problemas.length)};
+}
+/* Lista de pagamento dos consignados: quanto vai para cada destino e de quais
+   rubricas. As pensões saem detalhadas porque cada uma vai para um beneficiário
+   diferente — um total só de "Pensão" não dá para pagar. */
+const DESTINOS_PAGAMENTO=[
+ {chave:'Caixa',nome:'Caixa Econômica Federal',forma:'guia do banco'},
+ {chave:'Sicoob',nome:'Sicoob',forma:'guia do banco'},
+ {chave:'Bradesco',nome:'Bradesco',forma:'guia do banco'},
+ {chave:'Pensao',nome:'Pensão alimentícia',forma:'ordem de pagamento por beneficiário',detalhar:true}
+];
+export function pagamentosConsignados(empenhos=[]){
+ const lista=Array.isArray(empenhos)?empenhos:[];
+ const porRubrica=new Map();
+ for(const e of lista)for(const d of e.rubricasDesconto||[]){
+   const k=d.categoria+'|'+d.codigo;
+   const at=porRubrica.get(k)||{categoria:d.categoria,codigo:d.codigo,descricao:d.descricao||'',valor:0,empenhos:[]};
+   at.valor+=d.valor;
+   if(e.empenho!=null&&!at.empenhos.includes(e.empenho))at.empenhos.push(e.empenho);
+   porRubrica.set(k,at);
+ }
+ const rubricas=[...porRubrica.values()].filter(r=>r.valor!==0);
+ const destinos=DESTINOS_PAGAMENTO.map(d=>{
+   const suas=rubricas.filter(r=>r.categoria===d.chave).sort((a,b)=>b.valor-a.valor);
+   return {...d,valor:suas.reduce((n,r)=>n+r.valor,0),rubricas:suas};
+ }).filter(d=>d.valor!==0);
+ // O que não é banco nem pensão não se paga a terceiro: fica para a Contabilidade ver.
+ const outros=rubricas.filter(r=>r.categoria==='Outros').sort((a,b)=>b.valor-a.valor);
+ return {destinos,outros,total:destinos.reduce((n,d)=>n+d.valor,0)};
 }
 export function conferirConsignadosFolha(empenhos,arquivosMinuta){
   const calc={Caixa:0,Sicoob:0,Bradesco:0,Pensao:0};
