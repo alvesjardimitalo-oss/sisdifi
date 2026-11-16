@@ -7,6 +7,7 @@ on:
       - 'assets/js/folha-maternidade.js'
       - 'tests/folha-maternidade.test.mjs'
       - 'tests/folha-extras-resumo.test.mjs'
+      - 'tests/folha-tres-resumos.test.mjs'
       - 'assets/js/folha-empenhos-pdf.js'
       - 'assets/js/folha-empenhos-store.js'
       - 'assets/js/folha-empenhos-xlsx.js'
@@ -22,6 +23,7 @@ on:
       - 'assets/js/folha-maternidade.js'
       - 'tests/folha-maternidade.test.mjs'
       - 'tests/folha-extras-resumo.test.mjs'
+      - 'tests/folha-tres-resumos.test.mjs'
       - 'assets/js/folha-empenhos-pdf.js'
       - 'assets/js/folha-empenhos-store.js'
       - 'assets/js/folha-empenhos-xlsx.js'
@@ -49,6 +51,7 @@ jobs:
       - run: node tests/folha-empenhos.test.mjs
       - run: node tests/folha-maternidade.test.mjs
       - run: node tests/folha-extras-resumo.test.mjs
+      - run: node tests/folha-tres-resumos.test.mjs
       - name: Conferir planilha XLSX e fórmulas OpenXML
         run: |
           python3 - <<'PY'
