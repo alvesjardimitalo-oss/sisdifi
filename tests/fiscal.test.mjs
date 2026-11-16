@@ -282,17 +282,19 @@ ok(r.verificacao.linhas.length >= 2 && tem(r, 'não corresponde à descrição')
     codigoServico: '14.01.01', regimeNota: 'normal',
     issAliquota: 4, issValor: 67.20, issRetidoNota: false,
     irrfDestacado: 80.64, csrfRetido: 78.12,
+    csrfRotulo: 'Contribuições Sociais Retidas', csrfDescricao: 'PIS/COFINS/CSLL Retidos',
     totalRetencoesNota: 158.76, liquidoNota: 1521.24 };
   const cad = { cnpj: '10781677000168', situacao: 'ATIVA', simples: false, fonte: 'RFB' };
   const r = conferir({ doc, cadastro: cad, hoje: '2026-11-16' });
 
-  const linha = r.comparativo.find(l => /PIS\/COFINS\/CSLL/.test(l.item));
-  assert.ok(linha, 'a retenção declarada aparece no comparativo com o nome dela');
+  const linha = r.comparativo.find(l => l.item === 'Contribuições Sociais Retidas');
+  assert.ok(linha, 'a linha se chama como está impresso na nota, não com apelido nosso');
+  assert.equal(linha.detalhe, 'PIS/COFINS/CSLL Retidos', 'a descrição da nota diz quais contribuições');
   assert.equal(linha.nota, 78.12);
   assert.equal(linha.conferido, null, 'não é calculada: não se inventa um valor conferido');
   assert.equal(linha.diferenca, null, 'sem valor conferido não há diferença a apontar');
 
-  const aviso = r.problemas.find(p => /PIS\/COFINS\/CSLL/.test(p.titulo));
+  const aviso = r.problemas.find(p => /Contribuições Sociais Retidas/.test(p.titulo));
   assert.ok(aviso, 'a diferença precisa ser nomeada, não só medida');
   // Não trava a nota: a retenção é do emitente e não entra no cálculo do Município.
   // Mas o texto tem de contrastar os dois valores, senão alguém paga o da nota.
@@ -306,6 +308,20 @@ ok(r.verificacao.linhas.length >= 2 && tem(r, 'não corresponde à descrição')
   // ISS: 14.01 não está nas exceções do art. 3º — é de Contagem, como a nota diz
   assert.equal(r.iss.aplica, false);
   assert.equal(r.localIss.aqui, false);
+
+  // retenção que a ferramenta ainda não conhece: aparece pelo nome que a nota deu
+  const comOutra = conferir({
+    doc: { ...doc, retencoesNota: [
+      { rotulo: 'Contribuições Sociais Retidas', valor: 78.12 },
+      { rotulo: 'Retenção Municipal Diversa', valor: 12.5 }
+    ] }, cadastro: cad, hoje: '2026-11-16' });
+  const outra = comOutra.comparativo.find(l => l.item === 'Retenção Municipal Diversa');
+  assert.ok(outra, 'retenção desconhecida não pode sumir do comparativo');
+  assert.equal(outra.nota, 12.5);
+  assert.equal(outra.conferido, null, 'não se inventa valor conferido para o que não se calcula');
+  assert.equal(comOutra.comparativo.filter(l => l.item === 'Contribuições Sociais Retidas').length, 1,
+    'a varredura não duplica a retenção já tratada');
+
   console.log('ok  retenções declaradas e não calculadas');
 }
 
@@ -318,6 +334,7 @@ ok(r.verificacao.linhas.length >= 2 && tem(r, 'não corresponde à descrição')
     municipioEmissor: '3118601', municipioEmissorNome: 'Contagem', localPrestacao: '3126901',
     codigoServico: '14.01.01', regimeNota: 'normal', issAliquota: 4, issValor: 67.20,
     issRetidoNota: false, irrfDestacado: 80.64, csrfRetido: 78.12,
+    csrfRotulo: 'Contribuições Sociais Retidas', csrfDescricao: 'PIS/COFINS/CSLL Retidos',
     totalRetencoesNota: 158.76, liquidoNota: 1521.24 };
   const r = conferir({ doc: nf42, cadastro: cad, hoje: '2026-11-16' });
 

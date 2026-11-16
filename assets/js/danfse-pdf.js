@@ -115,6 +115,22 @@ export function lerDanfse(itens) {
   const pCBS = percentual(v(/^aliquota - cbs/));
   const descricao = v(/^descricao do servico/, { linhas: 6 });
 
+  /* Retenções: o nome vem da própria nota, não de um rótulo nosso. Quem confere
+     está olhando o papel, e "Contribuições Sociais Retidas" é o que está escrito
+     lá — chamar de outra coisa obriga a traduzir de cabeça. A varredura pega
+     qualquer linha de retenção, inclusive as que ainda não conhecemos. */
+  const limpo = t => String(t || '').trim().replace(/\s*-\s*/g, ' ').replace(/\s+/g, ' ');
+  const rotuloDe = padrao => { const r = achar(seg, padrao); return r ? limpo(r.str) : ''; };
+  const ehRetencao = s => /retid[ao]s?\b/.test(s.n) && !/^retencao do issqn/.test(s.n) && !/^descricao/.test(s.n);
+  const vistos = new Set();
+  const retencoesNota = seg.filter(ehRetencao).map(s => {
+    const valor = dinheiro(abaixo(seg, s));
+    return { rotulo: limpo(s.str), valor, chave: s.n };
+  }).filter(x => {
+    if (!(x.valor > 0) || vistos.has(x.chave)) return false;
+    vistos.add(x.chave); return true;
+  });
+
   const doc = {
     origem: 'danfse', documento: 'NFS-e Nacional', modelo: 'nfse', servico: true, chave,
     numero: (v(/^numero da nfs/) || '').replace(/\D/g, '') || '',
@@ -137,7 +153,11 @@ export function lerDanfse(itens) {
     issRetidoNota: !retencao || vazio(retencao) ? null : /nao retido/.test(retN) ? false : /retido/.test(retN) ? true : null,
     irrfDestacado: dinheiro(v(/^irrf/)) ?? 0,
     inssRetido: dinheiro(v(/^contribuicao previdenciaria - retida/)),
+    inssRotulo: rotuloDe(/^contribuicao previdenciaria - retida/),
     csrfRetido: dinheiro(v(/^contribuicoes sociais - retidas/)),
+    csrfRotulo: rotuloDe(/^contribuicoes sociais - retidas/),
+    csrfDescricao: (t => (!t || vazio(t)) ? '' : t.trim())(v(/^descricao contrib\.? sociais/)),
+    retencoesNota,
     valor,
     totalRetencoesNota: dinheiro(v(/^total das retencoes/)),
     liquidoNota: dinheiro(v(/^valor liquido da nfs-e$/) || v(/^valor liquido da nfs/)),

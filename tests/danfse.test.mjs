@@ -37,6 +37,40 @@ ok(d.descricaoServico === 'TRANSPORTE ESCOLAR ROTA 01 PERIODO 09/2026', 'descri�
 ok(d.issAliquota === 5 && d.issValor === 500 && d.issRetidoNota === true && d.irrfDestacado === 240, 'ISS e IRRF');
 ok(d.valor === 10000 && d.totalRetencoesNota === 740 && d.liquidoNota === 9260, 'valores');
 ok(d.ibscbs.cst === '000' && d.ibscbs.base === 9135 && d.ibscbs.pCBS === 0.9 && d.ibscbs.pIBSUF === 0.1 && d.ibscbs.vCBS === 82.22 && d.ibscbs.vIBS === 9.14, 'IBS/CBS');
+ok(d.retencoesNota.length === 0, 'nota sem retenção federal não inventa linha');
+
+// --- NF 42 real: retenção de contribuições sociais, com o nome impresso na nota ---
+{
+  const it = []; let yy = 40;
+  const tt = (x, y2, str) => it.push({ x, y: y2, w: str.length * 4, str });
+  const l2 = (col, rot, val) => { tt(X[col], yy, rot); if (val != null) tt(X[col], yy + 9, val); };
+  const ln = (passo = 22) => { yy += passo; };
+  tt(250, yy, 'DANFSe v2.0'); ln(30);
+  l2(0, 'NÚMERO DA NFS-e', '42'); l2(1, 'COMPETÊNCIA DA NFS-E', '13/11/2026'); ln(26);
+  l2(0, 'PRESTADOR / FORNECEDOR'); l2(1, 'CNPJ / CPF / NIF', '10.781.677/0001-68'); ln();
+  l2(0, 'Nome / Nome Empresarial', 'ENGEQUALITY LTDA'); l2(3, 'Código IBGE / CEP', '3118601 / 32.000-000'); ln(26);
+  l2(0, 'TOMADOR / ADQUIRENTE'); l2(1, 'CNPJ / CPF / NIF', '16.945.990/0001-70'); ln(26);
+  l2(0, 'SERVIÇO PRESTADO'); l2(1, 'Código de Tributação Nacional / Municipal', '14.01.01 / -');
+  l2(3, 'Local da Prestação / Sigla UF / País', 'Frei Inocêncio / MG'); ln(32);
+  l2(0, 'TRIBUTAÇÃO MUNICIPAL (ISSQN)'); l2(1, 'Alíquota Aplicada', '4,00 %');
+  l2(2, 'Retenção do ISSQN', 'Não Retido'); l2(3, 'ISSQN Apurado', 'R$ 67,20'); ln(24);
+  l2(0, 'TRIBUTAÇÃO FEDERAL (EXCETO CBS)'); l2(1, 'IRRF', 'R$ 80,64');
+  l2(2, 'Contribuição Previdenciária - Retida', '-');
+  l2(3, 'Contribuições Sociais - Retidas', 'R$ 78,12'); ln();
+  l2(0, 'Descrição Contrib. Sociais - Retidas', 'PIS/COFINS/CSLL Retidos'); ln(24);
+  l2(0, 'VALOR TOTAL DA NFS-E'); l2(1, 'VALOR DA OPERAÇÃO / SERVIÇO', 'R$ 1.680,00'); ln();
+  l2(0, 'Total das Retenções (ISSQN / Federais)', 'R$ 158,76');
+  l2(1, 'VALOR LÍQUIDO DA NFS-e', 'R$ 1.521,24');
+
+  const n = lerDanfse(it);
+  ok(n.csrfRetido === 78.12, 'lê o valor da retenção de contribuições sociais');
+  ok(n.csrfRotulo === 'Contribuições Sociais Retidas', 'guarda o nome como está impresso na nota, não um apelido nosso: ' + n.csrfRotulo);
+  ok(n.csrfDescricao === 'PIS/COFINS/CSLL Retidos', 'lê a descrição que diz quais contribuições: ' + n.csrfDescricao);
+  ok(n.inssRetido == null, 'previdenciária em branco não vira zero com nome');
+  ok(n.retencoesNota.length === 1 && n.retencoesNota[0].valor === 78.12
+    && n.retencoesNota[0].rotulo === 'Contribuições Sociais Retidas', 'a varredura pega a retenção pelo nome dela');
+}
+
 let erro = ''; try { lerDanfse([{ x: 0, y: 0, w: 10, str: 'Relatório qualquer' }]); } catch (e) { erro = e.message; }
 ok(/não parece ser um DANFSe/.test(erro), 'rejeita PDF que não é DANFSe');
 console.log(falhas ? `${falhas} falha(s)` : 'danfse: todos os testes passaram');
