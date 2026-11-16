@@ -99,7 +99,16 @@ export function admiteDeducaoTerceiros(codigoServico = '') {
  * comparar os dois como texto cru não casa.
  */
 export function partesDoCodigo(codigo = '') {
-  let so = String(codigo || '').replace(/\D/g, '');
+  const bruto = String(codigo || '').trim();
+  // Com pontos, os grupos dizem onde o item termina — inclusive no formato
+  // nacional de quatro grupos ("08.01.01.000"), que o corte por dígitos erra.
+  const grupos = bruto.split('.').map(g => g.replace(/\D/g, '')).filter(Boolean);
+  if (grupos.length >= 2) {
+    const n = Number(grupos[0]);
+    if (!n) return { item: '', subitem: '' };
+    return { item: String(n), subitem: String(n) + '.' + grupos[1].slice(0, 2).padStart(2, '0') };
+  }
+  let so = bruto.replace(/\D/g, '');
   if (so.length < 3) return { item: '', subitem: '' };
   if (so.length % 2) so = '0' + so;   // "702" é 7.02, não 70.2
   const item = String(Number(so.slice(0, 2)));

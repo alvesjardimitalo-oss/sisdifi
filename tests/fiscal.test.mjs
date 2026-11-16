@@ -85,7 +85,7 @@ const xmlNFSe = `<NFSe><infNFSe Id="NFS${nfse}"><xLocEmi>Frei Inocêncio</xLocEm
 d = lerXML(xmlNFSe);
 ok(d.documento === 'NFS-e Nacional' && d.valor === 2000 && d.regimeNota === 'normal' && d.issAliquota === 2 && d.issRetidoNota === false && d.municipioEmissor === '3126901', 'lê NFS-e Nacional');
 r = conferir({ doc: d, cadastro: cadNormal, naturezaId: 'demais_servicos', hoje: '2026-11-03' });
-ok(r.ir.valor === 96 && r.iss.aliquota === 5 && r.iss.valor === 100 && r.liquido === 1804, 'NFS-e: IR 4,8% + ISS 5%');
+ok(r.ir.valor === 96 && r.iss.aliquota === 3 && r.iss.valor === 60 && r.liquido === 1844, 'NFS-e: IR 4,8% + ISS 3% (1.01 é informática)');
 ok(tem(r, 'Alíquota de ISS na nota (2%)') && tem(r, 'ISS NÃO retido') && tem(r, 'IRRF não destacado'), 'NFS-e: erros de ISS e IR');
 // Simples ME/EPP: alíquota da nota
 r = conferir({ doc: lerXML(xmlNFSe.replace('<opSimpNac>1</opSimpNac>', '<opSimpNac>3</opSimpNac>')), cadastro: cadSimples, naturezaId: 'demais_servicos', hoje: '2026-11-03' });
@@ -117,7 +117,9 @@ const abrasf = `<CompNfse><Nfse><InfNfse><Numero>15</Numero><DataEmissao>2026-10
 d = lerXML(abrasf);
 ok(d.issAliquota === 5 && d.irrfDestacado === 48 && d.issRetidoNota === true && d.regimeNota === 'normal', 'lê ABRASF');
 r = conferir({ doc: d, cadastro: cadNormal, naturezaId: 'demais_servicos', hoje: '2026-11-03' });
-ok(r.problemas.filter(p => p.nivel === 'erro').length === 0 && r.liquido === 902, 'ABRASF correta sem erro');
+// 17.01 (assessoria) é 3% no Município: a nota a 5% passa a ser divergência real
+ok(r.iss.aliquota === 3 && r.iss.valor === 30 && r.liquido === 922, 'ABRASF: ISS 3% sobre assessoria');
+ok(tem(r, 'Alíquota de ISS na nota (5%)'), 'nota a 5% em subitem de 3% é apontada');
 
 // --- 2027 provisório ---
 r = conferir({ doc: { valor: 1000, emissao: '2027-02-01', origem: 'xml', modelo: '55' }, cadastro: cadNormal, naturezaId: 'mercadorias', hoje: '2027-03-01' });
@@ -147,19 +149,20 @@ ok(sugerirNatureza({ servico: true, codigoServico: '16.02.01', descricaoServico:
 ok(sugerirNatureza({ codigoServico: '17.01' }) === 'demais_servicos' && sugerirNatureza({ codigoServico: '07.10.01' }) === 'limpeza', 'outros códigos');
 ok(!descreverTributacao('99.01').valido, 'código inexistente');
 r = conferir({ doc: { valor: 10000, emissao: '2026-10-01', servico: true, codigoServico: '16.01.01', municipioEmissor: '3113404' }, cadastro: cadNormal, hoje: '2026-11-03' });
-ok(r.ir.aliquota === 2.4 && r.ir.valor === 240 && r.iss.valor === 500 && r.liquido === 9260 && /art\. 3º/.test(r.iss.motivo), '16.01.01 completo: IR 2,4% + ISS 5%');
+ok(r.ir.aliquota === 2.4 && r.ir.valor === 240 && r.iss.valor === 300 && r.liquido === 9460 && /art\. 3º/.test(r.iss.motivo), '16.01.01 completo: IR 2,4% + ISS 3%');
 // cooperativa de transporte de passageiros: 1,5% sobre 60% dos serviços pessoais
 const coop = { ...cadNormal, naturezaCodigo: '2143', naturezaTexto: 'Cooperativa' };
 r = conferir({ doc: { valor: 12000, emissao: '2026-10-01', servico: true, codigoServico: '16.01.01', coopServicosPessoais: 10000, coopTransporte: 'passageiros' }, cadastro: coop, naturezaId: 'cooperativas', hoje: '2026-11-03' });
-ok(r.ir.base === 6000 && r.ir.valor === 90 && r.iss.valor === 600 && r.liquido === 11310, 'cooperativa passageiros: IR 1,5% s/ 60% dos serviços pessoais');
+ok(r.ir.base === 6000 && r.ir.valor === 90 && r.iss.valor === 360 && r.liquido === 11550, 'cooperativa passageiros: IR 1,5% s/ 60% dos serviços pessoais');
 r = conferir({ doc: { valor: 12000, emissao: '2026-10-01', servico: true, coopTransporte: 'passageiros' }, cadastro: coop, naturezaId: 'cooperativas', hoje: '2026-11-03' });
 ok(r.ir.valor === 108 && tem(r, 'sem a parcela de serviços pessoais'), 'cooperativa sem discriminação: base no total');
 r = conferir({ doc: { valor: 12000, emissao: '2026-10-01', servico: true, codigoServico: '16.01.01' }, cadastro: coop, naturezaId: 'transporte_passageiros', hoje: '2026-11-03' });
 ok(r.situacao === 'erro' && tem(r, 'COOPERATIVA'), 'cooperativa com natureza errada');
 // alíquota de ISS por código
-ok(aliquotaIss('16.01.01').aliquota === 5, 'ISS padrão 5%');
+ok(aliquotaIss('16.01.01').aliquota === 3, 'ISS do subitem 16.01 é 3% no Município');
 ok(aliquotaIss('16.01.01', { issPadrao: 5, issPorCodigo: { '16.01': 2.5 } }).aliquota === 2.5, 'exceção por subitem');
-ok(aliquotaIss('16.02.01', { issPadrao: 5, issPorCodigo: { '16.01': 2.5 } }).aliquota === 5, 'outro subitem usa o padrão');
+ok(aliquotaIss('16.02.01', { issPadrao: 5, issPorCodigo: { '16.01': 2.5 } }).aliquota === 3, 'outro subitem segue a tabela, não a exceção do 16.01');
+ok(aliquotaIss('88.88.01', { issPadrao: 5 }).aliquota === 5, 'código fora da lista usa o padrão');
 ok(aliquotaIss('16.01.01', { issPorCodigo: { '16': 3, '16.01.01': 2 } }).aliquota === 2, 'mais específico vence');
 
 // Caso real (dados fictícios): transporte escolar 16.01.01, não optante, nota com ISS 2,5% e IRRF 1,5%
@@ -168,11 +171,11 @@ const docT = { origem: 'danfse', documento: 'NFS-e Nacional', modelo: 'nfse', se
   irrfDestacado: 291.40, totalRetencoesNota: 777.07, liquidoNota: 18649.85, ibscbs: { cst: '400', classTrib: '400001', base: 17144.26, vCBS: 0, vIBS: 0, pCBS: 0 } };
 const cadLtda = { ...cadNormal, naturezaCodigo: '2062', naturezaTexto: 'Sociedade Empresária Limitada' };
 r = conferir({ doc: docT, cadastro: cadLtda, hoje: '2026-11-03' });
-ok(r.ir.valor === 466.25 && r.iss.valor === 971.35 && r.liquido === 17989.32, 'transporte escolar: IR 2,4% + ISS 5%');
+ok(r.ir.valor === 466.25 && r.iss.valor === 582.81 && r.liquido === 18377.86, 'transporte escolar: IR 2,4% + ISS 3%');
 ok(tem(r, 'diferente do devido') && tem(r, 'Alíquota de ISS na nota (2,5%)') && tem(r, 'isentos na nota (CST 400') && tem(r, 'Valor líquido da nota (R$'), 'erros do caso real');
 ok(r.problemas.find(p => p.titulo.startsWith('Alíquota de ISS')).solucao.includes('setor de Tributos'), 'orienta a conferir a parametrização do Município');
 const cl = r.comparativo.find(l => l.total);
-ok(cl.nota === 18649.85 && cl.conferido === 17989.32 && cl.diferenca === -660.53, 'comparativo do líquido');
+ok(cl.nota === 18649.85 && cl.conferido === 18377.86 && cl.diferenca === -271.99, 'comparativo do líquido');
 // com a exceção de 2,5% cadastrada para 16.01, o ISS da nota fica certo
 r = conferir({ doc: docT, cadastro: cadLtda, hoje: '2026-11-03', parametros: { issPadrao: 5, issPorCodigo: { '16.01': 2.5 } } });
 ok(r.iss.valor === 485.67 && !tem(r, 'Alíquota de ISS na nota') && r.liquido === 18475, 'exceção 2,5% para 16.01');
@@ -364,34 +367,46 @@ ok(r.verificacao.linhas.length >= 2 && tem(r, 'não corresponde à descrição')
   console.log('ok  dedução de terceiros (Lei 966/2023)');
 }
 
-// ---------- Anexo II: alíquota por subitem, divergente da praticada ----------
+// ---------- Anexo II: alíquota por subitem, com vigência ----------
 {
   const cad = { cnpj: '10781677000168', situacao: 'ATIVA', simples: false, fonte: 'RFB' };
   const base = { origem: 'pdf', servico: true, modelo: 'nfse', valor: 10000, emissao: '2026-11-10',
     municipioEmissor: '3126901', localPrestacao: '3126901', regimeNota: 'normal', issRetidoNota: true };
 
-  // 17.05 (mão de obra): Anexo II diz 3%, o Município pratica 5%
+  // 17.05 (mão de obra) é 3% no Município, não os 5% do padrão antigo
   const mo = conferir({ doc: { ...base, codigoServico: '17.05.00' }, cadastro: cad, hoje: '2026-11-16' });
-  assert.equal(mo.iss.aliquota, 5, 'o sistema não troca a alíquota sozinho');
-  const div = mo.problemas.find(p => /Anexo II prev/.test(p.titulo));
-  assert.ok(div, 'tem de avisar a divergência');
-  assert.equal(div.nivel, 'alerta');
-  assert.notEqual(div.impacto, 'declaracao', 'muda o valor retido: é pagamento');
-  assert.ok(/R\$\s?300,00/.test(div.solucao), 'mostra os 3% em reais');
-  assert.ok(/R\$\s?500,00/.test(div.solucao), 'mostra os 5% em reais');
-  assert.ok(/R\$\s?200,00/.test(div.solucao), 'mostra a diferença');
+  assert.equal(mo.iss.aliquota, 3);
+  assert.equal(mo.iss.valor, 300);
+  assert.match(mo.iss.motivo, /subitem 17\.05/);
 
-  // 7.02 (obra): lei e prática coincidem, nada a avisar
+  // obra (7.02) continua em 5%
   const obra = conferir({ doc: { ...base, codigoServico: '07.02.00' }, cadastro: cad, hoje: '2026-11-16' });
   assert.equal(obra.iss.aliquota, 5);
-  assert.ok(!obra.problemas.some(p => /Anexo II prev/.test(p.titulo)));
+  assert.equal(obra.iss.valor, 500);
 
-  // cadastrando a alíquota da lei, o aviso some e a retenção muda
+  // nota com a alíquota da tabela não levanta divergência
+  const certa = conferir({ doc: { ...base, codigoServico: '17.05.00', issAliquota: 3, issValor: 300 },
+    cadastro: cad, hoje: '2026-11-16' });
+  assert.ok(!certa.problemas.some(p => /Alíquota de ISS na nota/.test(p.titulo)));
+
+  // nota com 5% onde o Município cobra 3% é erro, e a diferença é real
+  const errada = conferir({ doc: { ...base, codigoServico: '17.05.00', issAliquota: 5, issValor: 500 },
+    cadastro: cad, hoje: '2026-11-16' });
+  assert.ok(errada.problemas.some(p => p.nivel === 'erro' && /Alíquota de ISS na nota/.test(p.titulo)));
+
+  // educação: nota de junho é 3%, nota de novembro é 5%
+  const junho = conferir({ doc: { ...base, codigoServico: '08.01.01.000', emissao: '2026-06-30' },
+    cadastro: cad, hoje: '2026-11-16' });
+  assert.equal(junho.iss.aliquota, 3, 'vale a alíquota da data de emissão');
+  assert.ok(junho.problemas.some(p => /vigência na data da emissão/.test(p.titulo)));
+  const novembro = conferir({ doc: { ...base, codigoServico: '08.01.01.000' }, cadastro: cad, hoje: '2026-11-16' });
+  assert.equal(novembro.iss.aliquota, 5);
+  assert.ok(!novembro.problemas.some(p => /vigência na data da emissão/.test(p.titulo)));
+
+  // cadastro de Tributos continua acima da tabela
   const cadastrada = conferir({ doc: { ...base, codigoServico: '17.05.00' }, cadastro: cad, hoje: '2026-11-16',
-    parametros: { issPorCodigo: { '17.05': 3 } } });
-  assert.equal(cadastrada.iss.aliquota, 3);
-  assert.equal(cadastrada.iss.valor, 300);
-  assert.ok(!cadastrada.problemas.some(p => /Anexo II prev/.test(p.titulo)));
+    parametros: { issPorCodigo: { '17.05': 2 } } });
+  assert.equal(cadastrada.iss.aliquota, 2);
 
   // código que não existe na lista
   const fora = conferir({ doc: { ...base, codigoServico: '88.88.00' }, cadastro: cad, hoje: '2026-11-16' });

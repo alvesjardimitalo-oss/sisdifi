@@ -1,5 +1,6 @@
 // Anexo II da Lei 883/2017: alíquota do ISS por subitem.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { ANEXO_II, VETADOS, subitemAnexo, aliquotaAnexo } from '../assets/js/iss-anexo2.js';
 import { aliquotaIss, ISS } from '../assets/js/fiscal.js';
 
@@ -12,6 +13,8 @@ t('normaliza o código para o subitem', () => {
   assert.equal(subitemAnexo('7.02'), '7.02');
   assert.equal(subitemAnexo('17.05'), '17.05');
   assert.equal(subitemAnexo(''), '');
+  assert.equal(subitemAnexo('08.01.01.000'), '8.01');  // formato nacional, quatro grupos
+  assert.equal(subitemAnexo('12.13.01.000'), '12.13');
 });
 
 t('itens 41 e 99 vêm sem subitem', () => {
@@ -105,22 +108,15 @@ t('manutenção de veículos (14.01) é 3% e instalação/montagem (14.06) é 5%
 });
 
 // --- integração com o motor ---
-t('por padrão o sistema mantém os 5% praticados, mas enxerga a lei', () => {
+t('a tabela do Município vale: mão de obra é 3%, não o padrão', () => {
   const r = aliquotaIss('17.05.00');
-  assert.equal(r.aliquota, 5, 'não pode trocar a alíquota sozinho');
-  assert.equal(r.fonte, 'padrao');
-  assert.equal(r.anexo, 3, 'precisa saber o que a lei diz para avisar');
+  assert.equal(r.aliquota, 3);
+  assert.equal(r.fonte, 'lei');
   assert.equal(r.subitem, '17.05');
 });
 
-t('ligando usarAnexoII a lei passa a valer', () => {
-  const r = aliquotaIss('17.05.00', { usarAnexoII: true });
-  assert.equal(r.aliquota, 3);
-  assert.equal(r.fonte, 'lei');
-});
-
-t('o cadastro de Tributos fica acima da lei e do padrão', () => {
-  const r = aliquotaIss('17.05.00', { usarAnexoII: true, issPorCodigo: { '17.05': 2 } });
+t('o cadastro de Tributos fica acima da tabela e do padrão', () => {
+  const r = aliquotaIss('17.05.00', { issPorCodigo: { '17.05': 2 } });
   assert.equal(r.aliquota, 2);
   assert.equal(r.fonte, 'cadastro');
   assert.equal(r.anexo, 3);
@@ -133,10 +129,37 @@ t('código fora da lista cai no padrão, sem alíquota de lei', () => {
   assert.equal(r.anexo, null);
 });
 
-t('onde a lei e a prática coincidem não há o que avisar', () => {
-  const r = aliquotaIss('07.02.00');
-  assert.equal(r.aliquota, 5);
-  assert.equal(r.anexo, 5);
+t('obra continua em 5%', () => {
+  assert.equal(aliquotaIss('07.02.00').aliquota, 5);
+});
+
+// --- vigência: a nota é regida pela alíquota da data em que foi emitida ---
+t('educação: 3% até 16/07/2026, 5% a partir de 17/07', () => {
+  assert.equal(aliquotaAnexo('08.01.01.000', '2026-06-30').aliquota, 3);
+  assert.equal(aliquotaAnexo('08.01.01.000', '2026-07-16').aliquota, 3);
+  assert.equal(aliquotaAnexo('08.01.01.000', '2026-07-17').aliquota, 5);
+  assert.equal(aliquotaAnexo('08.02.01.000', '2026-11-16').aliquota, 5);
+});
+
+t('a alíquota antiga se identifica como antiga', () => {
+  const velha = aliquotaAnexo('08.01', '2026-05-01');
+  assert.equal(velha.anterior, true);
+  assert.equal(velha.ate, '2026-07-16');
+  assert.equal(aliquotaAnexo('08.01', '2026-11-16').anterior, false);
+});
+
+t('sem data de emissão usa a alíquota de hoje', () => {
+  assert.equal(aliquotaAnexo('08.01').aliquota, 5);
+});
+
+t('vigência não contamina subitem que nunca mudou', () => {
+  assert.equal(aliquotaAnexo('17.05', '2026-01-02').aliquota, 3);
+  assert.equal(aliquotaAnexo('17.05', '2026-11-16').aliquota, 3);
+});
+
+t('a nota velha de educação chega ao motor com 3%', () => {
+  assert.equal(aliquotaIss('08.01.01.000', null, '2026-06-30').aliquota, 3);
+  assert.equal(aliquotaIss('08.01.01.000', null, '2026-11-16').aliquota, 5);
 });
 
 t('nota sem código de serviço usa o padrão', () => {
@@ -148,6 +171,27 @@ t('subitem vetado não vira alíquota da lei', () => {
   const r = aliquotaIss('03.01.00');
   assert.equal(r.fonte, 'padrao');
   assert.equal(r.vetado, '3.01');
+});
+
+// --- a tabela conferida contra o cadastro do Município no Emissor Nacional ---
+// fixtures-iss-frei-inocencio.json é a extração oficial de 03/09/2026, filtrada
+// pelo IBGE 3126901 e pelas linhas sem data de fim. É o que o Emissor Nacional
+// usa para imprimir o ISS na NFS-e: se divergir daqui, a nota e a conferência
+// vão brigar em toda liquidação.
+t('bate com o cadastro oficial do Município, subitem a subitem', () => {
+  const oficial = JSON.parse(readFileSync(new URL('./fixtures-iss-frei-inocencio.json', import.meta.url), 'utf8'));
+  const divergem = [];
+  for (const [sub, a] of Object.entries(oficial)) {
+    if (ANEXO_II[sub] !== a) divergem.push(`${sub}: tabela ${ANEXO_II[sub]} x oficial ${a}`);
+  }
+  assert.deepEqual(divergem, []);
+});
+
+t('não sobra subitem na nossa tabela que o cadastro não conheça', () => {
+  const oficial = JSON.parse(readFileSync(new URL('./fixtures-iss-frei-inocencio.json', import.meta.url), 'utf8'));
+  // 41 e 99 são linhas do Anexo II sem subitem; o cadastro nacional não as tem.
+  const sobrando = Object.keys(ANEXO_II).filter(k => !(k in oficial) && k !== '41' && k !== '99');
+  assert.deepEqual(sobrando, []);
 });
 
 console.log(`iss-anexo2: ${ok} ok, ${falhas.length} falhas`);
