@@ -799,7 +799,7 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
   }
 
   // 7. Resultado para a liquidação
-  if (doc.inssRetido > 0) add('info', `A nota informa INSS retido de ${moeda(doc.inssRetido)}`, 'Esta ferramenta não calcula o INSS. Confira a retenção previdenciária (cessão de mão de obra/empreitada) e, se devida, desconte-a também no pagamento.');
+  if (doc.inssRetido > 0) add('info', `A nota informa ${doc.inssRotulo || 'Contribuição Previdenciária Retida'} de ${moeda(doc.inssRetido)}`, 'Esta ferramenta não calcula o INSS. Confira a retenção previdenciária (cessão de mão de obra/empreitada) e, se devida, desconte-a também no pagamento.');
   const retencoes = r2((ir.reter ? ir.valor : 0) + (iss.reter ? iss.valor : 0));
   const liquido = r2(valor - retencoes);
   // Comparativo: o que a nota diz × o que a conferência calculou
@@ -813,9 +813,23 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
      nem faz. Entram no comparativo com o nome delas. */
   const csrfNota = r2(doc.csrfRetido || 0);
   const inssNota = r2(doc.inssRetido || 0);
+  /* O nome vem da nota: quem confere está com o papel na mão, e lá está escrito
+     "Contribuições Sociais Retidas". A descrição da nota diz quais contribuições
+     são; entra ao lado, não no lugar do nome. */
+  const nomeCsrf = doc.csrfRotulo || 'Contribuições Sociais Retidas';
+  const nomeInss = doc.inssRotulo || 'Contribuição Previdenciária Retida';
   const naoCalculadas = [];
-  if (csrfNota) naoCalculadas.push({ item: 'PIS/COFINS/CSLL retidos na nota', nota: csrfNota, conferido: null, naoCalculado: true });
-  if (inssNota) naoCalculadas.push({ item: 'Contribuição previdenciária retida na nota', nota: inssNota, conferido: null, naoCalculado: true });
+  if (csrfNota) naoCalculadas.push({ item: nomeCsrf, nota: csrfNota, conferido: null, naoCalculado: true, detalhe: doc.csrfDescricao || '' });
+  if (inssNota) naoCalculadas.push({ item: nomeInss, nota: inssNota, conferido: null, naoCalculado: true });
+  /* Qualquer outra retenção que a nota traga e que não seja nenhuma das acima
+     também desce no comparativo, pelo nome dela: retenção que some da tela é
+     retenção que alguém paga sem perceber. */
+  for (const r of (doc.retencoesNota || [])) {
+    if (!(r.valor > 0)) continue;
+    if (r.valor === csrfNota || r.valor === inssNota) continue;
+    if (naoCalculadas.some(l => l.item === r.rotulo)) continue;
+    naoCalculadas.push({ item: r.rotulo, nota: r2(r.valor), conferido: null, naoCalculado: true });
+  }
 
   const comparativo = [
     { item: 'IRRF', nota: irNotaV, conferido: ir.reter ? ir.valor : 0 },
@@ -833,7 +847,10 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
        erro do fornecedor, há uma retenção que esta conferência não cobre. */
     const explicadaPorOutras = soma > 0 && Math.abs(dif - soma) < 0.01;
     if (explicadaPorOutras) {
-      const nomes = [csrfNota ? `PIS/COFINS/CSLL (${moeda(csrfNota)})` : '', inssNota ? `contribuição previdenciária (${moeda(inssNota)})` : ''].filter(Boolean).join(' e ');
+      const nomes = [
+        csrfNota ? `${nomeCsrf}${doc.csrfDescricao ? ` — ${doc.csrfDescricao}` : ''} (${moeda(csrfNota)})` : '',
+        inssNota ? `${nomeInss} (${moeda(inssNota)})` : ''
+      ].filter(Boolean).join(' e ');
       /* A retenção é do emitente, não do Município: ela não entra no cálculo do
          que se paga, então não trava a nota. O valor a pagar já vai no
          comparativo; aqui o que falta é dizer ao fornecedor que ele errou. */
