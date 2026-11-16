@@ -59,11 +59,20 @@ export function vinculoDaLotacao(s=''){
   return 'Outros';
 }
 const VINCULOS=['Comissionados','Efetivos','Contratados','Agentes políticos','Inativos/pensionistas','Conselho tutelar','Outros'];
-const codBeneficio={familia:'164',maternidade:'163'};
+/* Extras do rodapé do resumo, por rubrica. O rodapé lista uma linha por tipo:
+   são proventos que NÃO entram no "VALOR BRUTO DO EMPENHO", mas entram no
+   "TOTAL BRUTO DE PROVENTOS". Conferido nas 93 lotações de outubro/2026. */
+const codBeneficio={familia:'164',maternidade:'163',natalidade:'361',exFolha:'358',enfermagem:'344'};
+/* Das extras, estas a Contabilidade SOMA ao empenho orçamentário; as demais
+   (família, maternidade, natalidade) viram ordem de pagamento extra-orçamentária. */
+const EXTRAS_NO_EMPENHO=['exFolha','enfermagem'];
+const EXTRAS_EM_OP=['familia','maternidade','natalidade'];
+export const EXTRAS_DO_RESUMO=[...EXTRAS_NO_EMPENHO,...EXTRAS_EM_OP];
+export const somaExtras=(valores={},quais=EXTRAS_DO_RESUMO)=>quais.reduce((n,k)=>n+(valores[k]||0),0);
 const ehIncentivoEnfermagem=descricao=>/COMP\s*FED\.?\s*PIS\s*SAL\s*ENFERMAGEM|INCENTIVO\s*(?:DO\s*)?(?:GOVERNO\s*)?FEDERAL|COMPLEMENTA[CÇ][AÃ]O\s*(?:DO\s*)?PISO\s*(?:DA\s*)?ENFERMAGEM|ASSISTENCIA\s*FINANCEIRA\s*COMPLEMENTAR.*ENFERMAGEM/.test(norma(descricao));
 const moeda=/(-?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2})\s*$/;
 const rubrica=/^\s*(\d{2,4})\s+(.+?)\s+(-?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2})\s*$/;
-const resumo=/^\s*(TOTAL BRUTO DE PROVENTOS|TOTAL BRUTO DE DESCONTOS|TOTAL L[IÍ]QUIDO|VALOR BRUTO DO EMPENHO|VALOR DO DESCONTO NA LIQUIDA[CÇ][ÃA]O|VALOR L[IÍ]QUIDO DO EMPENHO|SALARIO FAMILIA|SALARIO MATERNIDADE INSS|COMP FED\.PIS SAL ENFERMAGEM)\.{2,}\s*:\s*([-\d.,]+)\s*$/i;
+const resumo=/^\s*(TOTAL BRUTO DE PROVENTOS|TOTAL BRUTO DE DESCONTOS|TOTAL L[IÍ]QUIDO|VALOR BRUTO DO EMPENHO|VALOR DO DESCONTO NA LIQUIDA[CÇ][ÃA]O|VALOR L[IÍ]QUIDO DO EMPENHO|SALARIO FAMILIA|SALARIO MATERNIDADE INSS|COMP FED\.PIS SAL ENFERMAGEM|DIFEREN[CÇ]A SALARIO EX\.FOLHA|AUXILIO NATALIDADE)\.{2,}\s*:\s*([-\d.,]+)\s*$/i;
 // Códigos e descrições de descontos identificados no Resumo de Verbas.
 // As rubricas de provento (inclusive salário-família, maternidade e diárias)
 // NUNCA são deduções apenas por aparecerem na classificação "2 - OUTRAS".
@@ -120,6 +129,7 @@ export function analisarResumoVerbas(linhas,{tipo='principal',nome=''}={}){
       'TOTAL BRUTO DE DESCONTOS':'totalDescontos','TOTAL LIQUIDO':'totalLiquido',
       'SALARIO FAMILIA':'familia','SALARIO MATERNIDADE INSS':'maternidade',
       'COMP FED.PIS SAL ENFERMAGEM':'enfermagem',
+      'DIFERENCA SALARIO EX.FOLHA':'exFolha','AUXILIO NATALIDADE':'natalidade',
       'INCENTIVO GOVERNO FEDERAL':'enfermagem',
       'INCENTIVO FEDERAL ENFERMAGEM':'enfermagem'
     };
@@ -141,6 +151,19 @@ export function analisarResumoVerbas(linhas,{tipo='principal',nome=''}={}){
       avisos.push('Lotação '+grupo.lotacao+': faltou total bruto/desconto/líquido. Confira páginas de continuação.');
     else if(grupo.valores.bruto-grupo.valores.desconto!==grupo.valores.liquido)
       avisos.push('Lotação '+grupo.lotacao+': bruto menos desconto não corresponde ao líquido informado pelo RH.');
+    /* Identidade do rodapé: o bruto do empenho mais as extras tem de dar o total
+       bruto de proventos. Se não der, há extra no resumo que não reconhecemos —
+       e ela sumiria do empenho sem ninguém notar, porque os outros totais fecham
+       entre si. Vale nas 93 lotações de outubro/2026. */
+    const extras=somaExtras(grupo.valores);
+    grupo.extras=extras;
+    grupo.extrasNoEmpenho=somaExtras(grupo.valores,EXTRAS_NO_EMPENHO);
+    grupo.extrasEmOP=somaExtras(grupo.valores,EXTRAS_EM_OP);
+    if(grupo.valores.proventos!=null&&grupo.valores.bruto!=null
+      &&grupo.valores.proventos!==grupo.valores.bruto+extras)
+      avisos.push('Lotação '+grupo.lotacao+': o total bruto de proventos ('+dinheiroFolha(grupo.valores.proventos)+
+        ') não é o bruto do empenho mais as extras ('+dinheiroFolha(grupo.valores.bruto+extras)+
+        '). Há lançamento no rodapé que o sistema não reconhece — confira antes de empenhar.');
     const subtotal=grupo.valores.desconto??grupo.valores.totalDescontos;
     const selecionadas=selecionarBlocosDeDesconto(blocos,subtotal);
     grupo.classificacaoDescontosIdentificada=subtotal===0||selecionadas.length>0;
@@ -313,8 +336,18 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
     // Situação precisa ser confirmada: não presumir que o incentivo esteja fora do bruto.
     const decisao=destino.incentivoNoBruto;
     const incentivoPendente=r.tipo==='extra' && incentivo>0 && !['sim','nao'].includes(decisao);
-    const bruto=brutoRH==null?null:brutoRH+(r.tipo==='extra' && incentivo>0 && decisao==='nao'?incentivo:0);
+    /* O bruto do empenho é o do RH mais as extras que a Contabilidade soma a ele:
+       diferença de salário extra folha (358) e complementação do piso da
+       enfermagem (344). As duas já foram pagas na extra folha do dia 10; a folha
+       mensal traz o provento inteiro para apurar INSS e IR sobre a base cheia e
+       devolve o que já saiu pela rubrica 174 negativa. */
+    const extrasNoEmpenho=r.tipo==='principal'?(r.extrasNoEmpenho||0):0;
+    const bruto=brutoRH==null?null:brutoRH+extrasNoEmpenho
+      +(r.tipo==='extra' && incentivo>0 && decisao==='nao'?incentivo:0);
     const maternidade=r.valores.maternidade||0,familia=r.valores.familia||0;
+    const natalidade=r.valores.natalidade||0;
+    // Extras que viram ordem de pagamento extra-orçamentária, não entram no empenho.
+    const ops=r.tipo==='principal'?maternidade+familia+natalidade:0;
     // Somente INSS individual comprovado é transferido ao extraorçamentário.
     const inssExtra=a.confirmado?Number(a.inssExtra)||0:0;
     const problemas=[];
@@ -332,7 +365,19 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
     if(!numeroSeguro(inssExtra)||inssExtra>r.inss||inssExtra>desconto)
       problemas.push('INSS do salário-maternidade inválido');
     const descontoAjustado=desconto!=null&&numeroSeguro(inssExtra)?desconto-inssExtra:null;
+    /* O líquido do EMPENHO é só o orçamentário: as ordens de pagamento
+       extra-orçamentárias saem em documento próprio e viram linhas em `extras`.
+       A planilha da Contabilidade junta os dois na mesma linha; aqui ficam
+       separados, que é como o dinheiro realmente sai. */
     const liquido=bruto!=null&&descontoAjustado!=null?bruto-descontoAjustado:null;
+    /* Mas somados têm de reproduzir o TOTAL LÍQUIDO do resumo. O INSS da
+       maternidade sai do desconto do empenho e volta como dedução da OP, então
+       não muda a soma — só move dinheiro de um documento para o outro.
+       Conferido nas 93 lotações de outubro/2026. */
+    const liquidoRH=r.valores.totalLiquido??null;
+    if(liquido!=null&&liquidoRH!=null&&liquido+ops-inssExtra!==liquidoRH)
+      problemas.push('Empenho mais ordens de pagamento ('+dinheiroFolha(liquido+ops-inssExtra)+
+        ') não fecha com o total líquido do resumo ('+dinheiroFolha(liquidoRH)+')');
     if(r.tipo==='decimo' && descontoAjustado!==0)problemas.push('Adiantamento 13º com descontos: conferir documento');
     return {
       id:r.tipo+'|'+r.lotacao,empenho:Number(primeiro)+i,tipo:r.tipo,lotacao:r.lotacao,
@@ -341,7 +386,7 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
       lotacaoOrcamentaria:String(destino.lotacaoOrcamentaria||''),origemFicha:String(destino.origemFicha||''),
       bruto,brutoRH,incentivo,enfermagemIncluidaNoBruto:decisao||'',
       descontoRH:desconto,descontoAjustado,liquido,maisInssExtra:inssExtra,
-      familia,maternidade,beneficiosOutros:r.valores.enfermagem||0,
+      familia,maternidade,natalidade,extrasNoEmpenho,liquidoRH,beneficiosOutros:r.valores.enfermagem||0,
       bancos:r.bancos,inssOriginal:r.inss,composicao:r.composicao,
       rubricasDesconto:r.rubricasDesconto,diferencaComposicao:r.diferencaComposicao,
       composicaoTotal:r.composicaoTotal,arquivo:r.fonteArquivo,pagina:r.paginaInicio,problemas
@@ -354,6 +399,8 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
     if(r.maternidade)itens.push({id:r.id+'|maternidade',empenhoReferencia:r.empenho,tipo:'Salário-maternidade',lotacao:r.lotacao,
       ficha:r.ficha,fonte:r.fonte,conta:r.conta,bruto:r.maternidade,inss:r.maisInssExtra,liquido:r.maternidade-r.maisInssExtra,
       problemas:r.problemas.filter(x=>/maternidade|INSS/.test(x))});
+    if(r.natalidade)itens.push({id:r.id+'|natalidade',empenhoReferencia:r.empenho,tipo:'Auxílio-natalidade',lotacao:r.lotacao,
+      ficha:r.ficha,fonte:r.fonte,conta:r.conta,bruto:r.natalidade,inss:0,liquido:r.natalidade,problemas:[]});
     return itens;
   });
   return {empenhos,extras,primeiro:Number(primeiro),ultimo:Number(primeiro)+empenhos.length-1,
@@ -361,6 +408,10 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
     totalDescontoRH:empenhos.reduce((s,r)=>s+(r.descontoRH||0),0),
     totalDescontoAjustado:empenhos.reduce((s,r)=>s+(r.descontoAjustado||0),0),
     totalLiquido:empenhos.reduce((s,r)=>s+(r.liquido||0),0),
+    /* Controle do fechamento: empenhos mais ordens de pagamento têm de dar o
+       TOTAL LÍQUIDO que o RH somou no resumo. É o "valor bateu" da Contabilidade. */
+    totalLiquidoExtras:extras.reduce((s,r)=>s+(r.liquido||0),0),
+    totalLiquidoResumo:ordenadas.reduce((s,r)=>s+(r.valores?.totalLiquido||0),0),
     totalLiquidoRH:ordenadas.reduce((s,r)=>s+(Number.isSafeInteger(r.valores?.liquido)?r.valores.liquido:0),0),
     totalLiquidoBase:ordenadas.reduce((s,r)=>s+(
       Number.isSafeInteger(r.valores?.bruto)&&Number.isSafeInteger(r.valores?.desconto)
