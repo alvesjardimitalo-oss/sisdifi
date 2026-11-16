@@ -747,3 +747,6 @@ progress { width: 260px; vertical-align: middle; }
   border-top: 0;
 }
 .fe-historico .fe-muted { color: var(--muted); }
+
+/* Situação do saldo no painel de fontes. */
+.fe-ok { color: var(--verde); font-weight: 600; }

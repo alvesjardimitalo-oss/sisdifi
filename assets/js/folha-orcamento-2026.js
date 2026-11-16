@@ -128,6 +128,7 @@ export function classificacaoPessoal(naturezas=[]){
    Medido contra outubro/2026: 75 das 86 lotações com ficha conhecida. */
 
 /** Educação: regra confirmada pela Contabilidade, pelo 3º nível da lotação. */
+export const DESDOBRAMENTO_PADRAO='0000';
 export const EDUCACAO_2026={
  '002.004.214':{'04':'107','11':'108',fonte:'1.500.000.0000',desdobramento:'0000',nome:'Secretaria de Educação'},
  '002.004.215':{'04':'186','11':'187',fonte:'1.540.000.0000',desdobramento:'1071',nome:'Creche 70%'},
@@ -198,7 +199,10 @@ export function sugerirFichaDaLotacao(registro={}){
  // Sem o nível do vínculo, o nome que sobra é o da própria ação.
  const acao=caminho.length>=3?(caminho[1]||''):'';
  const elemento=elementoDoVinculo(vinculo||caminho[1]||registro.lotacao||'');
- const vazio={ficha:'',fonte:'',desdobramento:'',elemento,confianca:'manual',motivo:''};
+ /* 0000 é o desdobramento neutro e vale para todo servidor; só o magistério
+    dos 70% (1071) e o tempo integral (1073) fogem dele, e esses vêm da regra
+    da educação abaixo. */
+ const vazio={ficha:'',fonte:'',desdobramento:DESDOBRAMENTO_PADRAO,elemento,confianca:'manual',motivo:''};
 
  // Bolsa de estágio não é despesa de pessoal: vai em serviços de terceiros.
  const rubricas=registro.rubricas||[];
@@ -230,7 +234,7 @@ export function sugerirFichaDaLotacao(registro={}){
      motivo:'Nenhuma ação do orçamento se parece com "'+(acao||unidade)+'".'};
  const folga=melhor.p-(pontuadas[1]?.p||0);
  const fonte=melhor.f.fontes.length===1?melhor.f.fontes[0]:'';
- return {ficha:melhor.f.ficha,fonte,desdobramento:'',elemento,
+ return {ficha:melhor.f.ficha,fonte,desdobramento:DESDOBRAMENTO_PADRAO,elemento,
    confianca:folga>0.25?'provavel':'incerta',
    motivo:(folga>0.25?'':'Empate com outra ação. ')+'Ficha '+melhor.f.ficha+' — '+melhor.f.acao+
      (fonte?'':' (a ficha admite mais de uma fonte: informar).')};

@@ -7,6 +7,7 @@ import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,p
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
 import {varrerServidores,servidoresComRepasse,codigosDeDesconto} from '../folha-servidores.js';
+import {ratearPorSaldo,ehFundeb,FONTES_FUNDEB,FONTE_RECURSO_PROPRIO} from '../folha-saldos.js';
 import {pensoesParaOP,chaveCadastro,RUBRICAS_PENSAO} from '../folha-pensoes.js';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js';
 import {carregarRegistroFolha,salvarRegistroFolha} from '../folha-empenhos-store.js';
@@ -39,6 +40,9 @@ export function telaFolhaEmpenhos(el){
   /* A folha nominal diz de quem é cada desconto; o beneficiário da pensão não
      está em documento nenhum e vem de cadastro, por matrícula e rubrica. */
   let servidores=[],cadastroPensao={};
+  /* Saldo por fonte, informado pela Contabilidade: é o que decide se a educação
+     cabe no FUNDEB. Muda todo mês, então fica no registro da competência. */
+  let saldos={};
   let minutas=[],alertas=[],nomeConsolidado='',origemIndividual='',filtro='todos',visao='resumo',carregando=false,ativa=true,filaDeSalvamento=Promise.resolve();
   const $=sel=>el.querySelector(sel);
   // Ficha da LOA -> órgão/unidade e ação orçamentária. Nunca alterar o código RH da lotação.
@@ -114,7 +118,7 @@ export function telaFolhaEmpenhos(el){
       '<button class="btn" type="button" id="fe-final" disabled>Baixar planilha conferida XLSX</button></div>'+
       '<div id="fe-kpis" class="fe-kpis"></div><div id="fe-pendencias"></div>'+ 
       '<p class="fe-muted">Uma linha por empenho. A composição mostra Caixa, Sicoob, Bradesco, pensões, INSS, IRRF e demais descontos, com rubricas originais e conferência da soma.</p>'+ 
-      '<div class="fe-scroll" id="fe-tabela"></div><div id="fe-extras"></div><div id="fe-pensoes"></div>'+
+      '<div id="fe-saldos"></div><div class="fe-scroll" id="fe-tabela"></div><div id="fe-extras"></div><div id="fe-pensoes"></div>'+
       '<p class="fe-muted">Dados armazenados no navegador, separados pela conta. A planilha contém fórmulas de líquido para a Contabilidade conferir e preencher a liquidação no sistema oficial.</p>'+
     '</section></div>';
   const status=t=>{$('#fe-status').textContent=t;};
@@ -148,6 +152,12 @@ export function telaFolhaEmpenhos(el){
         secretaria:m.secretaria||ref?.unidade||'',lotacaoOrcamentaria:m.lotacaoOrcamentaria||ref?.acao||''}];
     }));
     const previsao=prepararEmpenhos(arquivosLista(),primeiro,mapaConsulta,maternidade.ajustes);
+    /* A educação toda vai no FUNDEB; o que não couber no saldo informado passa
+       para a ficha espelho em recurso próprio. O que a Contabilidade escolheu à
+       mão não é mexido: só entra no rateio a ficha que o sistema sugeriu. */
+    const rateio=ratearPorSaldo(previsao.empenhos,saldos);
+    previsao.empenhos=rateio.empenhos;
+    previsao.rateio=rateio;
     for(const emp of previsao.empenhos){
       const ref=localizarFicha(emp.ficha);
       const tipo=classificacaoPessoal(ref?.naturezas||[]);
@@ -159,7 +169,7 @@ export function telaFolhaEmpenhos(el){
   function persistir(){
     if(!uid||!ativa||carregando)return Promise.resolve();
     const compAtual=competencia;
-    const mensal=structuredClone({primeiro,arquivos,pessoas,servidores,aprovouMapa,aprovouConsignados,origemIndividual,nomeConsolidado});
+    const mensal=structuredClone({primeiro,arquivos,pessoas,servidores,saldos,aprovouMapa,aprovouConsignados,origemIndividual,nomeConsolidado});
     const mapaAtual=structuredClone(mapa);
     const cadastroPensaoAtual=structuredClone(cadastroPensao);
     filaDeSalvamento=filaDeSalvamento.catch(()=>{}).then(async()=>{
@@ -174,7 +184,7 @@ export function telaFolhaEmpenhos(el){
     try{
       const [mensal,reusavel,benef]=await Promise.all([carregarRegistroFolha(uid,alvo),carregarRegistroFolha(uid,'mapa-lotacoes'),carregarRegistroFolha(uid,'pensoes-beneficiarios')]);
       if(!ativa||alvo!==competencia)return;
-      primeiro=mensal?.primeiro||5000;arquivos=mensal?.arquivos||{};pessoas=mensal?.pessoas||[];servidores=mensal?.servidores||[];
+      primeiro=mensal?.primeiro||5000;arquivos=mensal?.arquivos||{};pessoas=mensal?.pessoas||[];servidores=mensal?.servidores||[];saldos=mensal?.saldos||{};
       aprovouMapa=!!mensal?.aprovouMapa;aprovouConsignados=!!mensal?.aprovouConsignados;origemIndividual=mensal?.origemIndividual||'';nomeConsolidado=mensal?.nomeConsolidado||'';
       mapa=reusavel||{};cadastroPensao=benef||{};
       $('#fe-inicio').value=primeiro;$('#fe-confirmar-mapa').checked=aprovouMapa;$('#fe-confirmar-bancos').checked=aprovouConsignados;
@@ -240,6 +250,7 @@ export function telaFolhaEmpenhos(el){
       $('#fe-bancos').innerHTML='<p class="fe-muted">Aguardando dados da folha.</p>';
       $('#fe-tabela').innerHTML='';$('#fe-extras').innerHTML='';
       if($('#fe-pensoes'))$('#fe-pensoes').innerHTML='';
+      if($('#fe-saldos'))$('#fe-saldos').innerHTML='';
       $('#fe-final').disabled=true;return;
     }
     const p=pacote.previsao,possivel=finalPossivel(pacote);
@@ -267,7 +278,7 @@ export function telaFolhaEmpenhos(el){
       '<p class="fe-muted">A igualdade do total por banco não prova que cada guia está vinculada à lotação correta.</p>';
     const registros=p.empenhos.filter(e=>filtro==='todos'||filtro==='pendentes'&&e.problemas.length||e.tipo===filtro);
     if(visao==='resumo'){
-    $('#fe-tabela').innerHTML='<table><thead><tr><th>Empenho</th><th>Grupo</th><th>Secretaria/unidade</th><th>Vínculo</th><th>Lotação RH</th><th>Lotação orçamentária (ação)</th><th>Ficha</th><th>Natureza da despesa</th><th>Fonte</th><th>Conta</th><th class="fe-money">Bruto</th><th class="fe-money">Desconto RH</th><th class="fe-money">INSS extra</th><th class="fe-money">Líquido</th><th>Pendências</th></tr></thead><tbody>'+
+    $('#fe-tabela').innerHTML='<table><thead><tr><th>Empenho</th><th>Grupo</th><th>Secretaria/unidade</th><th>Vínculo</th><th>Lotação RH</th><th>Lotação orçamentária (ação)</th><th>Ficha</th><th>Natureza da despesa</th><th>Fonte</th><th>Desdobr.</th><th>Conta</th><th class="fe-money">Bruto</th><th class="fe-money">Desconto RH</th><th class="fe-money">INSS extra</th><th class="fe-money">Líquido</th><th>Pendências</th></tr></thead><tbody>'+
       registros.map(r=>{
         const m=mapa[r.id]||mapa[r.lotacao]||{};
         const ref=localizarFicha(m.ficha||r.ficha);
@@ -284,11 +295,20 @@ export function telaFolhaEmpenhos(el){
         '<td><input style="width:88px" list="fe-fichas-2026" data-ref="'+esc(r.id)+'" data-campo="ficha" value="'+esc(m.ficha||'')+'"></td>'+
         '<td style="min-width:225px"><strong>'+esc(classe.titulo)+'</strong>'+(classe.codigo?'<small style="display:block;color:#526b80">'+esc(classe.codigo)+'</small>':'')+'</td>'+
         '<td><input style="width:132px" data-ref="'+esc(r.id)+'" data-campo="fonte" value="'+esc(m.fonte||'')+'"></td>'+
+        '<td><input style="width:72px" list="fe-desdobramentos" data-ref="'+esc(r.id)+'" data-campo="desdobramento" value="'+esc(m.desdobramento||r.desdobramento||'')+'"></td>'+
         '<td><input data-ref="'+esc(r.id)+'" data-campo="conta" value="'+esc(m.conta||'')+'"></td>'+
         '<td class="fe-money">'+dinheiroFolha(r.bruto||0)+(r.tipo==='extra'&&r.incentivo?'<small style="display:block;color:#506d82">Incentivo: '+dinheiroFolha(r.incentivo)+'</small>':'')+'</td><td class="fe-money">'+dinheiroFolha(r.descontoRH||0)+'</td>'+
         '<td class="fe-money">'+dinheiroFolha(r.maisInssExtra)+'</td><td class="fe-money"><strong>'+dinheiroFolha(r.liquido||0)+'</strong></td>'+
         '<td class="fe-status">'+esc([...r.problemas,avisoFicha,avisoFonte,avisoNatureza].filter(Boolean).join('; ')||'Pronto para conferir')+'</td></tr>';
       }).join('')+'</tbody></table>'+
+      /* Os três desdobramentos de pessoal da educação, para não digitar errado:
+         1071 é o magistério dos 70%, 1073 o tempo integral e 0000 os 30% e os
+         demais servidores. */
+      '<datalist id="fe-desdobramentos">'+
+      [['1071','Remuneração de profissional da educação — 70%'],
+       ['1073','Educação em tempo integral'],
+       ['0000','Demais servidores e os 30%']]
+        .map(([c,t])=>'<option value="'+c+'" label="'+esc(t)+'"></option>').join('')+'</datalist>'+
       (Number(competencia.slice(0,4))===2026?'<datalist id="fe-fichas-2026">'+FICHAS_PESSOAL_2026.map(f=>'<option value="'+esc(f.ficha)+'" label="'+esc(f.acao)+'"></option>').join('')+'</datalist>':'');
     }else{
       const cabecalhos=['Empenho','Secretaria / vínculo','Lotação','Bruto','Caixa','Sicoob','Bradesco','Pensão',
@@ -340,10 +360,60 @@ export function telaFolhaEmpenhos(el){
       p.extras.map(x=>'<tr><td>'+esc(x.tipo)+'</td><td>'+x.empenhoReferencia+'</td><td>'+esc(x.lotacao)+'</td>'+
         '<td>'+dinheiroFolha(x.bruto)+'</td><td>'+dinheiroFolha(x.inss)+'</td><td>'+dinheiroFolha(x.liquido)+'</td>'+
         '<td>'+esc(x.problemas.join('; ')||'A conferir')+'</td></tr>').join('')+'</tbody></table></div></details>';
+    renderSaldos(p);
     renderPensoes(p);
     $('#fe-extras').querySelectorAll('[data-extra-bruto]').forEach(c=>c.onchange=()=>{
       const id=c.dataset.extraBruto;
       mapa[id]={...(mapa[id]||{}),incentivoNoBruto:c.value};
+      aprovouMapa=false;$('#fe-confirmar-mapa').checked=false;persistir();render();
+    });
+  }
+  /* Saldo por fonte. A educação toda vai no FUNDEB; informado o saldo, o
+     sistema move para a ficha espelho em recurso próprio o que não couber.
+     Sem saldo informado nada é movido: faltar informação não é o mesmo que
+     faltar dinheiro. O saldo é comparado com o bruto do empenho, porque o
+     líquido vai para o servidor e as retenções para terceiros, mas tudo sai
+     da mesma conta. */
+  function renderSaldos(p){
+    const alvo=$('#fe-saldos');
+    if(!alvo)return;
+    const rateio=p.previsao?.rateio;
+    if(!rateio?.consumo?.length){alvo.innerHTML='';return;}
+    const linha=c=>{
+      const marca=ehFundeb(c.fonte)?' <strong>FUNDEB</strong>':
+        c.fonte===FONTE_RECURSO_PROPRIO?' <span class="fe-muted">recurso próprio</span>':'';
+      const falta=c.saldo!=null&&c.total>c.saldo?c.total-c.saldo:0;
+      return '<tr><td>'+(esc(c.fonte)||'<span class="fe-muted">a informar</span>')+marca+'</td>'+
+        '<td class="fe-money">'+dinheiroFolha(c.total)+'</td>'+
+        '<td><input style="width:120px" data-saldo="'+esc(c.fonte)+'" placeholder="saldo da conta" '+
+          'value="'+(c.saldo!=null?esc(dinheiroFolha(c.saldo).replace('R$ ','')):'')+'"></td>'+
+        '<td>'+(falta?'<span class="fe-alert">falta '+dinheiroFolha(falta)+'</span>':
+          c.saldo!=null?'<span class="fe-ok">cabe</span>':'<span class="fe-muted">—</span>')+'</td></tr>';
+    };
+    const movidos=rateio.movidos.length?'<details><summary>'+rateio.movidos.length+
+      ' empenho'+(rateio.movidos.length===1?'':'s')+' movid'+(rateio.movidos.length===1?'o':'os')+
+      ' do FUNDEB para recurso próprio ('+dinheiroFolha(rateio.movidos.reduce((n,m)=>n+m.bruto,0))+
+      ')</summary><div class="fe-scroll"><table><thead><tr><th>Empenho</th><th>Lotação</th>'+
+      '<th>Bruto</th><th>Ficha</th><th>Ação</th></tr></thead><tbody>'+
+      rateio.movidos.map(m=>'<tr><td>'+m.empenho+'</td><td>'+esc(m.lotacao)+'</td>'+
+        '<td class="fe-money">'+dinheiroFolha(m.bruto)+'</td>'+
+        '<td>'+esc(m.de.ficha)+' &rarr; <strong>'+esc(m.para.ficha)+'</strong></td>'+
+        '<td>'+esc(m.acao)+'</td></tr>').join('')+'</tbody></table></div></details>':'';
+    alvo.innerHTML='<section class="fe-card"><h2>Saldo das contas por fonte</h2>'+
+      '<p class="fe-muted">Informe o saldo e o sistema confere se a educação cabe no FUNDEB. '+
+      'O que não couber vai para a ficha espelho do Fundo de Educação, em recurso próprio. '+
+      'Enquanto o saldo não for informado, nada é movido.</p>'+
+      '<div class="fe-scroll"><table><thead><tr><th>Fonte</th><th>Empenhado (bruto)</th>'+
+      '<th>Saldo da conta</th><th>Situação</th></tr></thead><tbody>'+
+      rateio.consumo.map(linha).join('')+'</tbody></table></div>'+
+      rateio.avisos.map(a=>'<p class="fe-alert">'+esc(a)+'</p>').join('')+movidos+'</section>';
+    alvo.querySelectorAll('[data-saldo]').forEach(i=>i.onchange=()=>{
+      const fonte=i.dataset.saldo,bruto=i.value.trim();
+      if(!bruto)delete saldos[fonte];
+      else{
+        try{saldos[fonte]=centavosFolha(bruto.includes(',')?bruto:bruto+',00');}
+        catch(err){status('Saldo inválido para a fonte '+fonte+': '+(err.message||err));return;}
+      }
       aprovouMapa=false;$('#fe-confirmar-mapa').checked=false;persistir();render();
     });
   }
@@ -476,8 +546,8 @@ export function telaFolhaEmpenhos(el){
   $('#fe-confirmar-mapa').onchange=e=>{aprovouMapa=e.target.checked;persistir();render();};
   $('#fe-confirmar-bancos').onchange=e=>{aprovouConsignados=e.target.checked;persistir();render();};
   $('#fe-baixar-mapa').onclick=()=>{
-    const linhas=[['Tipo','Lotacao','Ficha','Fonte','Conta','Secretaria','Vinculo']];
-    for(const r of montar()?.previsao.empenhos||[])linhas.push([r.tipo,r.lotacao,r.ficha,r.fonte,r.conta,r.secretaria,r.vinculo]);
+    const linhas=[['Tipo','Lotacao','Ficha','Fonte','Desdobramento','Conta','Secretaria','Vinculo']];
+    for(const r of montar()?.previsao.empenhos||[])linhas.push([r.tipo,r.lotacao,r.ficha,r.fonte,r.desdobramento,r.conta,r.secretaria,r.vinculo]);
     baixar('modelo-ficha-fonte-'+competencia+'.csv',new Blob([csv(linhas)],{type:'text/csv;charset=utf-8'}));
   };
   $('#fe-ler-mapa').onchange=async e=>{

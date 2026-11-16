@@ -12,7 +12,7 @@
 // Medido contra outubro/2026: 79 das 86 lotações com ficha conhecida.
 import assert from 'node:assert/strict';
 import { sugerirFichaDaLotacao, elementoDoVinculo, EDUCACAO_2026,
-  FICHAS_FIXAS_2026 } from '../assets/js/folha-orcamento-2026.js';
+  FICHAS_FIXAS_2026, DESDOBRAMENTO_PADRAO } from '../assets/js/folha-orcamento-2026.js';
 
 let ok = 0; const falhas = [];
 const t = (nome, fn) => { try { fn(); ok++; } catch (e) { falhas.push(nome + ': ' + e.message); } };
@@ -168,6 +168,17 @@ t('toda sugestão diz o porquê', () => {
     assert.ok(s.ficha, 'sem ficha em ' + c.lotacao);
     assert.ok(['confirmada', 'provavel', 'incerta', 'manual'].includes(s.confianca), s.confianca);
   }
+});
+
+/* "os demais servidores são 0000, com exceção do pessoal do tempo integral":
+   0000 é o desdobramento neutro e vale para todo empenho, não só na educação. */
+t('fora da educação o desdobramento é 0000', () => {
+  assert.equal(DESDOBRAMENTO_PADRAO, '0000');
+  const s = sugerirFichaDaLotacao(reg('002.012.296.00001',
+    ['SECRETARIA MUNIC. DE OBRAS PUBLICAS', 'MANUT. VIAS/PRAÇAS/JARDINS E CEMITERIO', 'PESSOAL EFETIVO']));
+  assert.equal(s.desdobramento, '0000');
+  const t3 = sugerirFichaDaLotacao(reg('002.013.002', ['SECRETARIA MUNIC. DE TRANSPORTES', 'PESSOAL EFETIVO']));
+  assert.equal(t3.desdobramento, '0000');
 });
 
 t('as fichas fixas trazem a natureza conferida na LOA', () => {
