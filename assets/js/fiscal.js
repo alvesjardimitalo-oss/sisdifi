@@ -545,7 +545,15 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
   const ISS_ALIQ = issMun.aliquota;
   const nat = natureza(naturezaId) || natureza(sugerirNatureza(doc));
   const problemas = [];
-  const add = (nivel, titulo, solucao, detalhe = '') => problemas.push({ nivel, titulo, solucao, detalhe });
+  /* O que decide a gravidade e o IMPACTO NA LIQUIDACAO.
+     'pagamento' muda o valor que o Municipio paga ou retem: IRRF, ISSQN
+     devido aqui, IBS/CBS retido. Isso e alerta ou erro, porque sai dinheiro
+     errado.
+     'declaracao' e o que a empresa declara na nota e o Municipio nao retem:
+     nao muda o pagamento, entao nao bloqueia nada - vira notificacao ao
+     emitente sobre o provavel erro dele. */
+  const add = (nivel, titulo, solucao, detalhe = '', impacto = 'pagamento', aoEmitente = '') =>
+    problemas.push({ nivel, titulo, solucao, detalhe, impacto, aoEmitente });
   const valor = r2(doc.valor || 0);
   const emissao = doc.emissao || '';
   const ano = Number(emissao.slice(0, 4)) || Number(hoje.slice(0, 4));
@@ -774,8 +782,10 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
     const explicadaPorOutras = soma > 0 && Math.abs(dif - soma) < 0.01;
     if (explicadaPorOutras) {
       const nomes = [csrfNota ? `PIS/COFINS/CSLL (${moeda(csrfNota)})` : '', inssNota ? `contribuição previdenciária (${moeda(inssNota)})` : ''].filter(Boolean).join(' e ');
-      add('alerta', `A diferença de ${moeda(dif)} é a retenção de ${nomes} que a nota prevê`,
-        `Esta conferência calcula IRRF e ISSQN; ${nomes} não entra na conta. Confirme se o Município faz essa retenção — ela só é exigida de Estados e Municípios com convênio com a Receita Federal (Lei 10.833/2003, art. 33; IN RFB 475/2004). Com convênio, pague ${moeda(liquidoNota)}; sem convênio, pague ${moeda(liquido)} e avise o fornecedor, porque isso se repete em toda nota.`);
+      add('info', `A nota prevê retenção de ${nomes} que o Município não faz`,
+        `Isso não muda o que o Município paga: a retenção de ${nomes} só é exigida de Estados e Municípios com convênio com a Receita Federal (Lei 10.833/2003, art. 33; IN RFB 475/2004). Sem convênio, pague ${moeda(liquido)}. Se o Município tiver convênio, o líquido correto é o da nota.`,
+        'Retenção declarada pelo emitente', 'declaracao',
+        `A nota informa retenção de ${nomes}, mas o Município não efetua essa retenção — ela só é exigida de entes com convênio com a Receita Federal (Lei 10.833/2003, art. 33; IN RFB 475/2004). O crédito será de ${moeda(liquido)}, e não de ${moeda(liquidoNota)}. Pedimos o ajuste nas próximas emissões para esta Prefeitura.`);
     } else {
       add('erro', `Valor líquido da nota (${moeda(liquidoNota)}) diferente do que deve ser pago (${moeda(liquido)})`,
         `Pague ${moeda(liquido)}, com as retenções conferidas. A diferença de ${moeda(dif)}${soma ? ` não se explica pelas retenções que a nota declara e esta ferramenta não calcula (${moeda(soma)})` : ''} vem dos erros de retenção apontados acima; peça ao fornecedor a nota corrigida (ou registre a retenção correta e comunique o fornecedor).`);
@@ -783,7 +793,10 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
   }
   const ordem = { erro: 0, alerta: 1, info: 2 };
   problemas.sort((a, b) => ordem[a.nivel] - ordem[b.nivel]);
-  const situacao = problemas.some(p => p.nivel === 'erro') ? 'erro' : problemas.some(p => p.nivel === 'alerta') ? 'alerta' : 'ok';
+  /* So o que impacta a liquidacao define a situacao. Erro de declaracao do
+     emitente nao pode bloquear um pagamento que esta correto. */
+  const doPagamento = problemas.filter(p => p.impacto !== 'declaracao');
+  const situacao = doPagamento.some(p => p.nivel === 'erro') ? 'erro' : doPagamento.some(p => p.nivel === 'alerta') ? 'alerta' : 'ok';
   return { natureza: nat, valor, emissao, simples, mei, fonteSimples, ir, iss, localIss, cbsibs: cb, retencoes, liquido, comparativo, temDadosNota, verificacao, problemas, situacao };
 }
 
@@ -791,13 +804,26 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
 export function mensagemFornecedor(r, doc = {}, cadastro = null, orgao = 'Prefeitura Municipal de Frei Inocêncio') {
   const nome = cadastro?.nome || doc.nome || 'fornecedor';
   const nota = [doc.documento || 'nota fiscal', doc.numero ? 'nº ' + doc.numero : ''].filter(Boolean).join(' ');
-  const itens = r.problemas.filter(p => p.nivel !== 'info' && !/^Comprove|^Alíquotas de|^Sem parâmetros|^Não foi possível consultar/.test(p.titulo));
+  /* Inclui tambem o que e so declaracao do emitente: nao muda o pagamento,
+     mas e exatamente o que ele precisa corrigir nas proximas notas. */
+  const itens = r.problemas.filter(p => (p.nivel !== 'info' || p.impacto === 'declaracao')
+    && !/^Comprove|^Alíquotas de|^Sem parâmetros|^Não foi possível consultar/.test(p.titulo));
   if (!itens.length) return `Prezados (${nome}),\n\nA ${nota} está em pré-conferência fiscal. Não foram encontradas divergências no cálculo preliminar, mas a Contabilidade ainda verificará o documento original, eventuais retenções adicionais e o processo administrativo. Não há, por ora, solicitação de substituição da nota.\n\nAtenciosamente,\nContabilidade — ${orgao}`;
-  const linhas = itens.map((p, i) => `${i + 1}. ${p.titulo}.\nProvidência solicitada: ${p.solucao}`);
+  /* Dois assuntos diferentes na mesma carta: o que ele precisa corrigir
+     porque muda o pagamento, e o que e so declaracao dele. Misturar os dois
+     faz a carta pedir ao fornecedor providencia que e do Municipio. */
+  const daNota = itens.filter(p => p.impacto !== 'declaracao');
+  const soDeclaracao = itens.filter(p => p.impacto === 'declaracao');
+  const linhas = daNota.map((p, i) => `${i + 1}. ${p.titulo}.\nProvidência solicitada: ${p.solucao}`);
+  const avisos = soDeclaracao.map(p => `- ${p.aoEmitente || p.titulo}`);
   const corretos = [];
   if (r.ir.reter) corretos.push(`IRRF: ${moeda(r.ir.valor)} (${pct(r.ir.aliquota)}${r.natureza.cooperativa ? '' : ' — ' + r.natureza.texto})`);
   if (r.iss.aplica && r.iss.reter && r.iss.valor) corretos.push(`ISSQN: ${pct(r.iss.aliquota)} = ${moeda(r.iss.valor)}, retido pelo tomador, local da prestação/incidência ${MUNICIPIO.nome}/${MUNICIPIO.uf}`);
-  return `Prezados (${nome}),\n\nNa conferência da ${nota}, no valor de ${moeda(r.valor)}, encontramos:\n${linhas.join('\n')}\n\n` +
+  const corpo = linhas.length
+    ? `Na conferência da ${nota}, no valor de ${moeda(r.valor)}, encontramos:\n${linhas.join('\n')}\n\n`
+    : `Na conferência da ${nota}, no valor de ${moeda(r.valor)}, não encontramos divergência que impeça o pagamento.\n\n`;
+  const bloco = avisos.length ? `Observação sobre o preenchimento da nota:\n${avisos.join('\n')}\n\n` : '';
+  return `Prezados (${nome}),\n\n` + corpo + bloco +
     (corretos.length ? `Valores preliminares para conferência da Contabilidade (não substituir orientação tributária final):\n- ${corretos.join('\n- ')}\n- Valor líquido a pagar: ${moeda(r.liquido)}\n\n` : '') +
     `Solicitamos a providência correspondente, observando se o documento admite correção, cancelamento ou substituição conforme a legislação e o emissor. A análise final depende do setor de Tributos, Contabilidade e dos documentos do processo. Ficamos à disposição.\n\nAtenciosamente,\nContabilidade — ${orgao}`;
 }
