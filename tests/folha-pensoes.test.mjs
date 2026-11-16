@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { varrerServidores, somarRubricas, lotacoesDoResumo,
   servidoresComRepasse, codigosDeDesconto } from '../assets/js/folha-servidores.js';
 import { categoriaRubricaDesconto } from '../assets/js/folha-empenhos.js';
-import { pensoesParaOP, historicoPensao, chaveCadastro, consignadoPorServidor,
+import { pensoesParaOP, historicoPensao, chaveCadastro,
   RUBRICAS_PENSAO } from '../assets/js/folha-pensoes.js';
 
 let ok = 0; const falhas = [];
@@ -187,23 +187,6 @@ t('folha sem pensão devolve OP vazia, não erro', () => {
 
 t('as três rubricas de pensão estão cobertas', () => {
   assert.deepEqual([...RUBRICAS_PENSAO].sort(), ['230', '232', '233']);
-});
-
-// --- consignado por servidor ---
-t('consignado sai por servidor, com a parcela do contrato', () => {
-  const { servidores } = varrerServidores([...cabecalho('002.012.296.00001'),
-    ...servidor('001213', 'VALDEIR FERNANDES', [['221', 'EMPRÉSTIMO CAIXA 73/84', 49882], ['222', 'EMPRÉSTIMO CAIXA 2 64/84', 6500]])]);
-  const itens = consignadoPorServidor(servidores, ['221', '222']);
-  assert.equal(itens.length, 2);
-  assert.equal(itens[0].valor, 49882, 'do maior para o menor');
-  assert.deepEqual(itens[0].contrato, { parcela: 73, total: 84 });
-  assert.equal(itens[0].matricula, '001213');
-});
-
-t('rubrica sem parcela na descrição não inventa contrato', () => {
-  const { servidores } = varrerServidores([...cabecalho('002.012.296.00001'),
-    ...servidor('001213', 'X', [['352', 'EMPRESTIMO BRADESCO', 54621]])]);
-  assert.equal(consignadoPorServidor(servidores, ['352'])[0].contrato, null);
 });
 
 // --- o que vai para o registro mensal ---

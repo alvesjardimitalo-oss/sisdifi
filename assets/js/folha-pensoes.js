@@ -9,7 +9,7 @@
 // O beneficiário não está em nenhum dos dois documentos — a folha mostra o
 // servidor que sofre o desconto, não quem recebe. Então ele vem de cadastro,
 // por matrícula e rubrica, e o histórico fica pendente até ser informado.
-import { somarRubricas, normalizar } from './folha-servidores.js';
+import { somarRubricas } from './folha-servidores.js';
 
 /** Rubricas de pensão alimentícia da folha de Frei Inocêncio. */
 export const RUBRICAS_PENSAO = ['230', '232', '233'];
@@ -103,30 +103,3 @@ export function pensoesParaOP(empenhos = [], servidores = [], cadastro = {}) {
 }
 
 const reais = v => 'R$ ' + (Number(v || 0) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
-
-/**
- * Detalhe por servidor de um desconto consignado, para conciliar com a minuta
- * do banco por matrícula em vez de só pelo total.
- */
-export function consignadoPorServidor(servidores = [], codigos = []) {
-  const quais = new Set(codigos.map(String));
-  const itens = [];
-  for (const s of servidores || []) {
-    for (const r of s.rubricas || []) {
-      if (!quais.has(r.codigo) || r.valor <= 0) continue;
-      itens.push({ matricula: s.matricula || '', servidor: s.nome || '', lotacao: s.lotacao || '',
-        rubrica: r.codigo, descricao: r.descricao || '', valor: r.valor, contrato: contratoDaRubrica(r.descricao) });
-    }
-  }
-  return itens.sort((a, b) => b.valor - a.valor);
-}
-
-/* A folha imprime a parcela junto da descrição ("EMPRÉSTIMO CAIXA 73/84
-   498,82"): serve para conferir contrato a contrato com a minuta. Os valores
-   em reais saem antes da busca, senão "84 498,82" viraria a parcela. */
-function contratoDaRubrica(descricao = '') {
-  const semValores = normalizar(descricao)
-    .replace(/-?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}/g, ' ').trim();
-  const m = semValores.match(/(\d{1,3})\s*\/\s*(\d{1,3})\s*$/);
-  return m ? { parcela: Number(m[1]), total: Number(m[2]) } : null;
-}
