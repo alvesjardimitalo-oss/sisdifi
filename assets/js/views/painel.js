@@ -8,7 +8,7 @@ import { esc, $, $$, dataBR, lerForm } from '../ui.js';
 import { aguardando, cabecalho, anosDisponiveis, MESES } from './comum.js';
 import { analisarPendencias } from './conferencia.js';
 import { pendentePrestacao } from './solicitacoes.js';
-import { blocoContabilidade, blocoAdministracao } from './painel-contabil.js?v=3.23.0';
+import { blocoContabilidade, blocoAdministracao } from './painel-contabil.js?v=3.23.0.aecfcb66';
 
 const filtro = { ano: String(new Date().getFullYear()), mes: '' };
 window.addEventListener('sisdifi:exercicio', e => { filtro.ano = String(e.detail); filtro.mes = ''; });

@@ -54,7 +54,8 @@ export const estado = {
   exercicios: [],        // exercícios (anos) abertos: { id: '2026', ano, status, respostas }
   exercicio: lerExercicioSalvo(),
   verHistorico: (() => { try { return localStorage.getItem('sisdifi.historico') === '1'; } catch { return false; } })(), // mostra as diárias do sistema antigo
-  prontos: new Set()     // coleções já carregadas
+  prontos: new Set(),    // coleções já carregadas
+  falhas: new Map()      // coleção → motivo da falha de carregamento (spinner eterno nunca; ver aguardando())
 };
 
 // ---------- Exercício (ano do orçamento) ----------

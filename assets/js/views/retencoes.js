@@ -217,7 +217,7 @@ export function telaRetencoes(el) {
       if (tipoImport === 'daf') return toast('Para o DAF use o CSV exportado no site do BB (botão de exportar/CSV).', 'erro');
       const aviso = modal({ titulo: 'Lendo o extrato', largura: 440, corpo: '<p id="r-ocr-msg">Abrindo o arquivo…</p><p class="dica">PDF escaneado é lido por reconhecimento de texto no seu computador e pode levar até 1 minuto por página. O extrato salvo direto do site do BB (Imprimir → Salvar como PDF) é lido na hora.</p>' });
       try {
-        const { linhasDoExtrato } = await import('../extrato-ocr.js?v=3.22.0');
+        const { linhasDoExtrato } = await import('../extrato-ocr.js?v=3.22.0.1eabf445');
         const linhas = await linhasDoExtrato(f, t => { const p = document.getElementById('r-ocr-msg'); if (p) p.textContent = t; });
         movimentos = lerExtratoTexto(linhas, { origemPadrao: 'FPM' });
       } catch (err) { aviso.fechar(); return toast('Não foi possível ler o arquivo: ' + mensagemErro(err), 'erro'); }
@@ -237,7 +237,7 @@ export function telaRetencoes(el) {
   async function importarIPI(arquivos) {
     if (!arquivos.length) return;
     const municipio = estado.config?.origem?.cidade || 'Frei Inocêncio';
-    const { lerXlsx } = await import('../xlsx-leitor.js?v=3.22.0');
+    const { lerXlsx } = await import('../xlsx-leitor.js?v=3.22.0.2600912f');
     const movimentos = [], erros = [];
     for (const f of arquivos) {
       try {

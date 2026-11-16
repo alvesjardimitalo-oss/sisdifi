@@ -1,0 +1,32 @@
+name: Testes — suíte inteira
+# Os outros workflows são filtrados por "paths" e dão retorno rápido por módulo.
+# O problema é o que fica de fora: tests/calculo.test.mjs — o motor da diária da
+# Lei 994/2025, o cálculo que define quanto o servidor recebe — não era executado
+# por nenhum deles. Dava para quebrar o cálculo e ver o CI todo verde.
+# Este roda tudo, sem filtro de caminho, em toda alteração.
+on:
+  push:
+  pull_request:
+jobs:
+  testar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - name: Sintaxe de todos os módulos
+        run: |
+          erro=0
+          for f in $(find assets/js -name '*.js'); do node --check "$f" || erro=1; done
+          exit $erro
+      - name: Todas as suítes
+        run: |
+          erro=0
+          for f in tests/*.test.mjs; do
+            echo "::group::$f"
+            node "$f" || erro=1
+            echo "::endgroup::"
+          done
+          exit $erro
+      - name: Nenhum ?v= desatualizado
+        run: node scripts/versionar-assets.mjs
