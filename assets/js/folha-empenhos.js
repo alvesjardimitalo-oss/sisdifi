@@ -396,13 +396,18 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
        enfermagem (344). As duas já foram pagas na extra folha do dia 10; a folha
        mensal traz o provento inteiro para apurar INSS e IR sobre a base cheia e
        devolve o que já saiu pela rubrica 174 negativa. */
-    const extrasNoEmpenho=r.tipo==='principal'?(r.extrasNoEmpenho||0):0;
+    /* A folha "extra" tem tratamento proprio para o incentivo da enfermagem
+       (a decisao abaixo), entao nela as extras nao sao somadas aqui. Nos demais
+       tipos — mensal, 13o e rescisao — somam. */
+    const extrasNoEmpenho=r.tipo==='extra'?0:(r.extrasNoEmpenho||0);
     const bruto=brutoRH==null?null:brutoRH+extrasNoEmpenho
       +(r.tipo==='extra' && incentivo>0 && decisao==='nao'?incentivo:0);
     const maternidade=r.valores.maternidade||0,familia=r.valores.familia||0;
     const natalidade=r.valores.natalidade||0;
-    // Extras que viram ordem de pagamento extra-orçamentária, não entram no empenho.
-    const ops=r.tipo==='principal'?maternidade+familia+natalidade:0;
+    /* Extras que viram ordem de pagamento extra-orçamentária: não entram no
+       empenho, e existem em qualquer tipo de folha — a rescisão de outubro/2026
+       trouxe salário-família em três lotações. */
+    const ops=maternidade+familia+natalidade;
     // Somente INSS individual comprovado é transferido ao extraorçamentário.
     const inssExtra=a.confirmado?Number(a.inssExtra)||0:0;
     const problemas=[];
@@ -415,8 +420,10 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
     if(incentivoPendente)problemas.push('Confirmar se incentivo federal já integra o bruto do RH');
     if(r.tipo==='extra' && (r.composicao?.INSS||0)>0)
       problemas.push('Folha extra contém desconto INSS; conferir competência e não transferir automaticamente');
-    if(r.tipo==='principal' && incentivo>0)
-      problemas.push('Complementação federal da enfermagem identificada: conferir classificação e lançamento próprio');
+    /* A complementação federal da enfermagem (344) é somada ao empenho
+       orçamentário: foi paga na extra folha do dia 10 e a folha mensal a devolve
+       pela rubrica 174 negativa. Como o destino está definido e conferido, deixou
+       de ser pendência — travaria a liberação todo mês nas lotações da saúde. */
     if(!numeroSeguro(inssExtra)||inssExtra>r.inss||inssExtra>desconto)
       problemas.push('INSS do salário-maternidade inválido');
     const descontoAjustado=desconto!=null&&numeroSeguro(inssExtra)?desconto-inssExtra:null;

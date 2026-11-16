@@ -159,6 +159,36 @@ t('sem os arquivos próprios nada é alterado', () => {
   assert.equal(r.arquivos[0], mensal, 'o mesmo objeto, intocado');
 });
 
+// A rescisão de outubro/2026 trouxe salário-família em três lotações. Tratar as
+// ordens de pagamento como exclusivas da folha mensal fazia esses três empenhos
+// não fecharem com o total líquido do resumo.
+t('rescisão com salário-família gera ordem de pagamento e fecha', () => {
+  const r = descontarFolhasProprias([ler(MENSAL, 'principal'), ler(DECIMO, 'decimo'), ler(RESCISAO, 'rescisao')]);
+  const e = prepararEmpenhos(r.arquivos, 4912, {}, {});
+  const resc = e.empenhos.find(x => x.tipo === 'rescisao' && x.familia > 0);
+  assert.ok(resc, 'esperava rescisão com salário-família');
+  const op = e.extras.find(x => x.empenhoReferencia === resc.empenho && x.tipo === 'Salário-família');
+  assert.ok(op, 'OPs: ' + e.extras.map(x => x.tipo + '@' + x.empenhoReferencia).join(', '));
+  assert.equal(op.bruto, 13508);
+  assert.deepEqual(resc.problemas.filter(p => /não fecha com o total líquido/.test(p)), []);
+});
+
+t('a complementação da enfermagem não trava a liberação', () => {
+  const comEnfermagem = resumo('01-FOLHA MENSAL/05-DÉCIMO', [
+    { codigo: '002.005.235.00002', nome: 'PESSOAL EFETIVO',
+      fixa: [['100', 'VENCIMENTO MENSAL', '20.000,00'], ['174', 'PAGAMENTO EFETUADO/EXTRA', '-5.000,00']],
+      extras: [['344', 'COMP FED.PIS SAL ENFERMAGEM', '5.000,00']],
+      descontos: [['201', 'I.N.S.S.', '1.500,00']] }
+  ]);
+  const e = prepararEmpenhos([ler(comEnfermagem, 'principal')], 4960, {}, {});
+  const x = e.empenhos[0];
+  assert.equal(x.brutoRH, 1500000, 'o RH empenha 15.000,00');
+  assert.equal(x.bruto, 2000000, 'a Contabilidade soma os 5.000,00 já pagos no dia 10');
+  assert.deepEqual(x.problemas.filter(p => /enfermagem/i.test(p)), [],
+    'destino definido não pode virar pendência: travaria a saúde todo mês');
+  assert.equal(x.liquido + 0 - 0, 2000000 - 150000);
+});
+
 console.log(`folha-tres-resumos: ${ok} ok, ${falhas.length} falhas`);
 falhas.forEach(f => console.log('  ✗ ' + f));
 process.exit(falhas.length ? 1 : 0);
