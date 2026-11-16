@@ -90,3 +90,17 @@ console.log('iss-local: todos os testes passaram');
   assert.match(localDevidoIss('07.02.00').fundamento, /Lei 883\/2017/);
 }
 console.log('iss-local: particularidades municipais conferidas');
+
+// ---- dedução de valores pagos a terceiros (Lei 966/2023) ----
+{
+  const { admiteDeducaoTerceiros, DEDUCAO_TERCEIROS } = await import('../assets/js/iss-local.js');
+  // itens de intermediação: quem agencia repassa a maior parte e seria
+  // tributado sobre dinheiro que não é receita dele
+  for (const c of ['10.01.00', '10.04.00', '10.08.00', '15.08.00', '17.01.00'])
+    assert.equal(admiteDeducaoTerceiros(c), true, c + ' admite dedução');
+  for (const c of ['07.02.00', '14.01.01', '11.02.00', '10.09.00'])
+    assert.equal(admiteDeducaoTerceiros(c), false, c + ' não admite');
+  assert.equal(admiteDeducaoTerceiros(''), null, 'sem código não se afirma');
+  assert.equal(DEDUCAO_TERCEIROS.limitePercentual, 95);
+}
+console.log('iss-local: dedução de terceiros conferida');
