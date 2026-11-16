@@ -1,9 +1,9 @@
 name: Conferência fiscal — testes
 on:
   push:
-    paths: ['assets/js/fiscal.js', 'assets/js/danfse-pdf.js', 'assets/js/views/fiscal.js', 'assets/js/auditoria-fiscal.js', 'tests/fiscal.test.mjs', 'tests/danfse.test.mjs', 'tests/auditoria-fiscal.test.mjs', 'tests/fiscal-pergunta.test.mjs', '.github/workflows/fiscal-check.yml']
+    paths: ['assets/js/fiscal.js', 'assets/js/danfse-pdf.js', 'assets/js/views/fiscal.js', 'assets/js/auditoria-fiscal.js', 'tests/fiscal.test.mjs', 'tests/danfse.test.mjs', 'tests/auditoria-fiscal.test.mjs', 'tests/fiscal-pergunta.test.mjs', 'tests/iss-local.test.mjs', 'assets/js/iss-local.js', '.github/workflows/fiscal-check.yml']
   pull_request:
-    paths: ['assets/js/fiscal.js', 'assets/js/danfse-pdf.js', 'assets/js/views/fiscal.js', 'assets/js/auditoria-fiscal.js', 'tests/fiscal.test.mjs', 'tests/danfse.test.mjs', 'tests/auditoria-fiscal.test.mjs', 'tests/fiscal-pergunta.test.mjs']
+    paths: ['assets/js/fiscal.js', 'assets/js/danfse-pdf.js', 'assets/js/views/fiscal.js', 'assets/js/auditoria-fiscal.js', 'tests/fiscal.test.mjs', 'tests/danfse.test.mjs', 'tests/auditoria-fiscal.test.mjs', 'tests/fiscal-pergunta.test.mjs', 'tests/iss-local.test.mjs', 'assets/js/iss-local.js']
 jobs:
   testar:
     runs-on: ubuntu-latest
@@ -15,6 +15,7 @@ jobs:
       - run: node --check assets/js/auditoria-fiscal.js && node --check assets/js/fiscal.js
       - run: node tests/fiscal.test.mjs
       - run: node tests/fiscal-pergunta.test.mjs
+      - run: node tests/iss-local.test.mjs
       - run: node tests/auditoria-fiscal.test.mjs
       - run: python3 -m py_compile scripts/monitor-legislacao-fiscal.py
       - run: node tests/danfse.test.mjs
