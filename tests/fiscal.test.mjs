@@ -302,3 +302,37 @@ process.exit(falhas ? 1 : 0);
   assert.equal(r.localIss.aqui, false);
   console.log('ok  retenções declaradas e não calculadas');
 }
+
+// ---------- gravidade pelo impacto na liquidação ----------
+{
+  // Princípio: o que muda o valor a pagar é alerta/erro; o que a empresa só
+  // declara e o Município não retém vira comunicação ao emitente.
+  const cad = { cnpj: '10781677000168', situacao: 'ATIVA', simples: false, fonte: 'RFB' };
+  const nf42 = { origem: 'pdf', servico: true, modelo: 'nfse', valor: 1680, emissao: '2026-11-13',
+    municipioEmissor: '3118601', municipioEmissorNome: 'Contagem', localPrestacao: '3126901',
+    codigoServico: '14.01.01', regimeNota: 'normal', issAliquota: 4, issValor: 67.20,
+    issRetidoNota: false, irrfDestacado: 80.64, csrfRetido: 78.12,
+    totalRetencoesNota: 158.76, liquidoNota: 1521.24 };
+  const r = conferir({ doc: nf42, cadastro: cad, hoje: '2026-11-16' });
+
+  assert.equal(r.situacao, 'ok',
+    'retenção só declarada pelo emitente não pode bloquear um pagamento correto');
+  const dec = r.problemas.find(p => p.impacto === 'declaracao');
+  assert.ok(dec, 'o achado existe, classificado como declaração');
+  assert.equal(dec.nivel, 'info');
+  assert.ok(dec.aoEmitente, 'tem texto próprio dirigido ao emitente');
+
+  // a carta fala com o fornecedor, não manda ele pagar
+  const carta = mensagemFornecedor(r, nf42, cad);
+  assert.match(carta, /não encontramos divergência que impeça o pagamento/);
+  assert.match(carta, /Observação sobre o preenchimento da nota/);
+  assert.ok(!/Providência solicitada/.test(carta),
+    'sem divergência de pagamento não se pede providência');
+  assert.match(carta, /O crédito será de R\$ 1\.599,36/);
+
+  // já um erro que muda o pagamento continua bloqueando
+  const comErro = conferir({ doc: { ...nf42, codigoServico: '07.02.00', issRetidoNota: true, issValor: 10 },
+    cadastro: cad, hoje: '2026-11-16' });
+  assert.notEqual(comErro.situacao, 'ok', 'divergência de ISS que muda o pagamento continua pesando');
+  console.log('ok  gravidade por impacto na liquidação');
+}
