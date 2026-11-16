@@ -725,3 +725,7 @@ progress { width: 260px; vertical-align: middle; }
   color: var(--link, #1d4ed8); text-decoration: underline; cursor: pointer; }
 .fiscal-ajustar .link:hover { text-decoration: none; }
 @media (max-width: 640px) { .fiscal-pergunta { grid-template-columns: 1fr; } }
+
+/* retenção que a nota declara e a conferência não calcula */
+.fiscal-nao-calculado td { opacity: .85; }
+.fiscal-nao-calculado .muted { font-style: italic; }

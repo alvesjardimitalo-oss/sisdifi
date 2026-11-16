@@ -747,14 +747,40 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
   const issNotaV = doc.issRetidoNota === false ? 0 : r2(doc.issValor || 0);
   const totalNota = doc.totalRetencoesNota != null ? r2(doc.totalRetencoesNota) : r2(irNotaV + issNotaV);
   const liquidoNota = doc.liquidoNota != null ? r2(doc.liquidoNota) : r2(valor - totalNota);
+  /* Retenções que a nota declara e esta ferramenta não calcula. Apareciam
+     só como uma diferença no líquido, sem nome: "faltam R$ 78,12" não diz
+     se é erro do fornecedor, imposto esquecido ou retenção que o Município
+     nem faz. Entram no comparativo com o nome delas. */
+  const csrfNota = r2(doc.csrfRetido || 0);
+  const inssNota = r2(doc.inssRetido || 0);
+  const naoCalculadas = [];
+  if (csrfNota) naoCalculadas.push({ item: 'PIS/COFINS/CSLL retidos na nota', nota: csrfNota, conferido: null, naoCalculado: true });
+  if (inssNota) naoCalculadas.push({ item: 'Contribuição previdenciária retida na nota', nota: inssNota, conferido: null, naoCalculado: true });
+
   const comparativo = [
     { item: 'IRRF', nota: irNotaV, conferido: ir.reter ? ir.valor : 0 },
     { item: 'ISSQN retido', nota: issNotaV, conferido: iss.reter ? iss.valor : 0, notaAliq: doc.issAliquota, conferidoAliq: iss.aplica ? iss.aliquota : null },
+    ...naoCalculadas,
     { item: 'Total das retenções', nota: totalNota, conferido: retencoes },
     { item: 'Valor líquido a pagar', nota: liquidoNota, conferido: liquido, total: true }
-  ].map(l => ({ ...l, diferenca: r2(l.conferido - l.nota) }));
+  ].map(l => ({ ...l, diferenca: l.conferido == null ? null : r2(l.conferido - l.nota) }));
   const temDadosNota = doc.irrfDestacado != null || doc.issValor != null || doc.liquidoNota != null;
-  if (temDadosNota && valor && Math.abs(liquidoNota - liquido) >= 0.01) add('erro', `Valor líquido da nota (${moeda(liquidoNota)}) diferente do que deve ser pago (${moeda(liquido)})`, `Pague ${moeda(liquido)}, com as retenções conferidas. A diferença de ${moeda(Math.abs(liquido - liquidoNota))} vem dos erros de retenção apontados acima; peça ao fornecedor a nota corrigida (ou registre a retenção correta e comunique o fornecedor).`);
+  if (temDadosNota && valor && Math.abs(liquidoNota - liquido) >= 0.01) {
+    const dif = r2(Math.abs(liquido - liquidoNota));
+    const soma = r2(csrfNota + inssNota);
+    /* Quando a diferença é exatamente o que a nota retém e a ferramenta não
+       calcula, dizer isso vale mais que apontar "erro de retenção": não há
+       erro do fornecedor, há uma retenção que esta conferência não cobre. */
+    const explicadaPorOutras = soma > 0 && Math.abs(dif - soma) < 0.01;
+    if (explicadaPorOutras) {
+      const nomes = [csrfNota ? `PIS/COFINS/CSLL (${moeda(csrfNota)})` : '', inssNota ? `contribuição previdenciária (${moeda(inssNota)})` : ''].filter(Boolean).join(' e ');
+      add('alerta', `A diferença de ${moeda(dif)} é a retenção de ${nomes} que a nota prevê`,
+        `Esta conferência calcula IRRF e ISSQN; ${nomes} não entra na conta. Confirme se o Município faz essa retenção — ela só é exigida de Estados e Municípios com convênio com a Receita Federal (Lei 10.833/2003, art. 33; IN RFB 475/2004). Com convênio, pague ${moeda(liquidoNota)}; sem convênio, pague ${moeda(liquido)} e avise o fornecedor, porque isso se repete em toda nota.`);
+    } else {
+      add('erro', `Valor líquido da nota (${moeda(liquidoNota)}) diferente do que deve ser pago (${moeda(liquido)})`,
+        `Pague ${moeda(liquido)}, com as retenções conferidas. A diferença de ${moeda(dif)}${soma ? ` não se explica pelas retenções que a nota declara e esta ferramenta não calcula (${moeda(soma)})` : ''} vem dos erros de retenção apontados acima; peça ao fornecedor a nota corrigida (ou registre a retenção correta e comunique o fornecedor).`);
+    }
+  }
   const ordem = { erro: 0, alerta: 1, info: 2 };
   problemas.sort((a, b) => ordem[a.nivel] - ordem[b.nivel]);
   const situacao = problemas.some(p => p.nivel === 'erro') ? 'erro' : problemas.some(p => p.nivel === 'alerta') ? 'alerta' : 'ok';
