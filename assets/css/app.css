@@ -361,6 +361,12 @@ details summary { cursor: pointer; color: var(--azul); font-weight: 500; margin-
 .toast-erro { background: var(--vermelho); }
 .toast-aviso { background: #7a5200; }
 .toast.sair { opacity: 0; transform: translateY(8px); }
+.aviso-erro { max-width: 640px; margin: 40px auto; padding: 20px 24px; border: 1px solid var(--borda); border-left: 4px solid var(--erro, #c0392b); border-radius: 8px; background: var(--fundo-card, #fff); }
+.aviso-erro h2 { margin: 0 0 8px; font-size: 1.05rem; }
+.aviso-erro ul { margin: 8px 0 12px 18px; }
+.aviso-erro li { margin: 2px 0; }
+.aviso-erro .btn { margin-top: 6px; }
+
 .carregando, .carregando-tela { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--muted); padding: 40px; }
 .carregando-tela { min-height: 100vh; }
 .spinner { width: 34px; height: 34px; border: 3px solid var(--azul-linha); border-top-color: var(--azul); border-radius: 50%; animation: gira .8s linear infinite; }

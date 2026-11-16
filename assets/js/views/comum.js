@@ -2,10 +2,30 @@
 import { estado, ETAPAS, etapaDe } from '../estado.js';
 import { esc } from '../ui.js';
 
-/** Mostra "carregando" enquanto as coleções necessárias não chegaram. Retorna true se ainda está carregando. */
+/**
+ * Mostra "carregando" enquanto as coleções necessárias não chegaram. Retorna true se ainda está carregando.
+ *
+ * Quando o carregamento FALHA (permissão, rede, regra do Firestore), não dá para
+ * continuar girando: o aviso de erro é um toast que some em segundos e a tela
+ * ficaria em "Carregando dados…" para sempre, sem dizer o que houve. Aqui a falha
+ * vira um painel que fica na tela, diz qual dado faltou e oferece recarregar.
+ */
 export function aguardando(el, colecoes) {
   const falta = colecoes.filter(c => !estado.prontos.has(c));
   if (!falta.length) return false;
+  const falhou = falta.filter(c => estado.falhas.has(c));
+  if (falhou.length) {
+    const lista = falhou.map(c => `<li><strong>${esc(c)}</strong> — ${esc(estado.falhas.get(c))}</li>`).join('');
+    el.innerHTML = `<div class="aviso-erro" role="alert">
+      <h2>Não foi possível carregar esta tela</h2>
+      <p>Estes dados não chegaram:</p>
+      <ul>${lista}</ul>
+      <p class="muted">Se o erro for de permissão, peça ao administrador para conferir seu perfil. Se for de conexão, tente de novo.</p>
+      <button type="button" class="btn" data-recarregar>Tentar de novo</button>
+    </div>`;
+    el.querySelector('[data-recarregar]')?.addEventListener('click', () => location.reload());
+    return true;
+  }
   el.innerHTML = '<div class="carregando"><div class="spinner"></div><p>Carregando dados…</p></div>';
   return true;
 }

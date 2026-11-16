@@ -20,15 +20,15 @@ import { telaParametros, telaUsuarios, telaImportar, telaAuditoria, telaConta } 
 import { telaImprimir } from './views/imprimir.js';
 import { telaConferencia } from './views/conferencia.js';
 import { telaRelatorio } from './views/relatorio.js';
-import { telaConsignacoes } from './views/consignacoes.js?v=3.13.2';
-import { telaDuodecimo } from './views/duodecimo.js?v=3.14.1';
-import { telaRetencoes } from './views/retencoes.js?v=3.22.0';
-import { telaCopasa } from './views/copasa.js?v=3.22.0';
+import { telaConsignacoes } from './views/consignacoes.js?v=3.13.2.593f1547';
+import { telaDuodecimo } from './views/duodecimo.js?v=3.14.1.8bb0c6f0';
+import { telaRetencoes } from './views/retencoes.js?v=3.22.0.1b476131';
+import { telaCopasa } from './views/copasa.js?v=3.22.0.b19a4d74';
 // Carregamento sob demanda: problemas no módulo de folha não impedem o SISDIFI de abrir.
 function telaFolhaEmpenhos(elemento, contexto) {
   let ativa = true, encerrarModulo = null;
   elemento.innerHTML = '<div class="carregando-tela"><div class="spinner"></div><p>Abrindo folha de pagamentos…</p></div>';
-  import('./views/folha-empenhos.js?v=3.22.0').then(modulo => {
+  import('./views/folha-empenhos.js?v=3.22.0.8db4228d').then(modulo => {
     if (!ativa || !elemento.isConnected) return;
     const retorno = modulo.telaFolhaEmpenhos(elemento, contexto);
     if (typeof retorno?.limpar === 'function') encerrarModulo = retorno.limpar;
@@ -41,7 +41,7 @@ function telaFolhaEmpenhos(elemento, contexto) {
   return { titulo: 'Folha de pagamentos', limpar: () => { ativa = false; encerrarModulo?.(); } };
 }
 import { telaOrcamento } from './views/orcamento.js';
-import { telaFiscal, telaImprimirFiscal, iniciarWidgetFiscal } from './views/fiscal.js?v=3.22.0';
+import { telaFiscal, telaImprimirFiscal, iniciarWidgetFiscal } from './views/fiscal.js?v=3.22.0.096ce5c3';
 
 const VERSAO = '3.23.0';
 const ICONE_GOOGLE = '<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>';
@@ -338,6 +338,7 @@ function marcarVisibilidade(base) {
 // ---------------- Dados em tempo real ----------------
 function iniciarDados() {
   estado.prontos.clear();
+  estado.falhas.clear();
   if (ehFiscal()) {
     // Perfil da Conferência fiscal: só os parâmetros (nome do órgão na ficha). Não carrega diárias, servidores nem valores.
     ouvintes.push(db.ouvirDoc('config', 'parametros', d => { estado.config = mesclarConfig(d); estado.prontos.add('config'); }, () => {}));
@@ -345,8 +346,16 @@ function iniciarDados() {
   }
   completouSecretaria = false; protegeuDados = false; marcouVisibilidade = false; marcouMotoristas = false; ajustouSecretarias = false;
   definirExercicio(estado.exercicio); // sincroniza os filtros das telas com o exercício salvo
-  const pronto = nome => { estado.prontos.add(nome); atualizarTelaViva(nome); };
-  const erro = nome => e => toast(`Erro ao carregar ${nome}: ${mensagemErro(e)}`, 'erro');
+  const pronto = nome => { estado.prontos.add(nome); estado.falhas.delete(nome); atualizarTelaViva(nome); };
+  /* O toast some em segundos. Se o dado não chegou, a tela que depende dele ficaria
+     girando para sempre sem dizer por quê — então a falha fica registrada por
+     coleção e aguardando() a transforma num painel que explica e oferece recarregar.
+     `colecao` é o nome usado em estado.prontos, que nem sempre é o do texto. */
+  const erro = (nome, colecao = nome) => e => {
+    estado.falhas.set(colecao, mensagemErro(e));
+    toast(`Erro ao carregar ${nome}: ${mensagemErro(e)}`, 'erro');
+    atualizarTelaViva(colecao);
+  };
   // Servidores: cadastro público + CPF/Pix da área privada (só para quem pode ler; a secretaria só os da própria pasta).
   let svPublico = null, svPrivado = lePrivado() ? null : {};
   const juntarServidores = () => {
@@ -391,15 +400,15 @@ function iniciarDados() {
   // As regras do Firestore só entregam à Secretaria o que é visível para ela, e ao Controle Interno/RH o que não é lançamento interno.
   const filtroSol = ehSecretaria() ? [['secretaria_id', estado.sessao.secretaria_id || '-'], ['visivel_secretaria', true]]
     : acessoRestrito() ? ['interna', false] : null;
-  ouvintes.push(db.ouvir('solicitacoes', l => { base = l; juntar(); marcarVisibilidade(l); }, erro('solicitações'), filtroSol));
+  ouvintes.push(db.ouvir('solicitacoes', l => { base = l; juntar(); marcarVisibilidade(l); }, erro('solicitações', 'solicitacoes'), filtroSol));
   rejuntarSolicitacoes = juntar;
-  if (pode.verValores()) ouvintes.push(db.ouvir('valores', l => { valores = Object.fromEntries(l.map(v => [v.id, v])); juntar(); }, erro('valores')));
+  if (pode.verValores()) ouvintes.push(db.ouvir('valores', l => { valores = Object.fromEntries(l.map(v => [v.id, v])); juntar(); }, erro('valores', 'solicitacoes')));
   // Controle Interno, RH e Secretaria: recebem só os valores já liberados (solicitações empenhadas), para o relatório.
   // A Secretaria recebe apenas os da própria pasta.
   else if (pode.relatorio()) {
     valores = null;
     const filtroV = ehSecretaria() ? [['liberado_ci', true], ['secretaria_id', estado.sessao.secretaria_id || '-']] : ['liberado_ci', true];
-    ouvintes.push(db.ouvir('valores', l => { valores = Object.fromEntries(l.map(v => [v.id, v])); juntar(); }, erro('valores'), filtroV));
+    ouvintes.push(db.ouvir('valores', l => { valores = Object.fromEntries(l.map(v => [v.id, v])); juntar(); }, erro('valores', 'solicitacoes'), filtroV));
   }
   // Orçamento: Secretaria só recebe os documentos e fichas da própria pasta.
   if (pode.orcamento() || pode.solicitar()) {
@@ -409,8 +418,8 @@ function iniciarDados() {
   }
   ouvintes.push(db.ouvir('distancias', l => { estado.distancias = Object.fromEntries(l.map(d => [d.id, d])); pronto('distancias'); }, () => {}));
   ouvintes.push(db.ouvir('exercicios', l => { estado.exercicios = l; pronto('exercicios'); preencherExercicios(); }, () => pronto('exercicios')));
-  ouvintes.push(db.ouvirDoc('config', 'parametros', d => { estado.config = mesclarConfig(d); pronto('config'); }, erro('parâmetros')));
-  if (pode.admin()) ouvintes.push(db.ouvir('usuarios', l => { estado.usuarios = l; pronto('usuarios'); }, erro('usuários')));
+  ouvintes.push(db.ouvirDoc('config', 'parametros', d => { estado.config = mesclarConfig(d); pronto('config'); }, erro('parâmetros', 'config')));
+  if (pode.admin()) ouvintes.push(db.ouvir('usuarios', l => { estado.usuarios = l; pronto('usuarios'); }, erro('usuários', 'usuarios')));
 }
 
 function pararOuvintes() {

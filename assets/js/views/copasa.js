@@ -93,7 +93,7 @@ export function telaCopasa(el) {
     for (const f of arquivos) {
       try {
         if (/\.zip$/i.test(f.name)) {
-          const { abrirZip } = await import('../xlsx-leitor.js?v=3.22.0');
+          const { abrirZip } = await import('../xlsx-leitor.js?v=3.22.0.2600912f');
           const zip = await abrirZip(new Uint8Array(await f.arrayBuffer()));
           let achou = false;
           for (const n of zip.nomes.filter(n => /\.(txt|csv)$/i.test(n))) { const t = decodificar(await zip.ler(n)); if (ehArquivoCopasa(t)) { textos.push(t); achou = true; } }

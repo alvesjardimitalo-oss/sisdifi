@@ -8,7 +8,7 @@ import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade} from '../folha-maternidade.js';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js';
 import {carregarRegistroFolha,salvarRegistroFolha} from '../folha-empenhos-store.js';
-import {carregarMes} from '../consignacoes-mensal.js?v=3.13.0';
+import {carregarMes} from '../consignacoes-mensal.js?v=3.13.0.357fc820';
 
 const tipos={principal:'Folha principal',extra:'Folha extra · incentivo federal (dia 10)',decimo:'Adiantamento de 50% do 13º',rescisao:'Rescisões'};
 const formato=c=>(Number(c||0)/100).toFixed(2).replace('.',',');
