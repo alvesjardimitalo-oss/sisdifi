@@ -668,7 +668,15 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
   }
   if (servico && !indefinido && localIss.aqui === true && emitidaFora) {
     add('info', `ISS devido em ${MUNICIPIO.nome} mesmo com a nota emitida fora`,
-      localIss.fundamento, localIss.inciso ? `Exceção do inciso ${localIss.inciso}` : '');
+      `${localIss.fundamento} A retenção cabe ao Município: a Lei 883/2017, art. 98, XI, põe a Administração Direta e Indireta como responsável pelo ISS dos serviços prestados a ela.`,
+      localIss.inciso ? `Art. 101, II, "${localIss.inciso}"` : '');
+  }
+  /* A lei municipal cita um subitem e descreve outro. Enquadrar nao muda,
+     mas quem for conferir com a lei na mao precisa saber disso. */
+  if (servico && localIss?.observacao) {
+    add('info', 'A lei municipal tem erro de redação neste enquadramento',
+      `Lei 883/2017, art. 101, II, "${localIss.inciso}": ${localIss.observacao}. O destino do imposto é o mesmo nas duas leituras, então o cálculo não muda. Vale comunicar ao setor de Tributos.`,
+      '', 'declaracao');
   }
   if (servico && retidoPelaNota && local !== MUNICIPIO.ibge && indefinido) {
     add('info', 'A nota indica ISS retido pelo tomador', `O ISS será retido pelo Município. Confira se o local da prestação/incidência na nota é ${MUNICIPIO.nome}; se não for, peça a correção ao fornecedor.`);

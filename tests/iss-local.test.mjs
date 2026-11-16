@@ -15,7 +15,7 @@ assert.deepEqual(partesDoCodigo(''), { item: '', subitem: '' });
   // 17.01 consultoria/assessoria não está nas exceções
   const r = localDevidoIss('17.01.00');
   assert.equal(r.onde, ONDE.PRESTADOR);
-  assert.match(r.fundamento, /caput/);
+  assert.match(r.fundamento, /art\. 101, I/);
   // executado aqui, prestador de fora → NÃO é de Frei Inocêncio
   const d = issDevidoAqui({ codigoServico: '17.01.00', ibgeMunicipio: FI, ibgePrestador: FORA, ibgePrestacao: FI });
   assert.equal(d.aqui, false, 'consultoria de empresa de fora não gera ISS aqui, mesmo executada aqui');
@@ -25,11 +25,11 @@ assert.deepEqual(partesDoCodigo(''), { item: '', subitem: '' });
 {
   const obra = issDevidoAqui({ codigoServico: '07.02.00', ibgeMunicipio: FI, ibgePrestador: FORA, ibgePrestacao: FI });
   assert.equal(obra.aqui, true, 'obra executada aqui gera ISS aqui mesmo com prestador de fora');
-  assert.equal(obra.inciso, 'III');
+  assert.equal(obra.inciso, 'c', 'obra e a alinea c do art. 101, II');
 
   const vigilancia = issDevidoAqui({ codigoServico: '11.02.00', ibgeMunicipio: FI, ibgePrestador: FORA, ibgePrestacao: FI });
   assert.equal(vigilancia.aqui, true);
-  assert.equal(vigilancia.inciso, 'XVI');
+  assert.equal(vigilancia.inciso, 'n');
 
   // a mesma obra executada em outra cidade não é nossa
   const obraFora = issDevidoAqui({ codigoServico: '07.02.00', ibgeMunicipio: FI, ibgePrestador: FI, ibgePrestacao: FORA });
@@ -38,23 +38,23 @@ assert.deepEqual(partesDoCodigo(''), { item: '', subitem: '' });
 
 // ---- item inteiro, e a exceção dentro da exceção ----
 {
-  assert.equal(localDevidoIss('16.01.01').inciso, 'XIX', 'transporte municipal: item 16 inteiro');
-  assert.equal(localDevidoIss('12.07.00').inciso, 'XVIII', 'diversões: item 12');
-  assert.equal(localDevidoIss('12.13.00').onde, ONDE.PRESTADOR, '12.13 é ressalvado do inciso XVIII');
-  assert.equal(localDevidoIss('20.01.00').inciso, 'XXII', 'portuários: item 20 inteiro');
+  assert.equal(localDevidoIss('16.01.01').inciso, 'q', 'transporte municipal: item 16 inteiro');
+  assert.equal(localDevidoIss('12.07.00').inciso, 'p', 'diversões: item 12');
+  assert.equal(localDevidoIss('12.13.00').onde, ONDE.PRESTADOR, '12.13 é ressalvado da alínea p');
+  assert.equal(localDevidoIss('20.01.00').inciso, 't', 'portuários: item 20 inteiro');
 }
 
 // ---- incisos que mandam para o tomador ----
 {
   const maoDeObra = issDevidoAqui({ codigoServico: '17.05.00', ibgeMunicipio: FI, ibgePrestador: FORA, ibgePrestacao: FORA });
   assert.equal(maoDeObra.aqui, true, 'mão de obra: ISS no tomador, aqui, ainda que tudo o mais seja fora');
-  assert.equal(maoDeObra.inciso, 'XX');
-  assert.equal(issDevidoAqui({ codigoServico: '15.09.00', ibgeMunicipio: FI }).inciso, 'XXV', 'leasing vai ao tomador');
+  assert.equal(maoDeObra.inciso, 'r');
+  assert.equal(issDevidoAqui({ codigoServico: '15.09.00', ibgeMunicipio: FI }).inciso, 'w', 'leasing vai ao tomador');
 }
 
 // ---- vetados não entram ----
 {
-  // 7.13 e 7.15 não têm inciso próprio: caem na regra geral
+  // 7.13 e 7.15 não têm alínea própria: caem na regra geral
   assert.equal(localDevidoIss('07.13.00').onde, ONDE.PRESTADOR);
   assert.equal(localDevidoIss('07.15.00').onde, ONDE.PRESTADOR);
 }
@@ -70,3 +70,23 @@ assert.deepEqual(partesDoCodigo(''), { item: '', subitem: '' });
 }
 
 console.log('iss-local: todos os testes passaram');
+
+// ---- particularidades do Código Municipal ----
+{
+  // A alínea b cita 3.04 mas descreve andaimes (3.05 na lista nacional).
+  // Os dois enquadram no local da execução; a observação fica registrada.
+  const a304 = localDevidoIss('03.04.00');
+  const a305 = localDevidoIss('03.05.00');
+  assert.equal(a304.onde, ONDE.PRESTACAO);
+  assert.equal(a305.onde, ONDE.PRESTACAO);
+  assert.match(a304.observacao, /3\.04/, 'o erro de redação da lei fica anotado');
+  assert.equal(a304.territorial, true, '3.04 tem regra territorial do § 1º');
+  assert.equal(a305.territorial, false);
+
+  // 10.04 entra junto com 15.09 na alínea w, diferente da lista nacional
+  assert.equal(localDevidoIss('10.04.00').inciso, 'w');
+
+  // o fundamento cita a lei do Município, não a federal
+  assert.match(localDevidoIss('07.02.00').fundamento, /Lei 883\/2017/);
+}
+console.log('iss-local: particularidades municipais conferidas');

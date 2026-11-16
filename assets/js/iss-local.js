@@ -1,57 +1,68 @@
-// Onde o ISS é devido — LC 116/2003, art. 3º.
+// Onde o ISS é devido.
 //
-// A regra geral manda o imposto para o município do ESTABELECIMENTO DO
-// PRESTADOR. Executar o serviço em Frei Inocêncio não basta: só nas hipóteses
-// dos incisos I a XXV é que o imposto vai para outro lugar.
+// A regra que vale para o ISS do Município é a do próprio Código Tributário:
+// Lei 883/2017, art. 101. Ela espelha a LC 116/2003, art. 3º, com diferenças
+// que importam, e por isso o enquadramento cita o artigo municipal.
 //
-// O sistema tratava toda nota com local de prestação em Frei Inocêncio como
-// retenção devida aqui. Para consultoria, assessoria ou manutenção prestadas
-// por empresa de outra cidade, isso significa reter ISS que não é do
-// Município — e o fornecedor ainda recolhe no município dele, pagando duas
-// vezes o mesmo imposto.
+// A regra geral (art. 101, I) manda o imposto para o ESTABELECIMENTO DO
+// PRESTADOR. Executar o serviço em Frei Inocêncio não basta: só as hipóteses
+// do inciso II mudam o destino.
 //
-// Fonte: LC 116/2003, art. 3º, na redação da LC 157/2016 (incisos I a XXV).
-// Os incisos X e XI foram vetados.
+// Quem retém: art. 98, XI, torna a Administração Direta e Indireta
+// responsável pelo ISS dos serviços prestados a ela. Ou seja, quando o
+// imposto é devido ao Município, a Prefeitura retém — e o art. 94, parágrafo
+// único, mantém essa responsabilidade mesmo para contribuinte isento.
 
-/** Para onde cada inciso manda o imposto. */
+/** Para onde cada hipótese manda o imposto. */
 export const ONDE = {
-  PRESTADOR: 'prestador',   // regra geral do caput
+  PRESTADOR: 'prestador',   // regra geral — art. 101, I
   PRESTACAO: 'prestacao',   // onde o serviço foi executado
   TOMADOR: 'tomador'        // estabelecimento ou domicílio de quem contrata
 };
 
 /**
- * Exceções do art. 3º. Cada entrada liga um inciso aos subitens da lista
- * anexa que ele alcança.
+ * Hipóteses do art. 101, II, da Lei 883/2017.
  *
- * `item: true` marca o item inteiro (ex.: todo o item 16), não um subitem.
+ * A alínea b) cita o subitem 3.04 mas descreve andaimes, palcos e coberturas,
+ * que na lista nacional são o 3.05 — e o § 1º do mesmo artigo trata o 3.04
+ * como locação de ferrovia, rodovia, postes e cabos. É erro de redação da
+ * lei. Os dois ficam na lista: em qualquer leitura o imposto é do lugar da
+ * execução, então o enquadramento não muda; o que muda é a citação, e ela
+ * fica registrada aqui.
  */
 export const EXCECOES = [
-  { inciso: 'I',     onde: ONDE.TOMADOR,   subitens: [],            descricao: 'serviço vindo do exterior ou lá iniciado (art. 1º, § 1º)' },
-  { inciso: 'II',    onde: ONDE.PRESTACAO, subitens: ['3.05'],      descricao: 'instalação de andaimes, palcos e coberturas' },
-  { inciso: 'III',   onde: ONDE.PRESTACAO, subitens: ['7.02', '7.19'], descricao: 'execução de obra' },
-  { inciso: 'IV',    onde: ONDE.PRESTACAO, subitens: ['7.04'],      descricao: 'demolição' },
-  { inciso: 'V',     onde: ONDE.PRESTACAO, subitens: ['7.05'],      descricao: 'reparação, conservação e reforma de edificações, estradas e pontes' },
-  { inciso: 'VI',    onde: ONDE.PRESTACAO, subitens: ['7.09'],      descricao: 'varrição, coleta e destinação de lixo e resíduos' },
-  { inciso: 'VII',   onde: ONDE.PRESTACAO, subitens: ['7.10'],      descricao: 'limpeza, manutenção e conservação de vias, imóveis, piscinas e jardins' },
-  { inciso: 'VIII',  onde: ONDE.PRESTACAO, subitens: ['7.11'],      descricao: 'decoração, jardinagem, corte e poda de árvores' },
-  { inciso: 'IX',    onde: ONDE.PRESTACAO, subitens: ['7.12'],      descricao: 'controle e tratamento de efluentes' },
-  // X e XI: vetados.
-  { inciso: 'XII',   onde: ONDE.PRESTACAO, subitens: ['7.16'],      descricao: 'florestamento e reflorestamento' },
-  { inciso: 'XIII',  onde: ONDE.PRESTACAO, subitens: ['7.17'],      descricao: 'escoramento e contenção de encostas' },
-  { inciso: 'XIV',   onde: ONDE.PRESTACAO, subitens: ['7.18'],      descricao: 'limpeza e dragagem' },
-  { inciso: 'XV',    onde: ONDE.PRESTACAO, subitens: ['11.01'],     descricao: 'guarda e estacionamento de veículos' },
-  { inciso: 'XVI',   onde: ONDE.PRESTACAO, subitens: ['11.02'],     descricao: 'vigilância, segurança e monitoramento' },
-  { inciso: 'XVII',  onde: ONDE.PRESTACAO, subitens: ['11.04'],     descricao: 'armazenamento, carga, descarga e guarda de bens' },
-  { inciso: 'XVIII', onde: ONDE.PRESTACAO, subitens: ['12'], item: true, excetoSubitens: ['12.13'], descricao: 'diversões, lazer e entretenimento' },
-  { inciso: 'XIX',   onde: ONDE.PRESTACAO, subitens: ['16'], item: true, descricao: 'transporte municipal' },
-  { inciso: 'XX',    onde: ONDE.TOMADOR,   subitens: ['17.05'],     descricao: 'fornecimento de mão de obra' },
-  { inciso: 'XXI',   onde: ONDE.PRESTACAO, subitens: ['17.10'],     descricao: 'feiras, exposições e congressos' },
-  { inciso: 'XXII',  onde: ONDE.PRESTACAO, subitens: ['20'], item: true, descricao: 'serviços portuários, aeroportuários e de terminais' },
-  { inciso: 'XXIII', onde: ONDE.TOMADOR,   subitens: ['4.22', '4.23', '5.09'], descricao: 'planos de saúde e de medicina veterinária' },
-  { inciso: 'XXIV',  onde: ONDE.TOMADOR,   subitens: ['15.01'],     descricao: 'administração de cartões' },
-  { inciso: 'XXV',   onde: ONDE.TOMADOR,   subitens: ['15.09'],     descricao: 'arrendamento mercantil (leasing)' }
+  { alinea: 'a', onde: ONDE.TOMADOR,   subitens: [],            descricao: 'serviço vindo do exterior ou lá iniciado' },
+  { alinea: 'b', onde: ONDE.PRESTACAO, subitens: ['3.04', '3.05'], descricao: 'instalação de andaimes, palcos e coberturas', observacao: 'a lei cita 3.04 e descreve o 3.05' },
+  { alinea: 'c', onde: ONDE.PRESTACAO, subitens: ['7.02', '7.19'], descricao: 'execução de obra' },
+  { alinea: 'd', onde: ONDE.PRESTACAO, subitens: ['7.04'],      descricao: 'demolição' },
+  { alinea: 'e', onde: ONDE.PRESTACAO, subitens: ['7.05'],      descricao: 'reparação, conservação e reforma de edificações, estradas e pontes' },
+  { alinea: 'f', onde: ONDE.PRESTACAO, subitens: ['7.09'],      descricao: 'varrição, coleta e destinação de lixo e resíduos' },
+  { alinea: 'g', onde: ONDE.PRESTACAO, subitens: ['7.10'],      descricao: 'limpeza, manutenção e conservação de vias, imóveis, piscinas e jardins' },
+  { alinea: 'h', onde: ONDE.PRESTACAO, subitens: ['7.11'],      descricao: 'decoração, jardinagem, corte e poda de árvores' },
+  { alinea: 'i', onde: ONDE.PRESTACAO, subitens: ['7.12'],      descricao: 'controle e tratamento de efluentes' },
+  { alinea: 'j', onde: ONDE.PRESTACAO, subitens: ['7.16'],      descricao: 'florestamento, reflorestamento e colheita' },
+  { alinea: 'k', onde: ONDE.PRESTACAO, subitens: ['7.17'],      descricao: 'escoramento e contenção de encostas' },
+  { alinea: 'l', onde: ONDE.PRESTACAO, subitens: ['7.18'],      descricao: 'limpeza e dragagem' },
+  { alinea: 'm', onde: ONDE.PRESTACAO, subitens: ['11.01'],     descricao: 'guarda e estacionamento de veículos' },
+  { alinea: 'n', onde: ONDE.PRESTACAO, subitens: ['11.02'],     descricao: 'vigilância, segurança e monitoramento' },
+  { alinea: 'o', onde: ONDE.PRESTACAO, subitens: ['11.04'],     descricao: 'armazenamento, carga, descarga e guarda de bens' },
+  { alinea: 'p', onde: ONDE.PRESTACAO, subitens: ['12'], item: true, excetoSubitens: ['12.13'], descricao: 'diversões, lazer e entretenimento' },
+  { alinea: 'q', onde: ONDE.PRESTACAO, subitens: ['16'], item: true, descricao: 'transporte municipal' },
+  { alinea: 'r', onde: ONDE.TOMADOR,   subitens: ['17.05'],     descricao: 'fornecimento de mão de obra' },
+  { alinea: 's', onde: ONDE.PRESTACAO, subitens: ['17.10'],     descricao: 'feiras, exposições e congressos' },
+  { alinea: 't', onde: ONDE.PRESTACAO, subitens: ['20'], item: true, descricao: 'serviços portuários, aeroportuários e de terminais' },
+  { alinea: 'u', onde: ONDE.TOMADOR,   subitens: ['4.22', '4.23', '5.09'], descricao: 'planos de saúde e de medicina veterinária' },
+  { alinea: 'v', onde: ONDE.TOMADOR,   subitens: ['15.01'],     descricao: 'administração de cartões' },
+  { alinea: 'w', onde: ONDE.TOMADOR,   subitens: ['10.04', '15.09'], descricao: 'agenciamento de leasing e arrendamento mercantil' }
 ];
+
+/**
+ * Subitens com regra territorial própria (art. 101, §§ 1º e 2º): o imposto é
+ * devido aqui se houver, no território, extensão da ferrovia, rodovia, postes
+ * e cabos locados (3.04) ou da rodovia explorada (22.01). Não é "onde o
+ * serviço foi executado": é onde passa a coisa.
+ */
+export const TERRITORIAIS = ['3.04', '22.01'];
 
 /**
  * Normaliza "16.01.01", "1601", "16.01" ou "07.02" para item e subitem.
@@ -87,7 +98,7 @@ export function localDevidoIss(codigoServico = '') {
   const { item, subitem } = partesDoCodigo(codigoServico);
   if (!subitem) {
     return { onde: ONDE.PRESTADOR, indefinido: true, inciso: '',
-      fundamento: 'Sem o código de tributação não dá para saber se o serviço está nas exceções do art. 3º da LC 116/2003.' };
+      fundamento: 'Sem o código de tributação não dá para saber se o serviço está nas hipóteses do art. 101, II, da Lei 883/2017.' };
   }
   for (const e of EXCECOES) {
     if (!e.subitens.length) continue;
@@ -95,12 +106,14 @@ export function localDevidoIss(codigoServico = '') {
       ? e.subitens.includes(item) && !(e.excetoSubitens || []).some(x => mesmoSubitem(x, subitem))
       : e.subitens.some(x => mesmoSubitem(x, subitem));
     if (casa) {
-      return { onde: e.onde, indefinido: false, inciso: e.inciso, descricao: e.descricao,
-        fundamento: `LC 116/2003, art. 3º, ${e.inciso} — ${e.descricao}.` };
+      return { onde: e.onde, indefinido: false, inciso: e.alinea, descricao: e.descricao,
+        territorial: TERRITORIAIS.some(x => mesmoSubitem(x, subitem)),
+        observacao: e.observacao || '',
+        fundamento: `Lei 883/2017, art. 101, II, "${e.alinea}" — ${e.descricao}.` };
     }
   }
   return { onde: ONDE.PRESTADOR, indefinido: false, inciso: '',
-    fundamento: 'LC 116/2003, art. 3º, caput — fora das exceções, o ISS é devido no município do estabelecimento do prestador.' };
+    fundamento: 'Lei 883/2017, art. 101, I — fora das hipóteses do inciso II, o ISS é devido no município do estabelecimento do prestador.' };
 }
 
 /**
