@@ -4,7 +4,7 @@ import { estado } from '../estado.js';
 import { esc, $, toast, dataBR, hojeISO } from '../ui.js';
 import { cabecalho } from './comum.js';
 import { lerDanfsePDF } from '../danfse-pdf.js';
-import { auditoriaNota, monitorFiscalSituacao, VERSAO_POLITICA_FISCAL, FONTES_LEGISLATIVAS } from '../auditoria-fiscal.js?v=3.16.0';
+import { auditoriaNota, monitorFiscalSituacao, VERSAO_POLITICA_FISCAL, FONTES_LEGISLATIVAS } from '../auditoria-fiscal.js?v=3.17.0';
 import {
   lerCodigo, lerXML, consultarCnpj, conferir, sugerirNatureza, descreverTributacao, NATUREZAS, MUNICIPIO, ISS, MINIMO_RETENCAO_IR,
   formatarCnpj, limparCnpj, cnpjValido, moeda, aliquotaIss, mensagemFornecedor, faltaParaDiagnostico
@@ -29,7 +29,10 @@ const CHAVE_HIST = 'sisdifi.fiscal.historico';
 // Estado da tela (fica entre as navegações)
 const s = {
   codigo: '', leitura: null, doc: {}, consulta: null, consultando: false, natureza: '', naturezaAuto: true,
-  simplesManual: '', resultado: null, auditoria:null, confirmacoes:{}, conf: 0, tipo: lerTipoSalvo()
+  simplesManual: '', resultado: null, auditoria:null, confirmacoes:{}, conf: 0, tipo: lerTipoSalvo(),
+  // O formulario inteiro fica fechado: quem confere quer a resposta, nao um
+  // cadastro. Abre so quando precisa mexer em algo que a pergunta nao cobre.
+  formAberto: false
 };
 function lerTipoSalvo() { try { return localStorage.getItem('sisdifi.fiscal.tipo') || ''; } catch { return ''; } }
 const TIPOS = [['', 'Automático'], ['nfe', 'NF-e / NFC-e / CT-e (44)'], ['nfse', 'NFS-e Nacional (50)'], ['cnpj', 'CNPJ (14)']];
@@ -89,8 +92,8 @@ export function telaFiscal(el) {
           Limpar consulta</button>
       </div>
     </div>
-    <div class="grade-form fiscal-grade">
-      <form class="cartao col-form" id="fis-form" novalidate></form>
+    <div class="grade-form fiscal-grade${s.formAberto ? '' : ' fiscal-so-resposta'}">
+      <form class="cartao col-form" id="fis-form" novalidate ${s.formAberto ? '' : 'hidden'}></form>
       <aside class="col-resultado" id="fis-resultado"></aside>
     </div>`;
 
@@ -387,15 +390,38 @@ function desenharForm(el) {
  * sobra o formulário inteiro. Sem dizer o que falta, a conferência parece
  * não ter fim — era por isso que o passo 3 nunca chegava.
  */
-function painelFalta() {
+/**
+ * Pergunta UMA coisa de cada vez, dentro da resposta.
+ *
+ * A chave identifica a nota mas não traz valores, e a tela antiga respondia
+ * a isso com o formulário inteiro aberto. Quem está conferindo quer a
+ * resposta, não um cadastro: aqui aparece só o próximo campo que falta, com
+ * o teclado certo, e a resposta se refaz a cada um.
+ */
+const TECLADO = {
+  valor: { tipo: 'number', step: '0.01', min: '0', dica: 'O valor total da nota, antes das retenções.' },
+  emissao: { tipo: 'date', dica: 'A chave só informa o mês; confirme o dia impresso na nota.' },
+  codigoServico: { tipo: 'text', dica: 'O código de tributação da nota, como 16.01.01.' }
+};
+function perguntaUnica() {
   const falta = faltaParaDiagnostico(s.doc);
-  if (!falta.length) return '<p class="alerta alerta-ok mt">Tudo que o diagnóstico precisa está preenchido.</p>';
-  const temArquivo = s.doc.origem === 'leitura';
-  return `<div class="fiscal-falta mt">
-    <p><strong>Falta ${falta.length === 1 ? 'preencher 1 campo' : `preencher ${falta.length} campos`}</strong> para o diagnóstico ficar completo:</p>
-    <ul>${falta.map(f => `<li><button type="button" class="link" data-ir="${esc(f.campo)}">${esc(f.rotulo)}</button> <small>${esc(f.porque)}</small></li>`).join('')}</ul>
-    ${temArquivo ? `<p class="dica">Se o fornecedor mandou a nota em arquivo, <button type="button" class="link" data-abrir-arquivo>abra o PDF ou o XML</button> e tudo isto é preenchido de uma vez.</p>` : ''}
-  </div>`;
+  if (!falta.length) return '';
+  const f = falta[0];
+  const t = TECLADO[f.campo] || { tipo: 'text', dica: '' };
+  const valorAtual = f.campo === 'emissao' && s.doc.emissaoPresumida ? (s.doc.emissao || '') : (s.doc[f.campo] ?? '');
+  const restam = falta.length - 1;
+  return `<form class="fiscal-pergunta" data-pergunta="${esc(f.campo)}">
+    <label><span>${esc(f.rotulo)}</span>
+      <input name="resposta" type="${t.tipo}" ${t.step ? `step="${t.step}"` : ''} ${t.min ? `min="${t.min}"` : ''}
+        value="${esc(String(valorAtual))}" autocomplete="off" autofocus>
+    </label>
+    <button class="btn" type="submit">Continuar</button>
+    <small>${esc(t.dica || f.porque)}${restam ? ` · depois ${restam === 1 ? 'falta mais 1' : `faltam mais ${restam}`}` : ' · é o último'}</small>
+  </form>`;
+}
+/** Atalho para quem precisa mexer em algo que a pergunta não cobre. */
+function linkFormulario() {
+  return `<p class="dica fiscal-ajustar"><button type="button" class="link" data-abrir-form>${s.formAberto ? 'Esconder os campos da nota' : 'Ajustar todos os campos da nota'}</button>${s.doc.origem === 'leitura' ? ' · <button type="button" class="link" data-abrir-arquivo>abrir o PDF ou XML e preencher tudo</button>' : ''}</p>`;
 }
 
 function recalcular(el) {
@@ -533,7 +559,7 @@ function desenharResultado(el) {
     box.innerHTML = `<div class="cartao">${blocoFornecedor(cad)}
       <div class="fiscal-cartoes"><div class="fiscal-item"><span>Simples Nacional na data</span><strong>${r.simples == null ? 'Não confirmado' : r.mei ? 'MEI' : r.simples ? 'Optante' : 'Não optante'}</strong><small>${r.simples == null ? 'confira no Portal' : esc(r.fonteSimples)}</small></div>
       <div class="fiscal-item"><span>IRRF</span><strong>${r.simples ? 'Não reter' : 'Reter ' + pctTxt(r.natureza.ir)}</strong><small>${esc(r.simples ? r.ir.motivo : r.natureza.texto)}</small></div></div>
-      ${painelFalta()}</div>`;
+      ${perguntaUnica()}${linkFormulario()}</div>`;
     return;
   }
   if (!r) { box.innerHTML = `<div class="cartao"><h3>Como usar</h3><ol class="passos">
@@ -600,7 +626,7 @@ ${blocoFornecedor(cad, '<span class="fiscal-num">3</span> ')}
       <ul class="fiscal-verif">${r.verificacao.linhas.map(l => `<li class="${l.ok === true ? 'v-ok' : l.ok === false ? 'v-erro' : 'v-info'}"><span aria-hidden="true">${l.ok === true ? '✓' : l.ok === false ? '✕' : '•'}</span>
         <div><strong>${esc(l.titulo)}</strong><small>${esc(l.detalhe)}</small></div></li>`).join('')}</ul>
     </div>` : ''}
-    ${painelFalta()}
+    ${perguntaUnica()}${linkFormulario()}
     <div class="fiscal-proxima"><button type="button" class="btn btn-sec fiscal-limpar" data-limpar>Limpar consulta e conferir outra nota</button></div>`;
   box.querySelectorAll('[data-fis-confirma]').forEach(cb=>cb.onchange=()=>{
     s.confirmacoes[cb.dataset.fisConfirma]=cb.checked;
@@ -608,14 +634,25 @@ ${blocoFornecedor(cad, '<span class="fiscal-num">3</span> ')}
   });
   box.querySelector('[data-fis-atualizar-lei]')?.addEventListener('click',()=>carregarLegislacao(el,true));
   box.querySelectorAll('[data-fis-aprovar-lei]').forEach(b=>b.onclick=()=>aprovarLegislacao(el,b.dataset.fisAprovarLei));
-  // Levar ao campo e melhor que so dizer o nome dele: o formulario e longo.
-  box.querySelectorAll('[data-ir]').forEach(b => b.onclick = () => {
-    const campo = $(`#fis-form [name="${b.dataset.ir}"]`, el);
-    if (!campo) return;
-    campo.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    campo.focus({ preventScroll: true });
-    campo.classList.add('campo-apontado');
-    setTimeout(() => campo.classList.remove('campo-apontado'), 1600);
+  // A resposta a pergunta entra no doc e a resposta se refaz na hora.
+  const perg = box.querySelector('[data-pergunta]');
+  if (perg) {
+    perg.onsubmit = ev => {
+      ev.preventDefault();
+      const campo = perg.dataset.pergunta;
+      const v = perg.querySelector('[name=resposta]').value.trim();
+      if (!v) return;
+      s.doc[campo] = campo === 'valor' ? Number(v) : v;
+      if (campo === 'emissao') s.doc.emissaoPresumida = false;
+      if (campo === 'codigoServico') s.doc.coopTransporte = null;
+      if (s.formAberto) desenharForm(el);
+      recalcular(el);
+      setTimeout(() => $('#fis-resultado [data-pergunta] [name=resposta]', el)?.focus(), 30);
+    };
+  }
+  box.querySelector('[data-abrir-form]')?.addEventListener('click', () => {
+    s.formAberto = !s.formAberto;
+    telaFiscal(el);
   });
   box.querySelector('[data-abrir-arquivo]')?.addEventListener('click', () => $('#fis-xml', el)?.click());
   box.querySelector('[data-limpar]').onclick = () => limparConsulta(el);
