@@ -220,3 +220,20 @@ process.exit(falhas ? 1 : 0);
 
   console.log('ok  falta para o diagnóstico');
 }
+
+// ---------- MEI volta a ser tratado ----------
+{
+  // Havia dois "else if (mei)" seguidos: o primeiro, de corpo vazio, engolia
+  // todos os casos de MEI e o tratamento real virava código morto.
+  const base = { origem: 'leitura', servico: true, modelo: 'nfse', valor: 1000, emissao: '2026-11-10',
+    codigoServico: '07.02.00', localPrestacao: '3126901', municipioEmissor: '3126901',
+    issValor: 50, issRetidoNota: true };
+  const cad = { cnpj: '10781677000168', situacao: 'ATIVA', mei: true, simples: true,
+    meiInicio: '2020-01-01', simplesInicio: '2020-01-01', fonte: 'RFB' };
+  const r = conferir({ doc: base, cadastro: cad, naturezaId: 'servicos_gerais', hoje: '2026-11-16' });
+  assert.equal(r.mei, true, 'MEI reconhecido na data');
+  assert.match(r.iss.motivo, /DAS/, 'o motivo do ISS do MEI é preenchido');
+  assert.ok(r.problemas.some(p => /MEI com ISS destacado/i.test(p.titulo)),
+    'MEI com ISS retido na nota precisa ser apontado: não se retém ISS de MEI');
+  console.log('ok  MEI tratado');
+}
