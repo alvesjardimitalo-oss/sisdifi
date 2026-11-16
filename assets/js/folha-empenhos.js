@@ -254,6 +254,61 @@ export function separarAdiantamentoDecimo(registro,{cabecalho='',tipo='principal
   return {principal:mensal,decimo,avisos:[]};
 }
 
+/* Campos do rodapé que são somas e, por isso, se descontam. */
+const CAMPOS_SOMA=['bruto','desconto','liquido','proventos','totalDescontos','totalLiquido',...EXTRAS_DO_RESUMO];
+
+/**
+ * O resumo da folha MENSAL já inclui o 13º e a rescisão: os relatórios próprios
+ * desses tipos (TIPO CÁLCULO 05 e 06) são o detalhamento do que está lá dentro,
+ * não um acréscimo. Empenhar os três como vieram contaria o mesmo dinheiro duas
+ * vezes. O certo é descontar do mensal, lotação por lotação, o que cada um levou
+ * — e o que sobra é a folha do mês.
+ *
+ * Conferido em outubro/2026: mensal R$ 1.989.381,67 menos 13º R$ 41.574,46 menos
+ * rescisão R$ 21.967,83 dá R$ 1.925.839,38, que é a soma das linhas de folha da
+ * Contabilidade. As 13 lotações do 13º e as 8 da rescisão existem todas no mensal.
+ */
+export function descontarFolhasProprias(arquivos=[]){
+  const lista=arquivos.filter(Boolean);
+  const mensal=lista.find(a=>a.tipo==='principal');
+  const proprios=lista.filter(a=>a!==mensal&&(a.tipo==='decimo'||a.tipo==='rescisao'));
+  if(!mensal||!proprios.length)return {arquivos:lista,avisos:[],descontados:0};
+  const avisos=[];
+  const restantes=new Map(mensal.registros.map(r=>[r.lotacao,{...r,valores:{...r.valores}}]));
+  let descontados=0;
+  for(const a of proprios){
+    for(const r of a.registros){
+      const alvo=restantes.get(r.lotacao);
+      if(!alvo){
+        avisos.push('Lotação '+r.lotacao+' aparece no resumo de '+a.tipo+' mas não na folha mensal. '+
+          'Confira se os dois arquivos são da mesma competência antes de empenhar.');
+        continue;
+      }
+      for(const k of CAMPOS_SOMA){
+        const v=r.valores?.[k];
+        if(Number.isSafeInteger(v)&&v!==0)alvo.valores[k]=(alvo.valores[k]||0)-v;
+      }
+      descontados++;
+    }
+  }
+  const sobra=[];
+  for(const r of restantes.values()){
+    const negativos=CAMPOS_SOMA.filter(k=>Number.isSafeInteger(r.valores[k])&&r.valores[k]<0);
+    if(negativos.length){
+      avisos.push('Lotação '+r.lotacao+': descontar o 13º e a rescisão deixou '+negativos.join(', ')+
+        ' negativo. Confira se os arquivos são da mesma competência.');
+    }
+    // Lotação que era só 13º ou só rescisão não sobra folha nenhuma.
+    if(!r.valores.bruto&&!r.valores.desconto){continue;}
+    r.extras=somaExtras(r.valores);
+    r.extrasNoEmpenho=somaExtras(r.valores,EXTRAS_NO_EMPENHO);
+    r.extrasEmOP=somaExtras(r.valores,EXTRAS_EM_OP);
+    sobra.push(r);
+  }
+  const novoMensal={...mensal,registros:sobra,avisos:[...(mensal.avisos||[]),...avisos]};
+  return {arquivos:lista.map(a=>a===mensal?novoMensal:a),avisos,descontados};
+}
+
 export function analisarResumoConsolidado(linhas,{nome=''}={}){
   const grupos=[],alertas=[];let tipo='',inicio=[],grupo=null,ultimaPagina=0;
   const cabecalho=[];

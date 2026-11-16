@@ -3,7 +3,7 @@
 import {estado,pode} from '../estado.js';
 import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificacaoPessoal,FICHAS_PESSOAL_2026} from '../folha-orcamento-2026.js';
 import {esc,toast} from '../ui.js';
-import {analisarResumoVerbas,analisarResumoConsolidado,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha} from '../folha-empenhos.js';
+import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha} from '../folha-empenhos.js';
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js';
@@ -113,7 +113,10 @@ export function telaFolhaEmpenhos(el){
       '<p class="fe-muted">Dados armazenados no navegador, separados pela conta. A planilha contém fórmulas de líquido para a Contabilidade conferir e preencher a liquidação no sistema oficial.</p>'+
     '</section></div>';
   const status=t=>{$('#fe-status').textContent=t;};
-  const arquivosLista=()=>Object.values(arquivos);
+  /* O resumo da folha mensal já contém o 13º e a rescisão; os relatórios
+     próprios desses tipos são o detalhamento. Descontar antes de empenhar
+     evita contar o mesmo dinheiro duas vezes. */
+  const arquivosLista=()=>descontarFolhasProprias(Object.values(arquivos)).arquivos;
   const montar=()=>{
     if(!Object.values(arquivos).some(x=>x?.registros?.length))return null;
     const maternidade=consolidarMaternidade(pessoas,[arquivos.principal].filter(Boolean));
