@@ -436,7 +436,12 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
     const problemas=[];
     if(r.tipoIdentificado===false)problemas.push('Identificar o tipo de folha desta lotação');
     if(!r.secretaria)problemas.push('Classificar secretaria');
-    if(!destino.ficha||!destino.fonte)problemas.push('Informar ficha e fonte de recursos');
+    /* Diz o que de fato falta. A ficha quase sempre vem sugerida e o que fica
+       em aberto é a fonte, nas fichas que admitem mais de uma — pedir "ficha e
+       fonte" ali manda conferir uma coisa que já está resolvida. */
+    if(!destino.ficha&&!destino.fonte)problemas.push('Informar ficha e fonte de recursos');
+    else if(!destino.ficha)problemas.push('Informar a ficha');
+    else if(!destino.fonte)problemas.push('Escolher a fonte de recursos');
     if(bruto==null||desconto==null)problemas.push('Total bruto/desconto ilegível');
     if(!r.classificacaoDescontosIdentificada||r.diferencaComposicao!==0)problemas.push('Composição dos descontos divergente do Resumo de Verbas');
     if(maternidade && !a.confirmado)problemas.push('Conferir servidoras do salário-maternidade e INSS individual');
