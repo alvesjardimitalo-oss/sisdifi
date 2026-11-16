@@ -7,7 +7,7 @@
 // =============================================================
 
 /** Município do órgão (tomador). Código IBGE de Frei Inocêncio/MG. */
-import { issDevidoAqui, ONDE as ISS_ONDE } from './iss-local.js';
+import { issDevidoAqui, ONDE as ISS_ONDE, admiteDeducaoTerceiros, DEDUCAO_TERCEIROS } from './iss-local.js';
 
 export const MUNICIPIO = { nome: 'Frei Inocêncio', uf: 'MG', ibge: '3126901' };
 
@@ -671,6 +671,22 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
       `${localIss.fundamento} A retenção cabe ao Município: a Lei 883/2017, art. 98, XI, põe a Administração Direta e Indireta como responsável pelo ISS dos serviços prestados a ela.`,
       localIss.inciso ? `Art. 101, II, "${localIss.inciso}"` : '');
   }
+  /* Deducao de valores pagos a terceiros (Lei 966/2023). Muda a base e a
+     aliquota, entao muda o que o Municipio retem: e questao de pagamento,
+     nao observacao. So aparece quando o Municipio e o destinatario do ISS. */
+  if (servico && !indefinido && localIss.aqui === true && admiteDeducaoTerceiros(doc.codigoServico)) {
+    const deduzido = doc.deducaoTerceiros != null ? r2(doc.deducaoTerceiros) : null;
+    const teto = r2(valor * (DEDUCAO_TERCEIROS.limitePercentual / 100));
+    if (deduzido == null) {
+      add('alerta', 'Este serviço admite dedução de valores pagos a terceiros',
+        `${DEDUCAO_TERCEIROS.fundamento}: o que foi pago a terceiros, com documento fiscal ou comprovante eficaz, sai da base do ISS, até ${DEDUCAO_TERCEIROS.limitePercentual}% dela — e nessa hipótese vale a alíquota mínima de ${pct(ISS.minimoSimples)}, não a de ${pct(ISS_ALIQ)}. Confirme com a nota e os comprovantes se há valores a deduzir; se não houver, a base é o valor cheio.`,
+        'Pode reduzir a base e a alíquota');
+    } else if (deduzido > teto) {
+      add('erro', `Dedução de terceiros acima do limite de ${DEDUCAO_TERCEIROS.limitePercentual}% da base`,
+        `${DEDUCAO_TERCEIROS.fundamento} limita a dedução a ${moeda(teto)} nesta nota. Reduza a dedução ao limite ou confira os comprovantes.`);
+    }
+  }
+
   /* A lei municipal cita um subitem e descreve outro. Enquadrar nao muda,
      mas quem for conferir com a lei na mao precisa saber disso. */
   if (servico && localIss?.observacao) {

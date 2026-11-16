@@ -336,3 +336,27 @@ process.exit(falhas ? 1 : 0);
   assert.notEqual(comErro.situacao, 'ok', 'divergência de ISS que muda o pagamento continua pesando');
   console.log('ok  gravidade por impacto na liquidação');
 }
+
+// ---------- Lei 966/2023: dedução de terceiros muda base e alíquota ----------
+{
+  const cad = { cnpj: '10781677000168', situacao: 'ATIVA', simples: false, fonte: 'RFB' };
+  const base = { origem: 'pdf', servico: true, modelo: 'nfse', valor: 10000, emissao: '2026-11-10',
+    municipioEmissor: '3126901', localPrestacao: '3126901', regimeNota: 'normal', issRetidoNota: true };
+
+  // serviço de intermediação: precisa perguntar, porque muda o que se retém
+  const agenc = conferir({ doc: { ...base, codigoServico: '10.05.00' }, cadastro: cad, hoje: '2026-11-16' });
+  const aviso = agenc.problemas.find(p => /admite dedução/.test(p.titulo));
+  assert.ok(aviso, 'serviço de intermediação precisa levantar a dedução');
+  assert.equal(aviso.nivel, 'alerta', 'muda o valor retido: é questão de pagamento');
+  assert.notEqual(aviso.impacto, 'declaracao');
+
+  // acima do teto de 95% é erro
+  const demais = conferir({ doc: { ...base, codigoServico: '10.05.00', deducaoTerceiros: 9600 },
+    cadastro: cad, hoje: '2026-11-16' });
+  assert.ok(demais.problemas.some(p => p.nivel === 'erro' && /acima do limite/.test(p.titulo)));
+
+  // serviço fora da lista não levanta nada
+  const manut = conferir({ doc: { ...base, codigoServico: '14.01.01' }, cadastro: cad, hoje: '2026-11-16' });
+  assert.ok(!manut.problemas.some(p => /dedução/.test(p.titulo)));
+  console.log('ok  dedução de terceiros (Lei 966/2023)');
+}

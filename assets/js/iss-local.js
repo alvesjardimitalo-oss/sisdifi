@@ -65,6 +65,33 @@ export const EXCECOES = [
 export const TERRITORIAIS = ['3.04', '22.01'];
 
 /**
+ * Serviços com dedução de valores pagos a terceiros na base de cálculo.
+ *
+ * Lei 966/2023, que acrescentou os §§ 15 e 16 ao art. 102 da Lei 883/2017:
+ * nos itens 10.01 a 10.08, 15.08 e 17.01, o que foi pago a terceiros, com
+ * documento fiscal ou comprovante eficaz, sai do preço do serviço — até o
+ * limite de 95% da base. Nessa hipótese aplica-se a ALÍQUOTA MÍNIMA.
+ *
+ * É regra de intermediação: quem agencia repassa a maior parte do valor e
+ * seria tributado sobre dinheiro que não é receita dele.
+ */
+export const DEDUCAO_TERCEIROS = {
+  subitens: ['10.01', '10.02', '10.03', '10.04', '10.05', '10.06', '10.07', '10.08', '15.08', '17.01'],
+  limitePercentual: 95,
+  fundamento: 'Lei 966/2023, que acrescentou o § 15 ao art. 102 da Lei 883/2017'
+};
+
+/** O serviço admite dedução de valores pagos a terceiros? */
+export function admiteDeducaoTerceiros(codigoServico = '') {
+  const { subitem } = partesDoCodigo(codigoServico);
+  if (!subitem) return null;
+  return DEDUCAO_TERCEIROS.subitens.some(x => {
+    const n = v => { const so = String(v).replace(/\D/g, ''); return Number(so.slice(0, 2)) + '.' + so.slice(2, 4); };
+    return n(x) === subitem;
+  });
+}
+
+/**
  * Normaliza "16.01.01", "1601", "16.01" ou "07.02" para item e subitem.
  *
  * O item sai sem zero à esquerda ("7", não "07") e o subitem no formato
