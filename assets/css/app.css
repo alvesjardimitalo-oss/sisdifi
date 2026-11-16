@@ -709,3 +709,19 @@ progress { width: 260px; vertical-align: middle; }
 .fiscal-falta .link:hover { text-decoration: none; }
 /* o campo apontado pisca uma vez, para o olho achar onde o botão levou */
 .campo-apontado { outline: 2px solid var(--link, #1d4ed8); outline-offset: 2px; border-radius: 6px; }
+
+/* ---- Entrada e resposta: o formulário fica fechado por padrão ---- */
+.fiscal-grade.fiscal-so-resposta { grid-template-columns: 1fr; }
+.fiscal-pergunta { display: grid; grid-template-columns: 1fr auto; gap: 10px 12px;
+  align-items: end; margin: 14px 0 0; padding: 14px 16px; border-radius: 10px;
+  border: 1px solid var(--borda); border-left: 3px solid var(--link, #1d4ed8); background: var(--cartao); }
+.fiscal-pergunta label { display: grid; gap: 5px; }
+.fiscal-pergunta label > span { font-weight: 600; }
+.fiscal-pergunta input { width: 100%; padding: 9px 11px; border: 1px solid var(--borda);
+  border-radius: 8px; font: inherit; }
+.fiscal-pergunta small { grid-column: 1 / -1; color: var(--muted); }
+.fiscal-ajustar { margin: 10px 0 0; }
+.fiscal-ajustar .link { background: none; border: 0; padding: 0; font: inherit;
+  color: var(--link, #1d4ed8); text-decoration: underline; cursor: pointer; }
+.fiscal-ajustar .link:hover { text-decoration: none; }
+@media (max-width: 640px) { .fiscal-pergunta { grid-template-columns: 1fr; } }
