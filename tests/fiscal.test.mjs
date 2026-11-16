@@ -1,4 +1,5 @@
 // Testes da conferência fiscal: node tests/fiscal.test.mjs
+import assert from 'node:assert/strict';
 import { verificarNatureza, itensDoCnae, aliquotaIss, mensagemFornecedor, descreverTributacao, lerCodigo, cnpjValido, lerXML, conferir, irNoTexto, consultarCnpj, normalizarCadastro, sugerirNatureza, optanteNaData } from '../assets/js/fiscal.js';
 let falhas = 0;
 const ok = (cond, msg) => { if (!cond) { falhas++; console.log('FALHA:', msg); } };
@@ -190,9 +191,6 @@ ok(vn.problemas.some(p => p.titulo.includes('locação de bem móvel')) && vn.pr
 ok(verificarNatureza({ doc: { codigoServico: '99.99' } }).problemas[0].nivel === 'erro', 'código inexistente é erro');
 r = conferir({ doc: { ...docT, descricaoServico: 'TRANSPORTE ESCOLAR ROTA 06' }, cadastro: locadora, hoje: '2026-11-03' });
 ok(r.verificacao.linhas.length >= 2 && tem(r, 'não corresponde à descrição'), 'verificação dentro da conferência');
-console.log(falhas ? `${falhas} falha(s)` : 'fiscal: todos os testes passaram');
-process.exit(falhas ? 1 : 0);
-
 // ---------- falta para o diagnóstico ----------
 {
   const { faltaParaDiagnostico } = await import('../assets/js/fiscal.js');
@@ -259,11 +257,11 @@ process.exit(falhas ? 1 : 0);
   assert.ok(errada.problemas.some(p => p.nivel === 'erro' && /manda reter o ISS aqui/.test(p.titulo)),
     'ISS retido pelo tomador em serviço que não é daqui tem que ser erro');
 
-  // obra (7.02) é exceção do inciso III: vale onde foi executada
+  // obra (7.02) é exceção da alínea "c" do art. 101: vale onde foi executada
   const obra = roda({ codigoServico: '07.02.00', issRetidoNota: true });
   assert.equal(obra.iss.aplica, true, 'obra executada aqui gera ISS aqui');
   assert.equal(obra.iss.valor, 500);
-  assert.match(obra.localIss.inciso, /^III$/);
+  assert.equal(obra.localIss.alinea ?? obra.localIss.inciso, 'c');
 
   // sem código não dá para aplicar a lei: cai no critério antigo em vez de chutar
   const semCodigo = roda({ codigoServico: '', issRetidoNota: true });
@@ -291,9 +289,14 @@ process.exit(falhas ? 1 : 0);
   assert.equal(linha.conferido, null, 'não é calculada: não se inventa um valor conferido');
   assert.equal(linha.diferenca, null, 'sem valor conferido não há diferença a apontar');
 
-  const aviso = r.problemas.find(p => /diferença de .* é a retenção/.test(p.titulo));
+  const aviso = r.problemas.find(p => /PIS\/COFINS\/CSLL/.test(p.titulo));
   assert.ok(aviso, 'a diferença precisa ser nomeada, não só medida');
-  assert.equal(aviso.nivel, 'alerta', 'não é erro do fornecedor: é retenção fora do escopo');
+  // Não trava a nota: a retenção é do emitente e não entra no cálculo do Município.
+  // Mas o texto tem de contrastar os dois valores, senão alguém paga o da nota.
+  assert.equal(aviso.nivel, 'info');
+  assert.equal(aviso.impacto, 'declaracao');
+  assert.ok(/1\.599,36/.test(aviso.solucao), 'diz o valor a pagar');
+  assert.ok(/1\.521,24/.test(aviso.solucao), 'e o valor impresso na nota, para contrastar');
   assert.ok(!r.problemas.some(p => /Valor líquido da nota/.test(p.titulo)),
     'não repete o erro genérico de líquido quando a diferença já está explicada');
 
@@ -328,7 +331,7 @@ process.exit(falhas ? 1 : 0);
   assert.match(carta, /Observação sobre o preenchimento da nota/);
   assert.ok(!/Providência solicitada/.test(carta),
     'sem divergência de pagamento não se pede providência');
-  assert.match(carta, /O crédito será de R\$ 1\.599,36/);
+  assert.match(carta, /O crédito será de R\$\s1\.599,36/);  // \s: moeda() usa espaço não separável
 
   // já um erro que muda o pagamento continua bloqueando
   const comErro = conferir({ doc: { ...nf42, codigoServico: '07.02.00', issRetidoNota: true, issValor: 10 },
@@ -360,3 +363,41 @@ process.exit(falhas ? 1 : 0);
   assert.ok(!manut.problemas.some(p => /dedução/.test(p.titulo)));
   console.log('ok  dedução de terceiros (Lei 966/2023)');
 }
+
+// ---------- Anexo II: alíquota por subitem, divergente da praticada ----------
+{
+  const cad = { cnpj: '10781677000168', situacao: 'ATIVA', simples: false, fonte: 'RFB' };
+  const base = { origem: 'pdf', servico: true, modelo: 'nfse', valor: 10000, emissao: '2026-11-10',
+    municipioEmissor: '3126901', localPrestacao: '3126901', regimeNota: 'normal', issRetidoNota: true };
+
+  // 17.05 (mão de obra): Anexo II diz 3%, o Município pratica 5%
+  const mo = conferir({ doc: { ...base, codigoServico: '17.05.00' }, cadastro: cad, hoje: '2026-11-16' });
+  assert.equal(mo.iss.aliquota, 5, 'o sistema não troca a alíquota sozinho');
+  const div = mo.problemas.find(p => /Anexo II prev/.test(p.titulo));
+  assert.ok(div, 'tem de avisar a divergência');
+  assert.equal(div.nivel, 'alerta');
+  assert.notEqual(div.impacto, 'declaracao', 'muda o valor retido: é pagamento');
+  assert.ok(/R\$\s?300,00/.test(div.solucao), 'mostra os 3% em reais');
+  assert.ok(/R\$\s?500,00/.test(div.solucao), 'mostra os 5% em reais');
+  assert.ok(/R\$\s?200,00/.test(div.solucao), 'mostra a diferença');
+
+  // 7.02 (obra): lei e prática coincidem, nada a avisar
+  const obra = conferir({ doc: { ...base, codigoServico: '07.02.00' }, cadastro: cad, hoje: '2026-11-16' });
+  assert.equal(obra.iss.aliquota, 5);
+  assert.ok(!obra.problemas.some(p => /Anexo II prev/.test(p.titulo)));
+
+  // cadastrando a alíquota da lei, o aviso some e a retenção muda
+  const cadastrada = conferir({ doc: { ...base, codigoServico: '17.05.00' }, cadastro: cad, hoje: '2026-11-16',
+    parametros: { issPorCodigo: { '17.05': 3 } } });
+  assert.equal(cadastrada.iss.aliquota, 3);
+  assert.equal(cadastrada.iss.valor, 300);
+  assert.ok(!cadastrada.problemas.some(p => /Anexo II prev/.test(p.titulo)));
+
+  // código que não existe na lista
+  const fora = conferir({ doc: { ...base, codigoServico: '88.88.00' }, cadastro: cad, hoje: '2026-11-16' });
+  assert.ok(fora.problemas.some(p => /não consta na lista do Anexo II/.test(p.titulo)));
+  console.log('ok  Anexo II (Lei 883/2017): alíquota por subitem');
+}
+
+console.log(falhas ? `${falhas} falha(s)` : 'fiscal: todos os testes passaram');
+process.exit(falhas ? 1 : 0);

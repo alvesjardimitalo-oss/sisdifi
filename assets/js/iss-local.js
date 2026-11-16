@@ -99,8 +99,9 @@ export function admiteDeducaoTerceiros(codigoServico = '') {
  * comparar os dois como texto cru não casa.
  */
 export function partesDoCodigo(codigo = '') {
-  const so = String(codigo || '').replace(/\D/g, '');
+  let so = String(codigo || '').replace(/\D/g, '');
   if (so.length < 3) return { item: '', subitem: '' };
+  if (so.length % 2) so = '0' + so;   // "702" é 7.02, não 70.2
   const item = String(Number(so.slice(0, 2)));
   return { item, subitem: item + '.' + so.slice(2, 4) };
 }
