@@ -2,19 +2,19 @@
 // SISDIFI — Conferência fiscal de notas de fornecedores (motor de regras, sem tela)
 // Lê o código de barras / chave / CNPJ / XML, consulta o CNPJ e confere, para a liquidação:
 //   • Simples Nacional (opção na data da nota)          • IRRF — IN RFB 1.234/2012 (redação da IN RFB 2.145/2023)
-//   • ISSQN — Frei Inocêncio/MG, alíquota de 5%         • CBS e IBS — LC 214/2025 (ano-teste 2026 e transição)
+//   • ISSQN — Frei Inocêncio/MG, 3% ou 5% por subitem    • CBS e IBS — LC 214/2025 (ano-teste 2026 e transição)
 // Aponta cada divergência da nota com o que fazer para resolver.
 // =============================================================
 
 /** Município do órgão (tomador). Código IBGE de Frei Inocêncio/MG. */
 import { issDevidoAqui, ONDE as ISS_ONDE, admiteDeducaoTerceiros, DEDUCAO_TERCEIROS } from './iss-local.js';
-import { aliquotaAnexo, FUNDAMENTO_ANEXO_II } from './iss-anexo2.js';
+import { aliquotaAnexo, ANEXO_II, FUNDAMENTO_ANEXO_II, ANEXO_II_CURTO } from './iss-anexo2.js';
 
 export const MUNICIPIO = { nome: 'Frei Inocêncio', uf: 'MG', ibge: '3126901' };
 
 /** ISSQN das notas emitidas no município. */
 export const ISS = {
-  aliquota: 5,             // usada só quando o código não está no Anexo II da Lei 883/2017
+  aliquota: 5,             // só para código fora da lista do Anexo II (a alíquota vem de lá)
   retemOrgao: true,        // o Município, como tomador, retém o ISS das notas emitidas no município
   minimoSimples: 2,        // LC 123/2006: alíquota do ISS no Simples fica entre 2% e 5%
   maximoSimples: 5
@@ -25,18 +25,17 @@ export const ISS = {
  *   1. exceção cadastrada em config/fiscal (mais específica primeiro: 16.01.01 > 16.01 > 16).
  *      Fica acima da lei de propósito: se uma lei posterior mudar uma alíquota,
  *      Tributos cadastra ali sem esperar atualização do sistema.
- *   2. Anexo II da Lei 883/2017 — SÓ quando parametros.usarAnexoII estiver ligado.
- *      Desligado por padrão de propósito: o Município pratica 5% hoje, e trocar a
- *      alíquota muda o valor retido. Ligar é decisão da Contabilidade, não do sistema.
- *   3. padrão de 5%.
- * Em qualquer caso o retorno traz `anexo`, para a conferência avisar quando a
- * alíquota praticada divergir da que está na lei.
- * parametros = { issPadrao, usarAnexoII, issPorCodigo: { '16.01': 2.5, … } }.
+ *   2. tabela do Município, na data da emissão: o Anexo II da Lei 883/2017,
+ *      conferido contra o cadastro do Município no Emissor Nacional da NFS-e.
+ *      As duas fontes batem em 197 dos 199 subitens, e é essa alíquota que o
+ *      Emissor Nacional imprime na nota — por isso ela vale, e não um padrão fixo.
+ *   3. padrão, só para código fora da lista (ou nota sem código de serviço).
+ * parametros = { issPadrao, issPorCodigo: { '16.01': 2.5, … } }.
  */
-export function aliquotaIss(codigo, parametros = null) {
+export function aliquotaIss(codigo, parametros = null, emissao = '') {
   const padrao = Number(parametros?.issPadrao) > 0 ? Number(parametros.issPadrao) : ISS.aliquota;
   const tabela = parametros?.issPorCodigo || {};
-  const lei = aliquotaAnexo(codigo);
+  const lei = aliquotaAnexo(codigo, emissao);
   const anexo = lei && !lei.vetado ? lei.aliquota : null;
   const vetado = lei && lei.vetado ? lei.subitem : null;
   const sub = lei ? lei.subitem : null;
@@ -48,7 +47,7 @@ export function aliquotaIss(codigo, parametros = null) {
       return { aliquota: Number(tabela[chave]), excecao: chave, fonte: 'cadastro', anexo, subitem: sub, vetado };
     }
   }
-  if (parametros?.usarAnexoII && anexo) return { aliquota: anexo, excecao: null, fonte: 'lei', anexo, subitem: sub, vetado };
+  if (anexo) return { aliquota: anexo, excecao: null, fonte: 'lei', anexo, subitem: sub, vetado, anterior: !!lei.anterior, ate: lei.ate };
   return { aliquota: padrao, excecao: null, fonte: 'padrao', anexo, subitem: sub, vetado };
 }
 
@@ -558,7 +557,7 @@ export function faltaParaDiagnostico(doc = {}) {
 }
 
 export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual = '', hoje = new Date().toISOString().slice(0, 10), chave = null, parametros = null } = {}) {
-  const issMun = aliquotaIss(doc.codigoServico, parametros);
+  const issMun = aliquotaIss(doc.codigoServico, parametros, doc.emissao);
   const ISS_ALIQ = issMun.aliquota;
   const nat = natureza(naturezaId) || natureza(sugerirNatureza(doc));
   const problemas = [];
@@ -734,26 +733,20 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
         iss.aliquota = ISS_ALIQ;
         iss.motivo = `Não optante, serviço prestado em ${MUNICIPIO.nome}: ISS de ${pct(ISS_ALIQ)}${
           issMun.fonte === 'cadastro' ? ` (alíquota cadastrada para o código ${issMun.excecao})`
-          : issMun.fonte === 'lei' ? ` (subitem ${issMun.subitem} do ${FUNDAMENTO_ANEXO_II})`
+          : issMun.fonte === 'lei' ? ` (subitem ${issMun.subitem} do ${ANEXO_II_CURTO})`
           : ''} retido pelo Município (tomador)`;
-        // A alíquota praticada é 5%; o Anexo II prevê 3% para boa parte dos subitens.
-        // Enquanto a Contabilidade não decidir, o sistema retém 5% e avisa a divergência:
-        // ela muda o valor retido, então é alerta de pagamento, não recado ao emitente.
         if (issMun.vetado) {
           add('alerta', `O subitem ${issMun.vetado} foi vetado no Anexo II`, `Não há alíquota na lei para esse código, e a nota pode estar com o código errado. Confirme o serviço com o fornecedor e com o setor de Tributos antes de liquidar; por ora o cálculo usa ${pct(ISS_ALIQ)}.`, FUNDAMENTO_ANEXO_II);
-        } else if (issMun.anexo != null && difere(issMun.anexo, ISS_ALIQ, 0.001)) {
-          const naLei = r2(valor * issMun.anexo / 100);
-          const praticada = r2(valor * ISS_ALIQ / 100);
-          add('alerta',
-            `O Anexo II prevê ${pct(issMun.anexo)} para o subitem ${issMun.subitem}, e o Município está retendo ${pct(ISS_ALIQ)}`,
-            `Pela alíquota da lei seriam ${moeda(naLei)}; pela praticada, ${moeda(praticada)} — diferença de ${moeda(Math.abs(praticada - naLei))} nesta nota. Leve a Tributos antes de liquidar. Se ${pct(issMun.anexo)} for mesmo a alíquota devida, cadastre-a em "Alíquotas do ISS" nesta tela; se houver lei posterior que mudou o Anexo, me envie que eu atualizo a tabela.`,
-            FUNDAMENTO_ANEXO_II);
-        } else if (issMun.fonte === 'padrao' && issMun.anexo == null && String(doc.codigoServico || '').trim()) {
-          add('alerta', `Código ${doc.codigoServico} não consta na lista do Anexo II`, `A alíquota usada (${pct(ISS_ALIQ)}) é a padrão do sistema, não a da lei. Confirme o código do serviço com o fornecedor; se o código estiver certo, peça a Tributos o enquadramento e cadastre a alíquota em "Alíquotas do ISS" nesta tela.`, FUNDAMENTO_ANEXO_II);
+        } else if (issMun.fonte === 'padrao' && String(doc.codigoServico || '').trim()) {
+          add('alerta', `Código ${doc.codigoServico} não consta na lista do Anexo II`, `A alíquota usada (${pct(ISS_ALIQ)}) é a padrão do sistema, não a do Município. Confirme o código do serviço com o fornecedor; se o código estiver certo, peça a Tributos o enquadramento e cadastre a alíquota em "Alíquotas do ISS" nesta tela.`, FUNDAMENTO_ANEXO_II);
+        } else if (issMun.anterior) {
+          /* Nota antiga: vale a alíquota da época, não a de hoje. Dizer isso
+             evita que alguém "corrija" a nota para a alíquota atual. */
+          add('info', `Alíquota de ${pct(ISS_ALIQ)} pela vigência na data da emissão`, `O subitem ${issMun.subitem} mudou de alíquota depois desta nota (a partir de ${new Date(issMun.ate + 'T12:00:00').toLocaleDateString('pt-BR')} passou a ser ${pct(ANEXO_II[issMun.subitem])}). A nota é regida pela alíquota vigente quando foi emitida.`, FUNDAMENTO_ANEXO_II, 'declaracao');
         }
         const trib = descreverTributacao(doc.codigoServico);
         if (trib?.issNoLocal) iss.motivo += ` — subitem ${trib.subitem.slice(0, 2)}.${trib.subitem.slice(2)}: ISS devido no local da prestação (LC 116/2003, art. 3º)`;
-        if (doc.issAliquota != null && doc.issAliquota !== 0 && difere(doc.issAliquota, ISS_ALIQ, 0.001)) add('erro', `Alíquota de ISS na nota (${pct(doc.issAliquota)}) diferente da do município (${pct(ISS_ALIQ)})`, `O fornecedor não é do Simples: o ISS em ${MUNICIPIO.nome} é de ${pct(ISS_ALIQ)}${issMun.fonte === 'lei' ? ` para o subitem ${issMun.subitem}, pelo ${FUNDAMENTO_ANEXO_II}` : issMun.excecao ? ' para este código' : ''}. Retenha ${pct(ISS_ALIQ)} e peça a nota substituta com a alíquota correta.${doc.modelo === 'nfse' && String(doc.incidencia || '') === MUNICIPIO.ibge ? ` Atenção: na NFS-e Nacional com incidência em ${MUNICIPIO.nome}, a alíquota é puxada do cadastro do próprio Município no Emissor Nacional — confirme com o setor de Tributos. Se a lei municipal prevê ${pct(doc.issAliquota)} para este serviço, cadastre a exceção em "Alíquotas do ISS" nesta tela; se não, Tributos deve corrigir o cadastro no Painel Municipal da NFS-e.` : ''}`);
+        if (doc.issAliquota != null && doc.issAliquota !== 0 && difere(doc.issAliquota, ISS_ALIQ, 0.001)) add('erro', `Alíquota de ISS na nota (${pct(doc.issAliquota)}) diferente da do município (${pct(ISS_ALIQ)})`, `O fornecedor não é do Simples: o ISS em ${MUNICIPIO.nome} é de ${pct(ISS_ALIQ)}${issMun.fonte === 'lei' ? ` para o subitem ${issMun.subitem}, pelo ${ANEXO_II_CURTO}` : issMun.excecao ? ' para este código' : ''}. Retenha ${pct(ISS_ALIQ)} e peça a nota substituta com a alíquota correta.${doc.modelo === 'nfse' && String(doc.incidencia || '') === MUNICIPIO.ibge ? ` Atenção: na NFS-e Nacional com incidência em ${MUNICIPIO.nome}, a alíquota é puxada do cadastro do próprio Município no Emissor Nacional — confirme com o setor de Tributos. Se a lei municipal prevê ${pct(doc.issAliquota)} para este serviço, cadastre a exceção em "Alíquotas do ISS" nesta tela; se não, Tributos deve corrigir o cadastro no Painel Municipal da NFS-e.` : ''}`);
       }
       iss.valor = r2(valor * iss.aliquota / 100);
       iss.reter = ISS.retemOrgao;
