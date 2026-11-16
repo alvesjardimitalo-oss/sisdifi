@@ -225,16 +225,43 @@ assert.equal(micheleReal.achados[0].beneficio,178237);
 assert.equal(micheleReal.achados[0].inss,13609);
 assert.equal(micheleReal.avisos.length,0,micheleReal.avisos.join('; '));
 // Nunca usar 002.004 como lotação para uma OP, mesmo com maternidade identificada.
-const semUltimoNivel=sugerirMaternidadesDaFolha([
+// '002.004' é secretaria e fica abaixo do piso de três níveis em qualquer caso.
+const soSecretaria=sugerirMaternidadesDaFolha([
+ 'LOTAÇÃO: 002 - PREF. MUNIC. DE FREI INOCENCIO',
+ '002.004 - SECRETARIA MUNIC. DE EDUCACAO',
+ '005054 /1 MICHELE LOPES GONÇALVES 1_20 / 0073 - MONITOR',
+ '163 P SALARIO MATERNIDADE 30,00 1.782,37',
+ '201 P I.N.S.S. 136,09'
+]);
+assert.equal(soSecretaria.achados[0].lotacao,'');
+assert.ok(soSecretaria.avisos.some(x=>x.includes('somente prefixo')));
+
+// '002.004.215' tem três níveis, mas é a AÇÃO da creche, não lotação — as reais
+// são 002.004.215.00001 e .00003. Já '002.016.002' é lotação de verdade com três
+// níveis. Profundidade não distingue os dois: quem distingue é o resumo de verbas,
+// que lista as lotações existentes. Passando esse conjunto, a ação é recusada.
+const conhecidas=new Set(['002.004.215.00001','002.016.002']);
+const acaoNaoEhLotacao=sugerirMaternidadesDaFolha([
  'LOTAÇÃO: 002 - PREF. MUNIC. DE FREI INOCENCIO',
  '002.004 - SECRETARIA MUNIC. DE EDUCACAO',
  '002.004.215 - MANUTENÇAO CRECHE 70%',
  '005054 /1 MICHELE LOPES GONÇALVES 1_20 / 0073 - MONITOR',
  '163 P SALARIO MATERNIDADE 30,00 1.782,37',
  '201 P I.N.S.S. 136,09'
-]);
-assert.equal(semUltimoNivel.achados[0].lotacao,'');
-assert.ok(semUltimoNivel.avisos.some(x=>x.includes('somente prefixo')));
+],conhecidas);
+assert.equal(acaoNaoEhLotacao.achados[0].lotacao,'','a ação da creche não pode virar lotação de OP');
+assert.ok(acaoNaoEhLotacao.avisos.some(x=>x.includes('não encontrado')));
+
+const tresNiveisReal=sugerirMaternidadesDaFolha([
+ 'LOTAÇÃO: 002 - PREF. MUNIC. DE FREI INOCENCIO',
+ '002.016 - SECRETARIA MUNIC. DE LIMPEZA URBANA',
+ '002.016.002 - PESSOAL EFETIVO',
+ '007001 /3 MARIA APARECIDA SOUZA 1_20 / 0073 - AUXILIAR',
+ '163 P SALARIO MATERNIDADE 30,00 1.782,37',
+ '201 P I.N.S.S. 136,09'
+],conhecidas);
+assert.equal(tresNiveisReal.achados[0].lotacao,'002.016.002','lotação real de três níveis é completa');
+assert.equal(tresNiveisReal.avisos.length,0,tresNiveisReal.avisos.join('; '));
 
 const pessoa=sugerirMaternidadesDaFolha([
 'LOTAÇÃO:',

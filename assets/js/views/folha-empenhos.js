@@ -5,7 +5,7 @@ import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificaca
 import {esc,toast} from '../ui.js';
 import {analisarResumoVerbas,analisarResumoConsolidado,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha} from '../folha-empenhos.js';
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
-import {sugerirMaternidadesDaFolha,consolidarMaternidade} from '../folha-maternidade.js';
+import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js';
 import {carregarRegistroFolha,salvarRegistroFolha} from '../folha-empenhos-store.js';
 import {carregarMes} from '../consignacoes-mensal.js?v=3.13.0.357fc820';
@@ -346,7 +346,9 @@ export function telaFolhaEmpenhos(el){
         // Se o mesmo PDF também contém folha nominal, identifica as servidoras
         // sem exigir novo upload. Se não contém, sinaliza a pendência sem inventar INSS.
         if(tipo==='automatico'&&linhas.some(x=>/\b\d{5,8}\s*\/\s*\d+\s+.+/.test(x.texto||''))){
-          const identificadas=sugerirMaternidadesDaFolha(linhas);
+          // O resumo diz quais lotações existem de verdade; sem ele a leitura
+          // teria de adivinhar se um código de 3 níveis é lotação ou ação.
+          const identificadas=sugerirMaternidadesDaFolha(linhas,lotacoesDoResumo([arquivos.principal]));
           if(identificadas.achados.length){
             pessoas=identificadas.achados;
             origemIndividual=f.name;
@@ -357,7 +359,7 @@ export function telaFolhaEmpenhos(el){
         $('#fe-confirmar-mapa').checked=false;$('#fe-confirmar-bancos').checked=false;
         status('Folha gerada a partir de '+f.name+': '+analisado.quantidade+' empenhos por lotação, mais adiantamentos identificados. Ordem original preservada. Informe ficha e fonte.');
       } else if(tipo==='nominal'){
-        const candidatos=sugerirMaternidadesDaFolha(linhas);
+        const candidatos=sugerirMaternidadesDaFolha(linhas,lotacoesDoResumo([arquivos.principal]));
         const matriculasImportadas=new Set(candidatos.achados.map(c=>c.matricula));
         // Reimportação corrige registros antigos que ficaram vinculados a "002.004".
         // Preserva registros manuais e registros de outras matrículas.

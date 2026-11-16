@@ -7,14 +7,38 @@ const texto=o=>String(typeof o==='string'?o:o?.texto||'').trim();
 const pagina=o=>typeof o==='string'?1:o?.pagina||1;
 const dinheiro=/^-?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}$/;
 const matricula=/^(\d{4,8})\s*\/\s*\d+\s+(.+)$/;
-// Exige a hierarquia completa (4 níveis ou mais); '002.004' é secretaria,
-// não a lotação do empenho. Captura códigos mesmo com espaços dos PDFs.
-const lotacaoCompleta=/\b(\d{3}(?:\s*\.\s*\d+){3,})\b/g;
+// A lotação do empenho tem 3 OU 4 níveis, e as duas formas são completas.
+// Em '002.004.215.00001' o 3º nível é a ação e o 4º a categoria; em
+// '002.016.002' a hierarquia pula a ação e o 3º nível já é a categoria
+// ('PESSOAL EFETIVO'). Exigir quatro níveis fazia o relatório acusar
+// "código completo não encontrado" em 10 das 93 lotações reais — e a
+// servidora não entrava no empenho. '002' é órgão e '002.004' é secretaria:
+// esses sim são prefixo. Então o piso é 3 níveis e vale o mais profundo que
+// aparecer no cabeçalho antes do primeiro servidor.
+const PISO_NIVEIS=3;
+const codigoLotacao=/\b(\d{3}(?:\s*\.\s*\d+)+)\b/g;
 const limparLotacao=v=>String(v||'').replace(/\s+/g,'');
-function localizarLotacaoCompleta(linha){
-  const achados=[...String(linha||'').matchAll(lotacaoCompleta)];
-  return achados.sort((a,b)=>b[1].split('.').length-a[1].split('.').length)[0]?.[1]
-    ? limparLotacao(achados[0][1]) : '';
+const niveis=v=>limparLotacao(v).split('.').length;
+/**
+ * Código de lotação na linha.
+ * Quem decide o que é lotação é o resumo de verbas, que lista as reais: quando
+ * `conhecidas` é informado, só vale código que está lá. '002.004.215' é o nível
+ * da ação da creche e seria recusado; '002.016.002' é lotação de verdade e passa.
+ * Sem o resumo em mãos, vale o mais profundo da linha a partir do piso — o
+ * cabeçalho da folha sempre desce até o último nível.
+ */
+function localizarLotacaoCompleta(linha,conhecidas=null){
+  const achados=[...String(linha||'').matchAll(codigoLotacao)]
+    .map(m=>limparLotacao(m[1]))
+    .filter(c=>niveis(c)>=PISO_NIVEIS)
+    .sort((a,b)=>niveis(b)-niveis(a));
+  if(conhecidas&&conhecidas.size)return achados.find(c=>conhecidas.has(c))||'';
+  return achados[0]||'';
+}
+/** Lotações reais, extraídas dos registros do resumo de verbas. */
+export function lotacoesDoResumo(resumos=[]){
+  return new Set((resumos||[]).filter(Boolean)
+    .flatMap(a=>a.registros||[]).map(r=>limparLotacao(r.lotacao)).filter(Boolean));
 }
 const verba=/^(\d{2,4})\s+([A-Z])\s+(.+)$/i;
 const normalizar=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
@@ -30,7 +54,7 @@ function valoresRubrica(l){
   if(!finais.length)return null;
   return {codigo:v[1],tipo:v[2],descricao:v[3],valor:centavosFolha(finais.at(-1))};
 }
-export function sugerirMaternidadesDaFolha(linhas){
+export function sugerirMaternidadesDaFolha(linhas,conhecidas=null){
   const achados=[],avisos=[];
   let pessoa=null,lotacaoAtual='',emCabecalho=false,ultimaPagina=1;
   let ultimoPrefixo='',ultimaPaginaLotacao=0;
@@ -55,19 +79,23 @@ export function sugerirMaternidadesDaFolha(linhas){
       ultimoPrefixo='';
       emCabecalho=true;
       ultimaPaginaLotacao=pagina(item);
-      const codigo=localizarLotacaoCompleta(s);
+      const codigo=localizarLotacaoCompleta(s,conhecidas);
       if(codigo)lotacaoAtual=codigo;
       continue;
     }
-    // Nos PDFs do RH há quatro níveis em linhas distintas: 002, 002.004,
-    // 002.004.215, 002.004.215.00001. NÃO usar um nível parcial.
-    // Não exigir hífen, pois o pdf.js pode separar descrição e código.
+    /* O cabeçalho traz um nível por linha: 002, 002.004, 002.004.215 e às
+       vezes 002.004.215.00001. Vale o mais profundo; o que ficar abaixo do
+       piso é prefixo (órgão, secretaria) e nunca é a lotação do empenho.
+       Não exigir hífen, pois o pdf.js pode separar descrição e código. */
     if(emCabecalho){
-      const codigo=localizarLotacaoCompleta(s);
-      if(codigo){lotacaoAtual=codigo;ultimoPrefixo='';continue;}
-      const parcial=s.match(/\b(\d{3}(?:\s*\.\s*\d+){1,2})\b/);
-      if(parcial){
-        ultimoPrefixo=limparLotacao(parcial[1]);
+      const codigo=localizarLotacaoCompleta(s,conhecidas);
+      if(codigo){
+        if(!lotacaoAtual||niveis(codigo)>niveis(lotacaoAtual)){lotacaoAtual=codigo;ultimoPrefixo='';}
+        continue;
+      }
+      const parcial=s.match(codigoLotacao);
+      if(parcial&&niveis(parcial[0])<PISO_NIVEIS){
+        ultimoPrefixo=limparLotacao(parcial[0]);
         continue;
       }
     }
