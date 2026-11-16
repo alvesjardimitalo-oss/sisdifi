@@ -12,7 +12,16 @@
 // inteiro para uma fonte ou para a outra, e o número do empenho não muda.
 import { dinheiroFolha } from './folha-empenhos.js';
 
-export const FONTES_FUNDEB = ['1.540.000.0000', '1.542.000.0000'];
+/* Fontes escritas no código curto de quatro dígitos, como a Contabilidade as
+   digita no empenho. A LOA imprime a máscara cheia ("1.540.000.0000"), e a
+   comparação abaixo reconhece as duas formas. */
+export const FONTES_FUNDEB = ['1540', '1542'];
+/* Recurso próprio vinculado ao pactuado da LOA: 1001 é o mínimo da educação
+   (25%) e 1002 o da saúde (15%). A fonte 1500 é o não vinculado, e é o que a
+   LOA publica nas fichas dessas duas áreas — a vinculação aparece no empenho. */
+export const FONTE_EDUCACAO_PROPRIA = '1001';
+export const FONTE_SAUDE_PROPRIA = '1002';
+export const FONTE_NAO_VINCULADA = '1500';
 
 /* Fichas espelho, conferidas na LOA 2026: a mesma ação no Fundo de Educação,
    em recurso próprio. Transporte Escolar está de fora de propósito — no Fundo
@@ -28,12 +37,16 @@ export const ESPELHO_RECURSO_PROPRIO = {
   '198': { ficha: '158', acao: 'Manutenção Educação Jovens e Adultos — recurso próprio' },
   '199': { ficha: '159', acao: 'Manutenção Educação Jovens e Adultos — recurso próprio' }
 };
-export const FONTE_RECURSO_PROPRIO = '1.500.000.0000';
 
+
+/* Código da fonte: os quatro primeiros dígitos. Vale para "1540" e para
+   "1.540.000.0000", e não confunde 1500 com 150 — cortar zeros à direita
+   confundiria. */
+export const codigoFonte = v => String(v || '').replace(/\D/g, '').slice(0, 4);
 /** Compara fonte ignorando pontuação: "1540" e "1.540.000.0000" são a mesma. */
 export const mesmaFonte = (a, b) => {
-  const so = v => String(v || '').replace(/\D/g, '').replace(/0+$/, '') || '0';
-  return so(a) === so(b) && so(a) !== '0';
+  const x = codigoFonte(a);
+  return !!x && x.length === 4 && x === codigoFonte(b);
 };
 export const ehFundeb = fonte => FONTES_FUNDEB.some(f => mesmaFonte(f, fonte));
 
@@ -98,10 +111,10 @@ export function ratearPorSaldo(empenhos = [], saldos = {}) {
       return e;
     }
     movidos.push({ empenho: e.empenho, lotacao: e.lotacao, bruto,
-      de: { ficha: e.ficha, fonte: e.fonte }, para: { ficha: espelho.ficha, fonte: FONTE_RECURSO_PROPRIO },
+      de: { ficha: e.ficha, fonte: e.fonte }, para: { ficha: espelho.ficha, fonte: FONTE_EDUCACAO_PROPRIA },
       acao: espelho.acao });
-    gastar(FONTE_RECURSO_PROPRIO, bruto);
-    return { ...e, ficha: espelho.ficha, fonte: FONTE_RECURSO_PROPRIO,
+    gastar(FONTE_EDUCACAO_PROPRIA, bruto);
+    return { ...e, ficha: espelho.ficha, fonte: FONTE_EDUCACAO_PROPRIA,
       lotacaoOrcamentaria: espelho.acao, fichaSugerida: true, confiancaFicha: 'confirmada',
       motivoFicha: 'Movido do FUNDEB por falta de saldo: ficha espelho em recurso próprio.',
       origemFonte: 'rateio por saldo' };

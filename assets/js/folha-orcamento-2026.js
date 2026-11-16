@@ -129,14 +129,19 @@ export function classificacaoPessoal(naturezas=[]){
 
 /** Educação: regra confirmada pela Contabilidade, pelo 3º nível da lotação. */
 export const DESDOBRAMENTO_PADRAO='0000';
+export const FONTE_NAO_VINCULADA='1500';
+export const FONTE_EDUCACAO_PROPRIA='1001';
+export const FONTE_SAUDE_PROPRIA='1002';
+/** Fonte no código curto de quatro dígitos, como vai no empenho. */
+export const codigoCurto=v=>String(v||'').replace(/\D/g,'').slice(0,4);
 export const EDUCACAO_2026={
- '002.004.214':{'04':'107','11':'108',fonte:'1.500.000.0000',desdobramento:'0000',nome:'Secretaria de Educação'},
- '002.004.215':{'04':'186','11':'187',fonte:'1.540.000.0000',desdobramento:'1071',nome:'Creche 70%'},
- '002.004.217':{'04':'173','11':'174',fonte:'1.540.000.0000',desdobramento:'1071',nome:'Ensino Fundamental 70%'},
- '002.004.219':{'04':'191','11':'192',fonte:'1.540.000.0000',desdobramento:'1071',nome:'Ensino Infantil 70%'},
- '002.004.221':{'04':'173','11':'174',fonte:'1.540.000.0000',desdobramento:'0000',nome:'Ensino Fundamental 30%'},
- '002.004.223':{'04':'179','11':'180',fonte:'1.540.000.0000',desdobramento:'0000',nome:'Transporte Escolar'},
- '002.004.230':{'04':'173','11':'174',fonte:'1.540.000.0000',desdobramento:'1073',nome:'Ensino Tempo Integral'}
+ '002.004.214':{'04':'107','11':'108',fonte:'1001',desdobramento:'0000',nome:'Secretaria de Educação'},
+ '002.004.215':{'04':'186','11':'187',fonte:'1540',desdobramento:'1071',nome:'Creche 70%'},
+ '002.004.217':{'04':'173','11':'174',fonte:'1540',desdobramento:'1071',nome:'Ensino Fundamental 70%'},
+ '002.004.219':{'04':'191','11':'192',fonte:'1540',desdobramento:'1071',nome:'Ensino Infantil 70%'},
+ '002.004.221':{'04':'173','11':'174',fonte:'1540',desdobramento:'0000',nome:'Ensino Fundamental 30%'},
+ '002.004.223':{'04':'179','11':'180',fonte:'1540',desdobramento:'0000',nome:'Transporte Escolar'},
+ '002.004.230':{'04':'173','11':'174',fonte:'1540',desdobramento:'1073',nome:'Ensino Tempo Integral'}
 };
 const SEM_PESO=new Set(['DE','DA','DO','DAS','DOS','E','MANUT','MANUTENCAO','MANUETENCAO',
  'ATIV','ATIVIDADES','ATIVID','SECRET','SECRETARIA','MUNICIPAL','MUNIC','PREF']);
@@ -156,13 +161,34 @@ const parecenca=(a,b)=>{const A=new Set(palavras(a)),B=new Set(palavras(b));
    trabalha, e em 2026 é a 303 da Ação Social. Nenhuma das três é despesa de
    pessoal ativo, então não têm par 04/11 e ficam fora do casamento por nome. */
 export const FICHAS_FIXAS_2026={
- aposentadoria:{ficha:'81',natureza:'3.1.90.01.00',fonte:'1.500.000.0000',
+ aposentadoria:{ficha:'81',natureza:'3.1.90.01.00',fonte:'1500',
    nome:'Aposentadorias, reserva remunerada e reforma',unidade:'Secretaria Municipal de Administração'},
- pensao:{ficha:'82',natureza:'3.1.90.03.00',fonte:'1.500.000.0000',
+ pensao:{ficha:'82',natureza:'3.1.90.03.00',fonte:'1500',
    nome:'Pensões',unidade:'Secretaria Municipal de Administração'},
  estagio:{ficha:'303',natureza:'3.3.90.36.00',fonte:'',
    nome:'Bolsa de estágio (outros serviços de terceiros, pessoa física)',unidade:'Secretaria Municipal de Ação Social'}
 };
+/* Área da ficha pelo nome da unidade e da ação. Serve só para resolver o
+   pactuado da fonte; a ficha em si vem do catálogo. */
+const EDUCACAO_NOME=/EDUCA|ENSINO|CRECHE|PRE ESCOLA|ESCOLAR|FUNDEB|JOVENS E ADULTOS/;
+const SAUDE_NOME=/SAUDE|HOSPITAL|VIGILANCIA|SAMU|FARMACIA|ATENCAO BASICA|ODONTOLOG|EPIDEMIOLOG/;
+/**
+ * Fonte da ficha, já com o pactuado quando ela só admite recurso próprio.
+ * A LOA publica 1.500.000.0000 nas fichas de educação e saúde pagas com
+ * imposto, mas o empenho leva a vinculação: 1001 no mínimo da educação (25%)
+ * e 1002 no da saúde (15%). Ficha com mais de uma fonte não é resolvida aqui —
+ * depende de onde o dinheiro entrou, e quem decide é a Contabilidade.
+ */
+export function fonteDaFicha(ficha){
+ const fontes=ficha?.fontes||[];
+ if(fontes.length!==1)return '';
+ const curta=codigoCurto(fontes[0]);
+ if(curta!==FONTE_NAO_VINCULADA)return curta;
+ const nome=normalizar((ficha.unidade||'')+' '+(ficha.acao||''));
+ if(EDUCACAO_NOME.test(nome))return FONTE_EDUCACAO_PROPRIA;
+ if(SAUDE_NOME.test(nome))return FONTE_SAUDE_PROPRIA;
+ return curta;
+}
 /** Aposentadoria e pensão dividem a mesma ação: quem separa é o nível do vínculo. */
 function fichaFixaDoVinculo(vinculo='',acao=''){
  for(const t of [vinculo,acao]){
@@ -233,9 +259,49 @@ export function sugerirFichaDaLotacao(registro={}){
    return {...vazio,ficha:melhor?.f.ficha||'',confianca:'incerta',
      motivo:'Nenhuma ação do orçamento se parece com "'+(acao||unidade)+'".'};
  const folga=melhor.p-(pontuadas[1]?.p||0);
- const fonte=melhor.f.fontes.length===1?melhor.f.fontes[0]:'';
+ const fonte=melhor.f.fontes.length===1?fonteDaFicha(melhor.f):'';
  return {ficha:melhor.f.ficha,fonte,desdobramento:DESDOBRAMENTO_PADRAO,elemento,
    confianca:folga>0.25?'provavel':'incerta',
    motivo:(folga>0.25?'':'Empate com outra ação. ')+'Ficha '+melhor.f.ficha+' — '+melhor.f.acao+
      (fonte?'':' (a ficha admite mais de uma fonte: informar).')};
+}
+
+/* Nome de cada fonte, como a LOA 2026 as descreve. Saúde tem várias e a
+   escolha depende de onde o dinheiro entrou — farmácia, vigilância sanitária e
+   atenção básica podem sair pela 1621, do Estado, por exemplo. O sistema não
+   adivinha isso: oferece a lista e a Contabilidade escolhe. */
+export const NOMES_FONTE={
+ '1001':'Educação — pactuado 25% (MDE)',
+ '1002':'Saúde — pactuado 15% (ASPS)',
+ '1500':'Recursos não vinculados de impostos',
+ '1540':'Transferências do FUNDEB — impostos',
+ '1542':'Transferências do FUNDEB — complementação da União',
+ '1550':'Transferência do Salário-Educação',
+ '1600':'Transferência Fundo a Fundo SUS — Governo Federal',
+ '1604':'Agentes Comunitários de Saúde — Governo Federal',
+ '1605':'Assistência financeira da União — complementação do piso',
+ '1621':'Transferência Fundo a Fundo SUS — Governo Estadual',
+ '1660':'Fundo Nacional de Assistência Social'
+};
+
+/**
+ * Fontes do catálogo em código curto, para autocompletar o campo do empenho.
+ * A 1500 das áreas de educação e saúde aparece como o pactuado (1001 e 1002),
+ * que é o que vai no empenho; as demais ficam como a LOA traz.
+ */
+export function fontesParaEscolher(){
+ const vistas=new Set();
+ for(const f of FICHAS_PESSOAL_2026){
+  const nome=normalizar((f.unidade||'')+' '+(f.acao||''));
+  for(const bruta of f.fontes||[]){
+   const curta=codigoCurto(bruta);
+   if(curta!==FONTE_NAO_VINCULADA){ vistas.add(curta); continue; }
+   if(EDUCACAO_NOME.test(nome))vistas.add(FONTE_EDUCACAO_PROPRIA);
+   else if(SAUDE_NOME.test(nome))vistas.add(FONTE_SAUDE_PROPRIA);
+   else vistas.add(FONTE_NAO_VINCULADA);
+  }
+ }
+ // A 1500 segue disponível: há despesa de educação e saúde fora do pactuado.
+ vistas.add(FONTE_NAO_VINCULADA);
+ return [...vistas].sort().map(codigo=>({codigo,rotulo:NOMES_FONTE[codigo]||''}));
 }

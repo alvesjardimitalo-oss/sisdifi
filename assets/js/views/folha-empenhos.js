@@ -1,13 +1,13 @@
 // SISDIFI — Folha de pagamentos: geração de relação prévia de empenhos.
 // Exclusivo de Contabilidade/ADM. Não grava dados de folha no Firebase.
 import {estado,pode} from '../estado.js';
-import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificacaoPessoal,sugerirFichaDaLotacao,FICHAS_PESSOAL_2026} from '../folha-orcamento-2026.js';
+import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificacaoPessoal,sugerirFichaDaLotacao,fontesParaEscolher,FICHAS_PESSOAL_2026} from '../folha-orcamento-2026.js';
 import {esc,toast} from '../ui.js';
 import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,categoriaRubricaDesconto,centavosFolha,dinheiroFolha} from '../folha-empenhos.js';
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
 import {varrerServidores,servidoresComRepasse,codigosDeDesconto} from '../folha-servidores.js';
-import {ratearPorSaldo,ehFundeb,FONTES_FUNDEB,FONTE_RECURSO_PROPRIO} from '../folha-saldos.js';
+import {ratearPorSaldo,ehFundeb,mesmaFonte,FONTE_EDUCACAO_PROPRIA,FONTE_SAUDE_PROPRIA} from '../folha-saldos.js';
 import {pensoesParaOP,chaveCadastro,RUBRICAS_PENSAO} from '../folha-pensoes.js';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js';
 import {carregarRegistroFolha,salvarRegistroFolha} from '../folha-empenhos-store.js';
@@ -294,7 +294,7 @@ export function telaFolhaEmpenhos(el){
         '<td><input style="width:225px" data-ref="'+esc(r.id)+'" data-campo="lotacaoOrcamentaria" value="'+esc(m.lotacaoOrcamentaria||ref?.acao||'')+'"><small style="display:block;color:#526b80">'+esc(ref?.origem||'Edição manual')+'</small></td>'+
         '<td><input style="width:88px" list="fe-fichas-2026" data-ref="'+esc(r.id)+'" data-campo="ficha" value="'+esc(m.ficha||'')+'"></td>'+
         '<td style="min-width:225px"><strong>'+esc(classe.titulo)+'</strong>'+(classe.codigo?'<small style="display:block;color:#526b80">'+esc(classe.codigo)+'</small>':'')+'</td>'+
-        '<td><input style="width:132px" data-ref="'+esc(r.id)+'" data-campo="fonte" value="'+esc(m.fonte||'')+'"></td>'+
+        '<td><input style="width:132px" list="fe-fontes" data-ref="'+esc(r.id)+'" data-campo="fonte" value="'+esc(m.fonte||'')+'"></td>'+
         '<td><input style="width:72px" list="fe-desdobramentos" data-ref="'+esc(r.id)+'" data-campo="desdobramento" value="'+esc(m.desdobramento||r.desdobramento||'')+'"></td>'+
         '<td><input data-ref="'+esc(r.id)+'" data-campo="conta" value="'+esc(m.conta||'')+'"></td>'+
         '<td class="fe-money">'+dinheiroFolha(r.bruto||0)+(r.tipo==='extra'&&r.incentivo?'<small style="display:block;color:#506d82">Incentivo: '+dinheiroFolha(r.incentivo)+'</small>':'')+'</td><td class="fe-money">'+dinheiroFolha(r.descontoRH||0)+'</td>'+
@@ -304,6 +304,8 @@ export function telaFolhaEmpenhos(el){
       /* Os três desdobramentos de pessoal da educação, para não digitar errado:
          1071 é o magistério dos 70%, 1073 o tempo integral e 0000 os 30% e os
          demais servidores. */
+      '<datalist id="fe-fontes">'+fontesParaEscolher()
+        .map(f=>'<option value="'+esc(f.codigo)+'" label="'+esc(f.rotulo)+'"></option>').join('')+'</datalist>'+
       '<datalist id="fe-desdobramentos">'+
       [['1071','Remuneração de profissional da educação — 70%'],
        ['1073','Educação em tempo integral'],
@@ -381,7 +383,8 @@ export function telaFolhaEmpenhos(el){
     if(!rateio?.consumo?.length){alvo.innerHTML='';return;}
     const linha=c=>{
       const marca=ehFundeb(c.fonte)?' <strong>FUNDEB</strong>':
-        c.fonte===FONTE_RECURSO_PROPRIO?' <span class="fe-muted">recurso próprio</span>':'';
+        mesmaFonte(c.fonte,FONTE_EDUCACAO_PROPRIA)?' <span class="fe-muted">educação, pactuado 25%</span>':
+        mesmaFonte(c.fonte,FONTE_SAUDE_PROPRIA)?' <span class="fe-muted">saúde, pactuado 15%</span>':'';
       const falta=c.saldo!=null&&c.total>c.saldo?c.total-c.saldo:0;
       return '<tr><td>'+(esc(c.fonte)||'<span class="fe-muted">a informar</span>')+marca+'</td>'+
         '<td class="fe-money">'+dinheiroFolha(c.total)+'</td>'+

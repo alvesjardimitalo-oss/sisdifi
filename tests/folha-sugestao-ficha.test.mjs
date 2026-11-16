@@ -12,7 +12,8 @@
 // Medido contra outubro/2026: 79 das 86 lotações com ficha conhecida.
 import assert from 'node:assert/strict';
 import { sugerirFichaDaLotacao, elementoDoVinculo, EDUCACAO_2026,
-  FICHAS_FIXAS_2026, DESDOBRAMENTO_PADRAO } from '../assets/js/folha-orcamento-2026.js';
+  FICHAS_FIXAS_2026, DESDOBRAMENTO_PADRAO, fontesParaEscolher,
+  NOMES_FONTE } from '../assets/js/folha-orcamento-2026.js';
 
 let ok = 0; const falhas = [];
 const t = (nome, fn) => { try { fn(); ok++; } catch (e) { falhas.push(nome + ': ' + e.message); } };
@@ -36,7 +37,7 @@ t('aposentadoria e pensão saem na ficha fixa da Administração', () => {
   const caminho = ['SECRETARIA MUNIC. DE ADMINISTRACAO', 'PAGAMENTO DE INATIVOS E PENSIONISTAS'];
   const apos = sugerirFichaDaLotacao(reg('002.002.209.00001', [...caminho, 'APOSENTADORIAS RPPS']));
   assert.equal(apos.ficha, '81');
-  assert.equal(apos.fonte, '1.500.000.0000');
+  assert.equal(apos.fonte, '1500');
   assert.equal(apos.confianca, 'confirmada');
   assert.match(apos.motivo, /3\.1\.90\.01/);
   const pens = sugerirFichaDaLotacao(reg('002.002.209.00002', [...caminho, 'PENSOES DO RPPS']));
@@ -74,7 +75,7 @@ t('educação sai confirmada, com fonte e desdobramento', () => {
   const s = sugerirFichaDaLotacao(reg('002.004.215.00001',
     ['SECRETARIA MUNIC. DE EDUCACAO', 'MANUTENÇAO CRECHE 70%', 'PESSOAL CONTRATADO']));
   assert.equal(s.ficha, '186');
-  assert.equal(s.fonte, '1.540.000.0000');
+  assert.equal(s.fonte, '1540');
   assert.equal(s.desdobramento, '1071');
   assert.equal(s.confianca, 'confirmada');
 });
@@ -102,7 +103,7 @@ t('a tabela da educação cobre os sete grupos', () => {
     '002.004.219', '002.004.221', '002.004.223', '002.004.230']);
   for (const [g, v] of Object.entries(EDUCACAO_2026)) {
     assert.ok(v['04'] && v['11'], g + ' precisa do par de fichas');
-    assert.match(v.fonte, /^1\.\d{3}\.000\.0000$/, g);
+    assert.match(v.fonte, /^1\d{3}$/, g + ': fonte no código curto, como vai no empenho');
   }
 });
 
@@ -179,6 +180,49 @@ t('fora da educação o desdobramento é 0000', () => {
   assert.equal(s.desdobramento, '0000');
   const t3 = sugerirFichaDaLotacao(reg('002.013.002', ['SECRETARIA MUNIC. DE TRANSPORTES', 'PESSOAL EFETIVO']));
   assert.equal(t3.desdobramento, '0000');
+});
+
+/* A LOA publica 1.500.000.0000 nas fichas de educação e saúde pagas com
+   imposto, mas o empenho leva o pactuado: 1001 no mínimo da educação (25%) e
+   1002 no da saúde (15%). */
+t('educação em recurso próprio sai no pactuado 1001', () => {
+  const s = sugerirFichaDaLotacao(reg('002.004.214.00002',
+    ['SECRETARIA MUNIC. DE EDUCACAO', 'MANUT. SECRETARIA MUNICIPAL DE EDUCAÇÃO', 'PESSOAL EFETIVO']));
+  assert.equal(s.ficha, '108');
+  assert.equal(s.fonte, '1001', 'Secretaria de Educação é educação fora do FUNDEB');
+});
+
+t('saúde em recurso próprio sai no pactuado 1002', () => {
+  const s = sugerirFichaDaLotacao(reg('002.005.231.00001',
+    ['SECRETARIA MUNIC. DE SAUDE', 'MANUTENÇÃO SECRETARIA DE SAUDE', 'PESSOAL EFETIVO']));
+  assert.equal(s.ficha, '206');
+  assert.equal(s.fonte, '1002');
+});
+
+t('fora da educação e da saúde, recurso próprio é 1500', () => {
+  const s = sugerirFichaDaLotacao(reg('002.012.296.00001',
+    ['SECRETARIA MUNIC. DE OBRAS PUBLICAS', 'MANUT. VIAS/PRAÇAS/JARDINS E CEMITERIO', 'PESSOAL EFETIVO']));
+  assert.equal(s.fonte, '1500');
+});
+
+t('ficha com mais de uma fonte continua sem fonte sugerida', () => {
+  const s = sugerirFichaDaLotacao(reg('002.005.235.00002',
+    ['SECRETARIA MUNIC. DE SAUDE', 'MANUTENÇAO ATENÇÃO BASICA', 'PESSOAL EFETIVO']));
+  assert.equal(s.fonte, '', 'depende de onde o dinheiro entrou: quem decide é a Contabilidade');
+});
+
+/* Saúde tem várias fontes e a escolha depende de onde o dinheiro entrou:
+   farmácia, vigilância sanitária e atenção básica podem sair pela 1621, do
+   Estado. O sistema oferece a lista; não adivinha. */
+t('a lista de fontes cobre as do orçamento, com nome', () => {
+  const fs = fontesParaEscolher();
+  const codigos = fs.map(f => f.codigo);
+  for (const c of ['1001', '1002', '1500', '1540', '1542', '1600', '1604', '1605', '1621', '1660'])
+    assert.ok(codigos.includes(c), 'falta a fonte ' + c);
+  for (const f of fs) assert.ok(f.rotulo, 'fonte ' + f.codigo + ' sem nome');
+  assert.deepEqual(codigos, [...codigos].sort(), 'em ordem de código');
+  assert.equal(new Set(codigos).size, codigos.length, 'sem repetição');
+  assert.match(NOMES_FONTE['1621'], /Estadual/);
 });
 
 t('as fichas fixas trazem a natureza conferida na LOA', () => {

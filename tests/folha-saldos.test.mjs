@@ -9,7 +9,8 @@
 // reparte — a liquidação tem de casar com a retenção real daquela pessoa.
 import assert from 'node:assert/strict';
 import { ratearPorSaldo, ehFundeb, mesmaFonte, saldoDaFonte,
-  ESPELHO_RECURSO_PROPRIO, FONTE_RECURSO_PROPRIO, FONTES_FUNDEB } from '../assets/js/folha-saldos.js';
+  ESPELHO_RECURSO_PROPRIO, FONTE_EDUCACAO_PROPRIA, FONTE_SAUDE_PROPRIA,
+  FONTE_NAO_VINCULADA, FONTES_FUNDEB, codigoFonte } from '../assets/js/folha-saldos.js';
 
 let ok = 0; const falhas = [];
 const t = (nome, fn) => { try { fn(); ok++; } catch (e) { falhas.push(nome + ': ' + e.message); } };
@@ -28,9 +29,21 @@ t('fonte compara ignorando pontuação', () => {
 t('reconhece as fontes do FUNDEB', () => {
   assert.ok(ehFundeb('1540'));
   assert.ok(ehFundeb('1.542.000.0000'));
-  assert.ok(!ehFundeb(FONTE_RECURSO_PROPRIO));
+  assert.ok(!ehFundeb(FONTE_EDUCACAO_PROPRIA));
   assert.ok(!ehFundeb(''));
-  assert.deepEqual(FONTES_FUNDEB, ['1.540.000.0000', '1.542.000.0000']);
+  assert.deepEqual(FONTES_FUNDEB, ['1540', '1542'], 'código curto, como vai no empenho');
+});
+
+/* Cortar zeros à direita confundiria 1500 com 150; os quatro primeiros
+   dígitos resolvem as duas escritas sem ambiguidade. */
+t('o código da fonte são os quatro primeiros dígitos', () => {
+  assert.equal(codigoFonte('1.540.000.0000'), '1540');
+  assert.equal(codigoFonte('1540'), '1540');
+  assert.equal(codigoFonte('1001'), '1001');
+  assert.ok(!mesmaFonte('1500', '150'), 'fonte incompleta não casa com 1500');
+  assert.equal(FONTE_EDUCACAO_PROPRIA, '1001');
+  assert.equal(FONTE_SAUDE_PROPRIA, '1002');
+  assert.equal(FONTE_NAO_VINCULADA, '1500');
 });
 
 t('saldo é achado pela fonte, escrita de qualquer jeito', () => {
@@ -57,7 +70,7 @@ t('não cabendo, vai para a ficha espelho em recurso próprio', () => {
   const r = ratearPorSaldo([emp(1, '174', '1540', 100000)], { '1540': 50000 });
   assert.equal(r.movidos.length, 1);
   assert.equal(r.empenhos[0].ficha, '125', '174 do FUNDEB espelha na 125 do Fundo de Educação');
-  assert.equal(r.empenhos[0].fonte, FONTE_RECURSO_PROPRIO);
+  assert.equal(r.empenhos[0].fonte, FONTE_EDUCACAO_PROPRIA);
   assert.match(r.empenhos[0].motivoFicha, /falta de saldo/);
   assert.match(r.empenhos[0].lotacaoOrcamentaria, /recurso próprio/);
 });
@@ -110,10 +123,10 @@ t('fonte estourada é denunciada com o quanto falta', () => {
 
 t('empenho fora da educação não entra no rateio, mas consome a fonte', () => {
   const r = ratearPorSaldo([{ empenho: 1, lotacao: '002.012.296.00001', ficha: '399',
-    fonte: FONTE_RECURSO_PROPRIO, bruto: 100000, fichaSugerida: true }], { [FONTE_RECURSO_PROPRIO]: 50000 });
+    fonte: FONTE_EDUCACAO_PROPRIA, bruto: 100000, fichaSugerida: true }], { [FONTE_EDUCACAO_PROPRIA]: 50000 });
   assert.equal(r.movidos.length, 0);
   assert.equal(r.empenhos[0].ficha, '399');
-  const c = r.consumo.find(x => x.fonte === FONTE_RECURSO_PROPRIO);
+  const c = r.consumo.find(x => x.fonte === FONTE_EDUCACAO_PROPRIA);
   assert.equal(c.total, 100000);
   assert.ok(r.avisos.some(a => /falta/.test(a)));
 });
@@ -131,7 +144,7 @@ t('o movido registra de onde veio e para onde foi', () => {
   assert.equal(m.empenho, 4932);
   assert.equal(m.bruto, 11060511);
   assert.deepEqual(m.de, { ficha: '192', fonte: '1540' });
-  assert.deepEqual(m.para, { ficha: '149', fonte: FONTE_RECURSO_PROPRIO });
+  assert.deepEqual(m.para, { ficha: '149', fonte: FONTE_EDUCACAO_PROPRIA });
   assert.match(m.acao, /Pré-Escola/);
 });
 
