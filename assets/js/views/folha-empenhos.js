@@ -3,9 +3,11 @@
 import {estado,pode} from '../estado.js';
 import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificacaoPessoal,sugerirFichaDaLotacao,FICHAS_PESSOAL_2026} from '../folha-orcamento-2026.js';
 import {esc,toast} from '../ui.js';
-import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha} from '../folha-empenhos.js';
+import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,categoriaRubricaDesconto,centavosFolha,dinheiroFolha} from '../folha-empenhos.js';
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
+import {varrerServidores,servidoresComRepasse,codigosDeDesconto} from '../folha-servidores.js';
+import {pensoesParaOP,chaveCadastro,RUBRICAS_PENSAO} from '../folha-pensoes.js';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js';
 import {carregarRegistroFolha,salvarRegistroFolha} from '../folha-empenhos-store.js';
 import {carregarMes} from '../consignacoes-mensal.js?v=3.13.0.357fc820';
@@ -34,6 +36,9 @@ export function telaFolhaEmpenhos(el){
   const uid=estado.sessao?.uid;
   let competencia=new Date().getFullYear()+'-'+String(new Date().getMonth()+1).padStart(2,'0');
   let primeiro=5000,arquivos={},pessoas=[],mapa={},aprovouMapa=false,aprovouConsignados=false;
+  /* A folha nominal diz de quem é cada desconto; o beneficiário da pensão não
+     está em documento nenhum e vem de cadastro, por matrícula e rubrica. */
+  let servidores=[],cadastroPensao={};
   let minutas=[],alertas=[],nomeConsolidado='',origemIndividual='',filtro='todos',visao='resumo',carregando=false,ativa=true,filaDeSalvamento=Promise.resolve();
   const $=sel=>el.querySelector(sel);
   // Ficha da LOA -> órgão/unidade e ação orçamentária. Nunca alterar o código RH da lotação.
@@ -109,7 +114,7 @@ export function telaFolhaEmpenhos(el){
       '<button class="btn" type="button" id="fe-final" disabled>Baixar planilha conferida XLSX</button></div>'+
       '<div id="fe-kpis" class="fe-kpis"></div><div id="fe-pendencias"></div>'+ 
       '<p class="fe-muted">Uma linha por empenho. A composição mostra Caixa, Sicoob, Bradesco, pensões, INSS, IRRF e demais descontos, com rubricas originais e conferência da soma.</p>'+ 
-      '<div class="fe-scroll" id="fe-tabela"></div><div id="fe-extras"></div>'+
+      '<div class="fe-scroll" id="fe-tabela"></div><div id="fe-extras"></div><div id="fe-pensoes"></div>'+
       '<p class="fe-muted">Dados armazenados no navegador, separados pela conta. A planilha contém fórmulas de líquido para a Contabilidade conferir e preencher a liquidação no sistema oficial.</p>'+
     '</section></div>';
   const status=t=>{$('#fe-status').textContent=t;};
@@ -154,22 +159,24 @@ export function telaFolhaEmpenhos(el){
   function persistir(){
     if(!uid||!ativa||carregando)return Promise.resolve();
     const compAtual=competencia;
-    const mensal=structuredClone({primeiro,arquivos,pessoas,aprovouMapa,aprovouConsignados,origemIndividual,nomeConsolidado});
+    const mensal=structuredClone({primeiro,arquivos,pessoas,servidores,aprovouMapa,aprovouConsignados,origemIndividual,nomeConsolidado});
     const mapaAtual=structuredClone(mapa);
+    const cadastroPensaoAtual=structuredClone(cadastroPensao);
     filaDeSalvamento=filaDeSalvamento.catch(()=>{}).then(async()=>{
       await salvarRegistroFolha(uid,compAtual,mensal);
       await salvarRegistroFolha(uid,'mapa-lotacoes',mapaAtual);
+      await salvarRegistroFolha(uid,'pensoes-beneficiarios',cadastroPensaoAtual);
     }).catch(e=>{status('Erro ao salvar localmente: '+(e.message||e));});
     return filaDeSalvamento;
   }
   async function carregar(){
     const alvo=competencia;carregando=true;status('Carregando dados de '+alvo+'…');
     try{
-      const [mensal,reusavel]=await Promise.all([carregarRegistroFolha(uid,alvo),carregarRegistroFolha(uid,'mapa-lotacoes')]);
+      const [mensal,reusavel,benef]=await Promise.all([carregarRegistroFolha(uid,alvo),carregarRegistroFolha(uid,'mapa-lotacoes'),carregarRegistroFolha(uid,'pensoes-beneficiarios')]);
       if(!ativa||alvo!==competencia)return;
-      primeiro=mensal?.primeiro||5000;arquivos=mensal?.arquivos||{};pessoas=mensal?.pessoas||[];
+      primeiro=mensal?.primeiro||5000;arquivos=mensal?.arquivos||{};pessoas=mensal?.pessoas||[];servidores=mensal?.servidores||[];
       aprovouMapa=!!mensal?.aprovouMapa;aprovouConsignados=!!mensal?.aprovouConsignados;origemIndividual=mensal?.origemIndividual||'';nomeConsolidado=mensal?.nomeConsolidado||'';
-      mapa=reusavel||{};
+      mapa=reusavel||{};cadastroPensao=benef||{};
       $('#fe-inicio').value=primeiro;$('#fe-confirmar-mapa').checked=aprovouMapa;$('#fe-confirmar-bancos').checked=aprovouConsignados;
       minutas=[];status('Dados deste mês carregados. Consulte as minutas para verificar os descontos.');
     }catch(e){status('Histórico local indisponível: '+(e.message||e));}
@@ -231,7 +238,9 @@ export function telaFolhaEmpenhos(el){
     if(!pacote){
       $('#fe-kpis').innerHTML='';$('#fe-pendencias').innerHTML='<p class="fe-alert">Envie o PDF único do Resumo de Verbas no campo destacado acima. A planilha será gerada automaticamente.</p>';
       $('#fe-bancos').innerHTML='<p class="fe-muted">Aguardando dados da folha.</p>';
-      $('#fe-tabela').innerHTML='';$('#fe-extras').innerHTML='';$('#fe-final').disabled=true;return;
+      $('#fe-tabela').innerHTML='';$('#fe-extras').innerHTML='';
+      if($('#fe-pensoes'))$('#fe-pensoes').innerHTML='';
+      $('#fe-final').disabled=true;return;
     }
     const p=pacote.previsao,possivel=finalPossivel(pacote);
     const campos=[['Empenhos previstos',String(p.empenhos.length)],['Bruto orçamentário',dinheiroFolha(p.totalBruto)],
@@ -331,10 +340,46 @@ export function telaFolhaEmpenhos(el){
       p.extras.map(x=>'<tr><td>'+esc(x.tipo)+'</td><td>'+x.empenhoReferencia+'</td><td>'+esc(x.lotacao)+'</td>'+
         '<td>'+dinheiroFolha(x.bruto)+'</td><td>'+dinheiroFolha(x.inss)+'</td><td>'+dinheiroFolha(x.liquido)+'</td>'+
         '<td>'+esc(x.problemas.join('; ')||'A conferir')+'</td></tr>').join('')+'</tbody></table></div></details>';
+    renderPensoes(p);
     $('#fe-extras').querySelectorAll('[data-extra-bruto]').forEach(c=>c.onchange=()=>{
       const id=c.dataset.extraBruto;
       mapa[id]={...(mapa[id]||{}),incentivoNoBruto:c.value};
       aprovouMapa=false;$('#fe-confirmar-mapa').checked=false;persistir();render();
+    });
+  }
+  /* Pensão alimentícia: uma OP só, com uma liquidação por pensão. O histórico
+     de cada liquidação precisa do beneficiário, que não vem na folha nem no
+     resumo — a folha mostra o servidor que sofre o desconto. Então fica em
+     cadastro por matrícula e rubrica, reaproveitado nos meses seguintes. */
+  function renderPensoes(p){
+    const alvo=$('#fe-pensoes');
+    if(!alvo)return;
+    const r=pensoesParaOP(p.empenhos,servidores,cadastroPensao);
+    if(!r.totalEmpenhado&&!r.op.quantidade){alvo.innerHTML='';return;}
+    const linhas=r.op.liquidacoes.map((l,i)=>'<tr><td>'+esc(l.lotacao)+'</td><td>'+(l.empenho??'—')+'</td>'+
+      '<td>'+esc(l.matricula)+'</td><td>'+esc(l.servidor)+'</td><td>'+esc(l.rubrica)+'</td>'+
+      '<td class="num">'+dinheiroFolha(l.valor)+'</td>'+
+      '<td><input style="width:190px" data-pensao="'+i+'" data-campo="beneficiario" '+
+        'placeholder="quem recebe" value="'+esc(l.beneficiario)+'"></td>'+
+      '<td><input style="width:150px" data-pensao="'+i+'" data-campo="processo" '+
+        'placeholder="processo (opcional)" value="'+esc(l.processo)+'"></td></tr>'+
+      '<tr class="fe-historico"><td colspan="8"><span class="fe-muted">Histórico: </span>'+esc(l.historico)+'</td></tr>').join('');
+    alvo.innerHTML='<section class="fe-card"><h2>Pensão alimentícia · 1 OP, '+r.op.quantidade+
+      ' liquidaç'+(r.op.quantidade===1?'ão':'ões')+' · '+dinheiroFolha(r.op.total)+'</h2>'+
+      '<p class="fe-muted">Uma ordem de pagamento extraorçamentária, com uma liquidação por pensão. '+
+      'O beneficiário entra no histórico da liquidação e fica guardado por matrícula e rubrica para os próximos meses.</p>'+
+      (r.pendentes.length?'<p class="fe-alert">'+r.pendentes.length+' liquidaç'+(r.pendentes.length===1?'ão':'ões')+
+        ' sem beneficiário informado.</p>':'')+
+      r.avisos.map(a=>'<p class="fe-alert">'+esc(a)+'</p>').join('')+
+      (r.op.quantidade?'<div class="fe-scroll"><table><thead><tr><th>Lotação</th><th>Empenho</th>'+
+        '<th>Matrícula</th><th>Servidor</th><th>Rubrica</th><th>Valor</th><th>Beneficiário</th><th>Processo</th>'+
+        '</tr></thead><tbody>'+linhas+'</tbody></table></div>':'')+'</section>';
+    alvo.querySelectorAll('[data-pensao]').forEach(i=>i.onchange=()=>{
+      const l=r.op.liquidacoes[Number(i.dataset.pensao)];
+      if(!l)return;
+      const k=chaveCadastro(l.matricula,l.rubrica);
+      cadastroPensao[k]={...(cadastroPensao[k]||{}),[i.dataset.campo]:i.value.trim()};
+      persistir();render();
     });
   }
   el.querySelectorAll('[data-importar]').forEach(input=>input.onchange=async()=>{
@@ -368,7 +413,10 @@ export function telaFolhaEmpenhos(el){
         if(tipo==='automatico'&&linhas.some(x=>/\b\d{5,8}\s*\/\s*\d+\s+.+/.test(x.texto||''))){
           // O resumo diz quais lotações existem de verdade; sem ele a leitura
           // teria de adivinhar se um código de 3 níveis é lotação ou ação.
-          const identificadas=sugerirMaternidadesDaFolha(linhas,lotacoesDoResumo([arquivos.principal]));
+          const conhecidas=lotacoesDoResumo([arquivos.principal]);
+          servidores=servidoresComRepasse(varrerServidores(linhas,conhecidas).servidores,
+            codigosDeDesconto(Object.values(arquivos)),categoriaRubricaDesconto);
+          const identificadas=sugerirMaternidadesDaFolha(linhas,conhecidas);
           if(identificadas.achados.length){
             pessoas=identificadas.achados;
             origemIndividual=f.name;
@@ -379,6 +427,8 @@ export function telaFolhaEmpenhos(el){
         $('#fe-confirmar-mapa').checked=false;$('#fe-confirmar-bancos').checked=false;
         status('Folha gerada a partir de '+f.name+': '+analisado.quantidade+' empenhos por lotação, mais adiantamentos identificados. Ordem original preservada. Informe ficha e fonte.');
       } else if(tipo==='nominal'){
+        servidores=servidoresComRepasse(varrerServidores(linhas,lotacoesDoResumo([arquivos.principal])).servidores,
+          codigosDeDesconto(Object.values(arquivos)),categoriaRubricaDesconto);
         const candidatos=sugerirMaternidadesDaFolha(linhas,lotacoesDoResumo([arquivos.principal]));
         const matriculasImportadas=new Set(candidatos.achados.map(c=>c.matricula));
         // Reimportação corrige registros antigos que ficaram vinculados a "002.004".

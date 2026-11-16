@@ -735,3 +735,15 @@ progress { width: 260px; vertical-align: middle; }
 /* retenção que a nota declara e a conferência não calcula */
 .fiscal-nao-calculado td { opacity: .85; }
 .fiscal-nao-calculado .muted { font-style: italic; }
+
+/* Histórico da liquidação de pensão: desce abaixo da linha do valor, porque é
+   o texto que a Contabilidade copia para o sistema da Memory. */
+.fe-historico td {
+  background: var(--cinza-claro);
+  color: var(--texto-2);
+  font-size: .92em;
+  padding-top: .2rem;
+  padding-bottom: .45rem;
+  border-top: 0;
+}
+.fe-historico .fe-muted { color: var(--muted); }

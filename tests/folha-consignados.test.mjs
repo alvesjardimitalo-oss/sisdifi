@@ -3,8 +3,9 @@
 // O repasse sai do desconto da folha. Dois riscos de pagar errado:
 //  1. dupla contagem — a folha mensal já contém o 13º e a rescisão, então um
 //     empréstimo descontado na rescisão entraria duas vezes;
-//  2. total único de pensão — cada pensão vai para um beneficiário diferente,
-//     então um valor só não dá para pagar.
+//  2. total único de pensão — a pensão é uma OP só, com uma liquidação por
+//     pensão e o beneficiário no histórico, então um valor só não diz quantas
+//     liquidações fazer.
 import assert from 'node:assert/strict';
 import { analisarResumoVerbas, descontarFolhasProprias, prepararEmpenhos,
   pagamentosConsignados } from '../assets/js/folha-empenhos.js';
@@ -102,14 +103,14 @@ t('rubrica que só existe na rescisão avisa em vez de zerar calado', () => {
 });
 
 // Cada pensão vai para um beneficiário diferente: um total só não dá para pagar.
-t('pensão sai detalhada, por ordem de pagamento', () => {
+t('pensão sai detalhada, porque é uma OP com várias liquidações', () => {
   const men = arquivo('principal', [linhas('001.001.001.00002', SALARIO,
     [['230', 'PENSAO JUDICIAL', 60000], ['232', 'PENSAO ALIMENTICIA (25%)', 25000]])]);
   const p = pagamentosConsignados(empenhosDe([men]));
   const pensao = p.destinos.find(d => d.chave === 'Pensao');
   assert.equal(pensao.valor, 85000);
   assert.equal(pensao.detalhar, true);
-  assert.equal(pensao.forma, 'ordem de pagamento por beneficiário');
+  assert.equal(pensao.forma, 'uma OP, com uma liquidação por pensão');
   assert.deepEqual(pensao.rubricas.map(r => r.valor), [60000, 25000]);
 });
 

@@ -512,13 +512,17 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
     pendentes:empenhos.filter(r=>r.problemas.length)};
 }
 /* Lista de pagamento dos consignados: quanto vai para cada destino e de quais
-   rubricas. As pensões saem detalhadas porque cada uma vai para um beneficiário
-   diferente — um total só de "Pensão" não dá para pagar. */
+   rubricas. A pensão é uma OP só, com uma liquidação por pensão e o
+   beneficiário no histórico de cada uma — por isso sai detalhada, já que um
+   total único de "Pensão" não diz quantas liquidações fazer. Quem é o servidor
+   de cada liquidação vem da folha nominal, em folha-pensoes.js: o resumo de
+   verbas só traz o total da rubrica por lotação. */
 const DESTINOS_PAGAMENTO=[
  {chave:'Caixa',nome:'Caixa Econômica Federal',forma:'guia do banco'},
  {chave:'Sicoob',nome:'Sicoob',forma:'guia do banco'},
  {chave:'Bradesco',nome:'Bradesco',forma:'guia do banco'},
- {chave:'Pensao',nome:'Pensão alimentícia',forma:'ordem de pagamento por beneficiário',detalhar:true}
+ {chave:'Pensao',nome:'Pensão alimentícia',
+  forma:'uma OP, com uma liquidação por pensão',detalhar:true}
 ];
 export function pagamentosConsignados(empenhos=[]){
  const lista=Array.isArray(empenhos)?empenhos:[];
