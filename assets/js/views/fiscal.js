@@ -4,7 +4,7 @@ import { estado } from '../estado.js';
 import { esc, $, toast, dataBR, hojeISO } from '../ui.js';
 import { cabecalho } from './comum.js';
 import { lerDanfsePDF } from '../danfse-pdf.js';
-import { auditoriaNota, monitorFiscalSituacao, VERSAO_POLITICA_FISCAL, FONTES_LEGISLATIVAS } from '../auditoria-fiscal.js?v=3.17.0';
+import { auditoriaNota, monitorFiscalSituacao, VERSAO_POLITICA_FISCAL, FONTES_LEGISLATIVAS } from '../auditoria-fiscal.js?v=3.17.1';
 import {
   lerCodigo, lerXML, consultarCnpj, conferir, sugerirNatureza, descreverTributacao, NATUREZAS, MUNICIPIO, ISS, MINIMO_RETENCAO_IR,
   formatarCnpj, limparCnpj, cnpjValido, moeda, aliquotaIss, mensagemFornecedor, faltaParaDiagnostico
@@ -32,7 +32,8 @@ const s = {
   simplesManual: '', resultado: null, auditoria:null, confirmacoes:{}, conf: 0, tipo: lerTipoSalvo(),
   // O formulario inteiro fica fechado: quem confere quer a resposta, nao um
   // cadastro. Abre so quando precisa mexer em algo que a pergunta nao cobre.
-  formAberto: false
+  formAberto: false,
+  el: null
 };
 function lerTipoSalvo() { try { return localStorage.getItem('sisdifi.fiscal.tipo') || ''; } catch { return ''; } }
 const TIPOS = [['', 'Automático'], ['nfe', 'NF-e / NFC-e / CT-e (44)'], ['nfse', 'NFS-e Nacional (50)'], ['cnpj', 'CNPJ (14)']];
@@ -67,6 +68,7 @@ function guardarHistorico(item) {
 const idNota = () => s.doc.chave || (s.doc.cnpj && s.doc.numero ? `${limparCnpj(s.doc.cnpj)}-${s.doc.numero}` : '');
 
 export function telaFiscal(el) {
+  s.el = el;
   const compacto = el.classList.contains('fiscal-compacto');
   el.innerHTML = `
     ${compacto ? '' : cabecalho('Auditoria fiscal pré-liquidação', '', `Tomador: Prefeitura Municipal de ${esc(MUNICIPIO.nome)}/${MUNICIPIO.uf}. Conferência de NF-e/NFS-e, retenções e legislação atualizada, com diligências antes da liquidação.`)}
@@ -424,6 +426,30 @@ function linkFormulario() {
   return `<p class="dica fiscal-ajustar"><button type="button" class="link" data-abrir-form>${s.formAberto ? 'Esconder os campos da nota' : 'Ajustar todos os campos da nota'}</button>${s.doc.origem === 'leitura' ? ' · <button type="button" class="link" data-abrir-arquivo>abrir o PDF ou XML e preencher tudo</button>' : ''}</p>`;
 }
 
+/* A resposta e redesenhada por caminhos diferentes, e um deles retorna cedo.
+   Ligar o handler em cada um e convite a esquecer de novo: aqui a ligacao e
+   no documento, entao vale para qualquer desenho. Sem isto o <form> da
+   pergunta submetia de verdade e o sistema voltava para a tela inicial. */
+document.addEventListener('submit', ev => {
+  const f = ev.target?.closest?.('[data-pergunta]');
+  if (!f || !s.el) return;
+  ev.preventDefault();
+  const campo = f.dataset.pergunta;
+  const v = f.querySelector('[name=resposta]')?.value.trim();
+  if (!v) return;
+  s.doc[campo] = campo === 'valor' ? Number(String(v).replace(',', '.')) : v;
+  if (campo === 'emissao') s.doc.emissaoPresumida = false;
+  if (campo === 'codigoServico') s.doc.coopTransporte = null;
+  if (s.formAberto) desenharForm(s.el);
+  recalcular(s.el);
+  setTimeout(() => $('#fis-resultado [data-pergunta] [name=resposta]', s.el)?.focus(), 30);
+});
+document.addEventListener('click', ev => {
+  if (!s.el) return;
+  if (ev.target?.closest?.('[data-abrir-form]')) { ev.preventDefault(); s.formAberto = !s.formAberto; telaFiscal(s.el); return; }
+  if (ev.target?.closest?.('[data-abrir-arquivo]')) { ev.preventDefault(); $('#fis-xml', s.el)?.click(); }
+});
+
 function recalcular(el) {
   const temDados = s.doc.cnpj || s.doc.valor;
   if (s.doc.municipioEmissor) s.doc.municipioEmissorNome = nomeMunicipio(s.doc.municipioEmissor);
@@ -634,27 +660,6 @@ ${blocoFornecedor(cad, '<span class="fiscal-num">3</span> ')}
   });
   box.querySelector('[data-fis-atualizar-lei]')?.addEventListener('click',()=>carregarLegislacao(el,true));
   box.querySelectorAll('[data-fis-aprovar-lei]').forEach(b=>b.onclick=()=>aprovarLegislacao(el,b.dataset.fisAprovarLei));
-  // A resposta a pergunta entra no doc e a resposta se refaz na hora.
-  const perg = box.querySelector('[data-pergunta]');
-  if (perg) {
-    perg.onsubmit = ev => {
-      ev.preventDefault();
-      const campo = perg.dataset.pergunta;
-      const v = perg.querySelector('[name=resposta]').value.trim();
-      if (!v) return;
-      s.doc[campo] = campo === 'valor' ? Number(v) : v;
-      if (campo === 'emissao') s.doc.emissaoPresumida = false;
-      if (campo === 'codigoServico') s.doc.coopTransporte = null;
-      if (s.formAberto) desenharForm(el);
-      recalcular(el);
-      setTimeout(() => $('#fis-resultado [data-pergunta] [name=resposta]', el)?.focus(), 30);
-    };
-  }
-  box.querySelector('[data-abrir-form]')?.addEventListener('click', () => {
-    s.formAberto = !s.formAberto;
-    telaFiscal(el);
-  });
-  box.querySelector('[data-abrir-arquivo]')?.addEventListener('click', () => $('#fis-xml', el)?.click());
   box.querySelector('[data-limpar]').onclick = () => limparConsulta(el);
   box.querySelector('[data-mensagem]').onclick = () => abrirMensagem();
 }
