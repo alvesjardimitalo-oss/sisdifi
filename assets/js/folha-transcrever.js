@@ -11,32 +11,84 @@
 // abas não serve para digitar: serve para auditar depois.
 import { CATEGORIAS_DESCONTOS, FICHAS_EXTRA_ORCAMENTARIAS, dinheiroFolha } from './folha-empenhos.js';
 
-export const BLOCOS_HISTORICO={
- principal:'FOLHA DE PAGAMENTO',
- extra:'FOLHA EXTRA',
- decimo:'ADIANTAMENTO DE 50% DO 13º SALÁRIO',
- rescisao:'RESCISÃO CONTRATUAL'
-};
 const MESES=['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO',
  'AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
-export const MODELO_HISTORICO_PADRAO=
- '{bloco} REFERENTE AO MÊS DE {mes} DE {ano} - {vinculo} - {secretaria}.';
 
-/** Rótulo de cada categoria de desconto, com a ficha extra-orçamentária fixa. */
-export const ROTULOS_DESCONTO={
- INSS:'INSS',IRRF:'Imposto de Renda',Caixa:'Caixa Econômica',Sicoob:'Sicoob',
- Bradesco:'Bradesco',Pensao:'Pensão alimentícia',Outros:'Outros descontos'
-};
+/* Modelos de histórico como a Contabilidade os escreve. O texto vai verbatim
+   para o sistema — espaçamento e pontuação incluídos, porque é o que ela já
+   usa. A única marca é {mes}; quem quiser o ano acrescenta {ano} no modelo. */
+export const MODELOS_HISTORICO=[
+ {chave:'prefeito',rotulo:'Subsídio do Prefeito',
+  texto:'VALOR QUE SE EMPENHA REFERE-SE A PAGAMENTO  DE SUBSÍDIO DO PREFEITO NO MES DE {mes}.'},
+ {chave:'vice',rotulo:'Subsídio do Vice-Prefeito',
+  texto:'VALOR QUE SE EMPENHA REFERE-SE A PAGAMENTO  DE SUBSÍDIO DO VICE PREFEITO NO MES DE {mes}.'},
+ {chave:'agentePolitico',rotulo:'Subsídio de agente político',
+  texto:'VALOR QUE SE EMPENHA REFERE-SE A PAGAMENTO DE SUBSÍDIO DO AGENTE POLITICO NO MES DE {mes}.'},
+ {chave:'comissionado',rotulo:'Pessoal comissionado',
+  texto:'VALOR QUE SE EMPENHA REFERE-SE A PAGAMENTO DE SALARIO DE PESSOAL COMISSIONADO NO MES DE {mes}.'},
+ {chave:'efetivo',rotulo:'Pessoal efetivo',
+  texto:'VALOR QUE SE EMPENHA REFERE-SE A PAGAMENTO DE SALARIO DE PESSOAL EFETIVO NO MES DE {mes}.'},
+ {chave:'contratado',rotulo:'Pessoal contratado',
+  texto:'VALOR QUE SE EMPENHA REFERE-SE A PAGAMENTO DE SALARIO DE PESSOAL CONTRATADO NO MES DE {mes}.'},
+ {chave:'decimo',rotulo:'Adiantamento de 50% do 13º',
+  texto:'VALOR QUE SE EMPENHA REFERE-SE A ADIANTAMENTO DE 50% DE DÉCIMO TERCEIRO; NO MES DE {mes}.'},
+ {chave:'aposentadoria',rotulo:'Aposentadorias',
+  texto:'VALOR QUE SE EMPENHA REFERE-SE A PAGAMENTO DE APOSENTADORIAS NO MES DE {mes}.'},
+ {chave:'rescisao',rotulo:'Rescisão contratual',
+  texto:'VALOR QUE SE EMPENHA REFERE-SE A PAGAMENTO DE RESCISÃO CONTRATUAL NO MES DE {mes}.'}
+];
+export const textoDoModelo=chave=>MODELOS_HISTORICO.find(m=>m.chave===chave)?.texto||'';
+
+/* O vínculo vem do último nível da lotação, e o RH não o escreve de um jeito
+   só: "PESSOAL EFETIVO", "EFETIVOS", "SERVIDOR EFETIVO" são o mesmo. O
+   Prefeito é o caso que não se detecta — a lotação dele tem três níveis e o
+   último é a ação, então o texto não diz "PREFEITO" em lugar nenhum. Aí quem
+   diz é a Contabilidade, uma vez, e a escolha fica guardada pela lotação. */
+const DETECTA=[
+ [/VICE.?PREFEITO/,'vice'],
+ [/\bPREFEITO\b/,'prefeito'],
+ [/AGENTE\s+POL/,'agentePolitico'],
+ [/COMISSION/,'comissionado'],
+ [/APOSENT|INATIV/,'aposentadoria'],
+ [/EFETIV/,'efetivo'],
+ [/CONTRATAD|PESSOAS CONTRATADAS/,'contratado']
+];
+const semAcento=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
 
 /**
- * Preenche o modelo do histórico. As marcas são {bloco}, {mes}, {mes_numero},
- * {ano}, {vinculo}, {secretaria} e {lotacao}; o que não existir sai vazio, sem
- * deixar a marca à mostra no texto que vai para o sistema.
+ * Modelo de histórico de um empenho.
+ * O tipo do arquivo manda sobre o vínculo: no 13º e na rescisão o texto é o do
+ * bloco, qualquer que seja o cargo. `escolhas` associa lotação ao modelo que a
+ * Contabilidade fixou, e tem a última palavra.
+ * Devolve '' quando não há como saber — aí a tela pede.
+ */
+export function modeloDoEmpenho(empenho={}, escolhas={}){
+ const daMao=escolhas[empenho.lotacao];
+ if(daMao)return daMao;
+ if(empenho.tipo==='decimo')return 'decimo';
+ if(empenho.tipo==='rescisao')return 'rescisao';
+ const texto=semAcento((empenho.caminho||[]).slice(-1)[0]||empenho.vinculo||'');
+ for(const [re,chave] of DETECTA)if(re.test(texto))return chave;
+ /* Sobra o Prefeito. A lotação dele tem três níveis, então o último é a ação e
+    não há vínculo escrito em lugar nenhum — mas ela está no Gabinete do
+    Prefeito, e as outras lotações de lá dizem o vínculo. Os subsídios de agente
+    político são todos de secretários de pasta, já reconhecidos acima. */
+ if(/GABINETE DO PREFEITO/.test(semAcento(empenho.secretaria)))return 'prefeito';
+ return '';
+}
+
+/**
+ * Preenche o modelo. As marcas são {mes}, {mes_numero}, {ano}, {vinculo},
+ * {secretaria} e {lotacao}; o que não existir sai vazio, sem deixar a marca à
+ * mostra no texto que vai para o sistema.
+ *
+ * O espaçamento do modelo é preservado — os textos da Contabilidade têm espaço
+ * duplo em dois deles, e não cabe ao sistema "corrigir" o que ela escreve. A
+ * limpeza de separador solto só roda quando alguma marca ficou vazia.
  */
 export function montarHistorico(modelo, empenho={}, competencia=''){
  const [ano,mes]=String(competencia||'').split('-');
  const valores={
-  bloco:BLOCOS_HISTORICO[empenho.tipo]||'FOLHA DE PAGAMENTO',
   mes:MESES[Number(mes)-1]||'',
   mes_numero:mes||'',
   ano:ano||'',
@@ -44,11 +96,13 @@ export function montarHistorico(modelo, empenho={}, competencia=''){
   secretaria:String(empenho.secretaria||'').toUpperCase(),
   lotacao:empenho.lotacao||''
  };
- /* Campo vazio não pode deixar o separador à mostra: "FOLHA - - ." tem de
-    virar "FOLHA.". Colapsa em laço porque três campos vazios seguidos deixam
-    mais de um par de traços. */
- let texto=String(modelo||MODELO_HISTORICO_PADRAO)
-  .replace(/\{(\w+)\}/g,(_,k)=>k in valores?valores[k]:'');
+ let vazia=false;
+ let texto=String(modelo||'').replace(/\{(\w+)\}/g,(_,k)=>{
+  // Marca desconhecida também abre buraco no texto: a limpeza vale para ela.
+  if(!(k in valores)||!valores[k]){vazia=true;return '';}
+  return valores[k];
+ });
+ if(!vazia)return texto.trim();
  let antes;
  do{ antes=texto; texto=texto.replace(/-\s*-/g,'-'); }while(texto!==antes);
  return texto.replace(/\s{2,}/g,' ')
@@ -57,6 +111,12 @@ export function montarHistorico(modelo, empenho={}, competencia=''){
   .replace(/\s+([.,;:])/g,'$1')
   .trim();
 }
+
+/** Rótulo de cada categoria de desconto, como aparece na distribuição. */
+export const ROTULOS_DESCONTO={
+ INSS:'INSS',IRRF:'Imposto de Renda',Caixa:'Caixa Econômica',Sicoob:'Sicoob',
+ Bradesco:'Bradesco',Pensao:'Pensão alimentícia',Outros:'Outros descontos'
+};
 
 const passo=(grupo,rotulo,valor,extra={})=>({grupo,rotulo,valor,...extra});
 
@@ -72,8 +132,12 @@ const passo=(grupo,rotulo,valor,extra={})=>({grupo,rotulo,valor,...extra});
  * no sistema e o SISDIFI não tem como saber.
  */
 export function passosDoEmpenho(empenho={}, ops=[], opcoes={}){
- const {dataLiquidacao='',modeloHistorico=MODELO_HISTORICO_PADRAO,competencia='',
-  fichasOP={},numerosOP={}}=opcoes;
+ const {dataLiquidacao='',competencia='',fichasOP={},numerosOP={},
+  escolhasHistorico={},textosHistorico={}}=opcoes;
+ /* O histórico vem pronto: o modelo é escolhido pelo vínculo do empenho, e o
+    texto editado pela Contabilidade tem precedência sobre o de fábrica. */
+ const chaveModelo=modeloDoEmpenho(empenho,escolhasHistorico);
+ const modeloTexto=chaveModelo?(textosHistorico[chaveModelo]||textoDoModelo(chaveModelo)):'';
  const desconto=empenho.descontoAjustado??empenho.descontoRH??0;
  const passos=[
   passo('Empenho','Número do empenho',String(empenho.empenho??''),{copiavel:true,destaque:true}),
@@ -81,7 +145,9 @@ export function passosDoEmpenho(empenho={}, ops=[], opcoes={}){
   passo('Empenho','Fonte de recursos',String(empenho.fonte||''),{copiavel:true,faltando:!empenho.fonte}),
   passo('Empenho','Desdobramento',String(empenho.desdobramento||''),{copiavel:true}),
   passo('Empenho','Valor bruto',dinheiroFolha(empenho.bruto||0),{copiavel:true}),
-  passo('Empenho','Histórico',montarHistorico(modeloHistorico,empenho,competencia),{copiavel:true}),
+  passo('Empenho','Histórico',modeloTexto?montarHistorico(modeloTexto,empenho,competencia):'',
+   {copiavel:!!modeloTexto,informar:!modeloTexto,chaveModelo,
+    nota:modeloTexto?'':'escolher o modelo deste vínculo (vale para os próximos meses)'}),
   passo('Liquidação','Data da liquidação',dataLiquidacao||'',{copiavel:!!dataLiquidacao,informar:!dataLiquidacao}),
   passo('Liquidação','Valor do desconto',dinheiroFolha(desconto),{copiavel:true})
  ];

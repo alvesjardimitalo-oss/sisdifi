@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 // dinheiroFolha separa o "R$" com espaço não separável: os literais abaixo
 // usam \u00A0 de propósito, senão a comparação falha por um caractere.
 import { passosDoEmpenho, conferirEmpenho, montarHistorico, fichasOPpendentes,
-  MODELO_HISTORICO_PADRAO, BLOCOS_HISTORICO } from '../assets/js/folha-transcrever.js';
+  modeloDoEmpenho, textoDoModelo, MODELOS_HISTORICO } from '../assets/js/folha-transcrever.js';
 
 let ok = 0; const falhas = [];
 const t = (nome, fn) => { try { fn(); ok++; } catch (e) { falhas.push(nome + ': ' + e.message); } };
@@ -137,31 +137,125 @@ t('fichasOPpendentes lista os tipos sem ficha, sem repetir', () => {
 });
 
 // --- histórico ---
-t('o histórico preenche o modelo', () => {
-  const h = montarHistorico(MODELO_HISTORICO_PADRAO, emp(), '2026-10');
-  assert.equal(h, 'FOLHA DE PAGAMENTO REFERENTE AO MÊS DE OUTUBRO DE 2026 - EFETIVOS - ADMINISTRAÇÃO.');
+/* Os textos são os que a Contabilidade já usa, e vão verbatim para o sistema:
+   dois deles têm espaço duplo, e não cabe ao SISDIFI "corrigir" isso. */
+t('o histórico vem pronto, com o mês preenchido', () => {
+  const ps = passosDoEmpenho(emp({ caminho: ['X', 'Y', 'PESSOAL EFETIVO'] }), [], { competencia: '2026-10' });
+  assert.equal(achar(ps, 'Histórico').valor,
+    'VALOR QUE SE EMPENHA REFERE-SE A PAGAMENTO DE SALARIO DE PESSOAL EFETIVO NO MES DE OUTUBRO.');
+  assert.ok(achar(ps, 'Histórico').copiavel);
 });
 
-t('cada bloco tem o seu nome no histórico', () => {
-  for (const [tipo, nome] of Object.entries(BLOCOS_HISTORICO)) {
-    const h = montarHistorico('{bloco}', emp({ tipo }), '2026-10');
-    assert.equal(h, nome);
+t('o espaçamento do modelo é preservado', () => {
+  const h = montarHistorico(textoDoModelo('prefeito'), emp(), '2026-10');
+  assert.equal(h, 'VALOR QUE SE EMPENHA REFERE-SE A PAGAMENTO  DE SUBSÍDIO DO PREFEITO NO MES DE OUTUBRO.');
+  assert.match(textoDoModelo('decimo'), /DÉCIMO TERCEIRO; NO MES DE/, 'o ponto e vírgula também fica');
+});
+
+t('os nove modelos estão cadastrados e têm a marca do mês', () => {
+  assert.equal(MODELOS_HISTORICO.length, 9);
+  for (const m of MODELOS_HISTORICO) {
+    assert.ok(m.chave && m.rotulo, m.chave);
+    assert.match(m.texto, /^VALOR QUE SE EMPENHA REFERE-SE A /, m.chave);
+    assert.match(m.texto, /\{mes\}\.$/, m.chave + ': o mês entra no fim');
   }
+  assert.deepEqual(MODELOS_HISTORICO.map(m => m.chave),
+    ['prefeito','vice','agentePolitico','comissionado','efetivo','contratado',
+     'decimo','aposentadoria','rescisao']);
 });
 
-// Marca que não existe não pode ir para o sistema como "{xyz}".
+// O vínculo vem do último nível da lotação, e o RH não o escreve de um jeito só.
+t('o vínculo é reconhecido nas várias grafias do RH', () => {
+  const caso = (ultimo, tipo = 'principal') => modeloDoEmpenho({ tipo, caminho: ['A', 'B', ultimo] }, {});
+  for (const x of ['PESSOAL EFETIVO', 'EFETIVOS', 'EFETIVO', 'SERVIDOR EFETIVO', 'SERVIDORES EFETIVOS'])
+    assert.equal(caso(x), 'efetivo', x);
+  for (const x of ['PESSOAL CONTRATADO', 'CONTRATADOS', 'SERVIDOR CONTRATADO',
+    'PESSOAS CONTRATADAS', 'CONTRATADOS/PROCESSO SELETIVO'])
+    assert.equal(caso(x), 'contratado', x);
+  for (const x of ['COMISSIONADOS', 'PESSOAL COMISSIONADO']) assert.equal(caso(x), 'comissionado', x);
+  for (const x of ['AGENTE POLITICO', 'AGENTE POLÍTICO']) assert.equal(caso(x), 'agentePolitico', x);
+  assert.equal(caso('APOSENTADORIAS RPPS'), 'aposentadoria');
+});
+
+// "VICE PREFEITO" contém "PREFEITO": a ordem do reconhecimento importa.
+t('vice-prefeito não é confundido com prefeito', () => {
+  assert.equal(modeloDoEmpenho({ tipo: 'principal', caminho: ['A', 'VICE PREFEITO'] }, {}), 'vice');
+  assert.equal(modeloDoEmpenho({ tipo: 'principal', caminho: ['A', 'PREFEITO'] }, {}), 'prefeito');
+});
+
+// No 13º e na rescisão o texto é o do bloco, qualquer que seja o cargo.
+t('o tipo do arquivo manda sobre o vínculo', () => {
+  const c = ['A', 'B', 'PESSOAL EFETIVO'];
+  assert.equal(modeloDoEmpenho({ tipo: 'decimo', caminho: c }, {}), 'decimo');
+  assert.equal(modeloDoEmpenho({ tipo: 'rescisao', caminho: c }, {}), 'rescisao');
+  assert.equal(modeloDoEmpenho({ tipo: 'principal', caminho: c }, {}), 'efetivo');
+});
+
+/* A lotação do Prefeito tem três níveis, então o último é a ação e não há
+   vínculo escrito — mas ela está no Gabinete do Prefeito, e as outras lotações
+   de lá dizem o vínculo. Os agentes políticos são secretários de pasta. */
+t('o Prefeito é reconhecido pela lotação do Gabinete', () => {
+  const prefeito = { tipo: 'principal', lotacao: '002.001.201', secretaria: 'GABINETE DO PREFEITO',
+    caminho: ['PREF. MUNIC.', 'MANUT. DO GAB. E SECRET. DE GOVERNO'] };
+  assert.equal(modeloDoEmpenho(prefeito, {}), 'prefeito');
+  assert.match(achar(passosDoEmpenho(prefeito, [], { competencia: '2026-10' }), 'Histórico').valor,
+    /SUBSÍDIO DO PREFEITO NO MES DE OUTUBRO/);
+});
+
+t('o vínculo escrito manda, mesmo no Gabinete', () => {
+  const base = { tipo: 'principal', secretaria: 'GABINETE DO PREFEITO' };
+  assert.equal(modeloDoEmpenho({ ...base, caminho: ['A', 'VICE PREFEITO'] }, {}), 'vice');
+  assert.equal(modeloDoEmpenho({ ...base, caminho: ['A', 'COMISSIONADOS'] }, {}), 'comissionado');
+  assert.equal(modeloDoEmpenho({ ...base, caminho: ['A', 'AGENTE POLITICO'] }, {}), 'agentePolitico');
+});
+
+t('vínculo que nada revela fica para a Contabilidade escolher', () => {
+  const conselho = { tipo: 'principal', lotacao: '002.009.268.00004',
+    secretaria: 'SECRETARIA MUNIC. DE ACAO SOCIAL', caminho: ['A', 'CONSELHO TUTELAR'] };
+  assert.equal(modeloDoEmpenho(conselho, {}), '', 'melhor pedir do que chutar um histórico');
+  const h = achar(passosDoEmpenho(conselho, [], { competencia: '2026-10' }), 'Histórico');
+  assert.ok(h.informar);
+  assert.equal(h.valor, '');
+  assert.match(h.nota, /vale para os próximos meses/);
+});
+
+t('a escolha da Contabilidade vale e é guardada pela lotação', () => {
+  const prefeito = { tipo: 'principal', lotacao: '002.001.201', caminho: ['A', 'MANUT. DO GAB.'] };
+  const esc = { '002.001.201': 'prefeito' };
+  assert.equal(modeloDoEmpenho(prefeito, esc), 'prefeito');
+  const ps = passosDoEmpenho(prefeito, [], { competencia: '2026-10', escolhasHistorico: esc });
+  assert.match(achar(ps, 'Histórico').valor, /SUBSÍDIO DO PREFEITO NO MES DE OUTUBRO/);
+});
+
+// A escolha à mão tem a última palavra, inclusive sobre o 13º e a rescisão.
+t('a escolha à mão sobrepõe a detecção', () => {
+  const r = { tipo: 'rescisao', lotacao: '002.001.201', caminho: ['A', 'PESSOAL EFETIVO'] };
+  assert.equal(modeloDoEmpenho(r, { '002.001.201': 'efetivo' }), 'efetivo');
+});
+
+t('texto editado pela Contabilidade substitui o de fábrica', () => {
+  const ps = passosDoEmpenho(emp({ caminho: ['A', 'PESSOAL EFETIVO'] }), [],
+    { competencia: '2026-10', textosHistorico: { efetivo: 'PAGAMENTO DE SALÁRIO — {mes}/{ano}.' } });
+  assert.equal(achar(ps, 'Histórico').valor, 'PAGAMENTO DE SALÁRIO — OUTUBRO/2026.');
+});
+
+// Lotação sem modelo entre os nove: texto próprio, guardado por lotação.
+t('texto próprio de uma lotação é aceito', () => {
+  const conselho = { tipo: 'principal', lotacao: '002.009.268.00004', caminho: ['A', 'CONSELHO TUTELAR'] };
+  const chave = 'proprio:002.009.268.00004';
+  const ps = passosDoEmpenho(conselho, [], { competencia: '2026-10',
+    escolhasHistorico: { '002.009.268.00004': chave },
+    textosHistorico: { [chave]: 'VALOR QUE SE EMPENHA REFERE-SE A PAGAMENTO DE SUBSÍDIO DOS CONSELHEIROS TUTELARES NO MES DE {mes}.' } });
+  assert.match(achar(ps, 'Histórico').valor, /CONSELHEIROS TUTELARES NO MES DE OUTUBRO\.$/);
+});
+
 t('marca desconhecida não vaza para o histórico', () => {
   assert.equal(montarHistorico('FOLHA {xyz} DE {mes}', emp(), '2026-10'), 'FOLHA DE OUTUBRO');
 });
 
 t('campo vazio não deixa traço solto nem espaço duplo', () => {
-  const h = montarHistorico('{bloco} - {vinculo} - {secretaria}.', emp({ vinculo: '', secretaria: '' }), '2026-10');
-  assert.equal(h, 'FOLHA DE PAGAMENTO.');
-});
-
-t('modelo próprio é respeitado', () => {
-  assert.equal(montarHistorico('PAGAMENTO {mes_numero}/{ano} LOT {lotacao}', emp(), '2026-10'),
-    'PAGAMENTO 10/2026 LOT 002.002.204.00002');
+  const h = montarHistorico('PAGAMENTO - {vinculo} - {secretaria}.', emp({ vinculo: '', secretaria: '' }), '2026-10');
+  assert.equal(h, 'PAGAMENTO.');
 });
 
 // --- conferência ---

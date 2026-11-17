@@ -7,7 +7,7 @@ import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,p
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
 import {varrerServidores,servidoresComRepasse,codigosDeDesconto} from '../folha-servidores.js';
-import {passosDoEmpenho,conferirEmpenho,fichasOPpendentes,MODELO_HISTORICO_PADRAO} from '../folha-transcrever.js';
+import {passosDoEmpenho,conferirEmpenho,fichasOPpendentes,modeloDoEmpenho,textoDoModelo,MODELOS_HISTORICO} from '../folha-transcrever.js';
 import {ratearPorSaldo,ehFundeb,mesmaFonte,FONTE_EDUCACAO_PROPRIA,FONTE_SAUDE_PROPRIA} from '../folha-saldos.js';
 import {pensoesParaOP,chaveCadastro,RUBRICAS_PENSAO} from '../folha-pensoes.js';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js';
@@ -50,7 +50,7 @@ export function telaFolhaEmpenhos(el){
   /* Transcrição: a data da liquidação e o modelo do histórico valem para a
      competência toda; as fichas extra das OPs são fixas e voltam todo mês;
      `transcritos` guarda o que já foi digitado, para retomar de onde parou. */
-  let dataLiquidacao='',modeloHistorico=MODELO_HISTORICO_PADRAO,fichasOP={},transcritos=[],atual=0;
+  let dataLiquidacao='',escolhasHistorico={},textosHistorico={},fichasOP={},transcritos=[],atual=0;
   /* Saldo por fonte, informado pela Contabilidade: é o que decide se a educação
      cabe no FUNDEB. Muda todo mês, então fica no registro da competência. */
   let saldos={};
@@ -191,7 +191,7 @@ export function telaFolhaEmpenhos(el){
       await salvarRegistroFolha(uid,compAtual,mensal);
       await salvarRegistroFolha(uid,'mapa-lotacoes',mapaAtual);
       await salvarRegistroFolha(uid,'pensoes-beneficiarios',cadastroPensaoAtual);
-      await salvarRegistroFolha(uid,'transcricao',{modeloHistorico,fichasOP});
+      await salvarRegistroFolha(uid,'transcricao',{escolhasHistorico,textosHistorico,fichasOP});
     }).catch(e=>{status('Erro ao salvar localmente: '+(e.message||e));});
     return filaDeSalvamento;
   }
@@ -201,7 +201,8 @@ export function telaFolhaEmpenhos(el){
       const [mensal,reusavel,benef,transc]=await Promise.all([carregarRegistroFolha(uid,alvo),carregarRegistroFolha(uid,'mapa-lotacoes'),carregarRegistroFolha(uid,'pensoes-beneficiarios'),carregarRegistroFolha(uid,'transcricao')]);
       if(!ativa||alvo!==competencia)return;
       primeiro=mensal?.primeiro||5000;arquivos=mensal?.arquivos||{};pessoas=mensal?.pessoas||[];servidores=mensal?.servidores||[];saldos=mensal?.saldos||{};numerosOP=mensal?.numerosOP||{};dataLiquidacao=mensal?.dataLiquidacao||'';transcritos=mensal?.transcritos||[];
-    modeloHistorico=transc?.modeloHistorico||MODELO_HISTORICO_PADRAO;fichasOP=transc?.fichasOP||{};atual=0;
+    escolhasHistorico=transc?.escolhasHistorico||{};textosHistorico=transc?.textosHistorico||{};
+    fichasOP=transc?.fichasOP||{};atual=0;
       aprovouMapa=!!mensal?.aprovouMapa;aprovouConsignados=!!mensal?.aprovouConsignados;origemIndividual=mensal?.origemIndividual||'';nomeConsolidado=mensal?.nomeConsolidado||'';
       mapa=reusavel||{};cadastroPensao=benef||{};
       $('#fe-inicio').value=primeiro;$('#fe-confirmar-mapa').checked=aprovouMapa;$('#fe-confirmar-bancos').checked=aprovouConsignados;
@@ -305,7 +306,7 @@ export function telaFolhaEmpenhos(el){
     const r=registros[atual];
     if(!r){$('#fe-tabela').innerHTML='';return;}
     const meus=ops[r.empenho]||[];
-    const passos=passosDoEmpenho(r,meus,{dataLiquidacao,modeloHistorico,competencia,fichasOP,numerosOP});
+    const passos=passosDoEmpenho(r,meus,{dataLiquidacao,competencia,fichasOP,numerosOP,escolhasHistorico,textosHistorico});
     const conf=conferirEmpenho(r,meus);
     const pendFichas=fichasOPpendentes(p.extras,fichasOP);
     let g='';
@@ -344,9 +345,25 @@ export function telaFolhaEmpenhos(el){
       '<section class="fe-card"><h2>Vale para todos os empenhos</h2>'+
       '<label class="campo"><span>Data da liquidação</span>'+
         '<input id="fe-data-liq" placeholder="dd/mm/aaaa" value="'+esc(dataLiquidacao)+'"></label>'+
-      '<label class="campo"><span>Modelo do histórico</span>'+
-        '<input id="fe-modelo-hist" style="width:100%" value="'+esc(modeloHistorico)+'"></label>'+
-      '<p class="fe-muted">Marcas: {bloco} {mes} {mes_numero} {ano} {vinculo} {secretaria} {lotacao}.</p>'+
+      (()=>{
+        /* O modelo do histórico sai do vínculo do empenho. Quando o texto da
+           lotação não revela o vínculo — é o caso do Prefeito, cuja lotação tem
+           três níveis e o último é a ação — a Contabilidade escolhe uma vez e a
+           escolha fica guardada por lotação. */
+        const chave=modeloDoEmpenho(r,escolhasHistorico);
+        const proprio='proprio:'+r.lotacao;
+        const opcoes=MODELOS_HISTORICO.map(m=>'<option value="'+m.chave+'"'+
+            (m.chave===chave?' selected':'')+'>'+esc(m.rotulo)+'</option>').join('')+
+          '<option value="'+proprio+'"'+(chave===proprio?' selected':'')+'>Texto próprio desta lotação</option>';
+        const texto=chave?(textosHistorico[chave]||textoDoModelo(chave)):'';
+        return '<label class="campo"><span>Modelo do histórico deste empenho</span>'+
+          '<select id="fe-modelo-sel">'+(chave?'':'<option value="" selected>— escolher —</option>')+opcoes+'</select></label>'+
+          (chave?'<label class="campo"><span>Texto do modelo</span>'+
+            '<input id="fe-modelo-txt" style="width:100%" value="'+esc(texto)+'"></label>'+
+            '<p class="fe-muted">Marcas: {mes} {mes_numero} {ano} {vinculo} {secretaria} {lotacao}. '+
+            'Editar aqui vale para todos os empenhos deste vínculo.</p>':
+            '<p class="fe-alert">Este empenho está sem modelo de histórico: escolha acima.</p>');
+      })()+
       (pendFichas.length?'<p class="fe-alert">Informe a ficha extra-orçamentária de: '+
         pendFichas.map(esc).join(', ')+'. O sistema vinha repetindo a ficha orçamentária do empenho, que não serve para OP.</p>':'')+
       pendFichas.map(t2=>'<label class="campo"><span>Ficha extra · '+esc(t2)+'</span>'+
@@ -380,8 +397,18 @@ export function telaFolhaEmpenhos(el){
       persistir();render();
     });
     $('#fe-data-liq').onchange=ev=>{dataLiquidacao=ev.target.value.trim();persistir();render();};
-    $('#fe-modelo-hist').onchange=ev=>{
-      modeloHistorico=ev.target.value.trim()||MODELO_HISTORICO_PADRAO;persistir();render();
+    $('#fe-modelo-sel').onchange=ev=>{
+      const v=ev.target.value;
+      if(v)escolhasHistorico[r.lotacao]=v; else delete escolhasHistorico[r.lotacao];
+      persistir();render();
+    };
+    const campoTexto=$('#fe-modelo-txt');
+    if(campoTexto)campoTexto.onchange=ev=>{
+      const chave=modeloDoEmpenho(r,escolhasHistorico);
+      const v=ev.target.value.trim();
+      if(!chave)return;
+      if(v&&v!==textoDoModelo(chave))textosHistorico[chave]=v; else delete textosHistorico[chave];
+      persistir();render();
     };
     }else if(visao==='planilha'){
     /* Mesmo desenho da planilha da Contabilidade: os três blocos na primeira
