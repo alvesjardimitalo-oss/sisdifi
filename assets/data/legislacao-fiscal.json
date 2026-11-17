@@ -3,7 +3,7 @@
   "municipio": "Prefeitura Municipal de Frei Inocêncio",
   "codigoIBGE": "3126901",
   "versaoPolitica": "2026-11-11.1",
-  "ultimaExecucao": "2026-11-16T20:29:10+00:00",
+  "ultimaExecucao": "2026-11-17T19:11:41+00:00",
   "explicacao": "Monitor automático das publicações oficiais. Mudança de conteúdo não é mudança de alíquota. Parâmetros tributários exigem validação da Contabilidade/ADM.",
   "fontes": [
     {
@@ -13,12 +13,11 @@
       "url": "https://freiinocencio.mg.gov.br/legislacoes",
       "estado": "mudanca_detectada",
       "hashReferencia": "cd7ac76b972d26c7c81ddc07dce5cbd6baccb829d72db1a6c6ed80dcacf9c766",
-      "hashObservado": "2ce3f83d478a4c9fb9ecc7be9fe77df4174b32798f75374f9782b4c0732ad27f",
-      "ultimaConsulta": "2026-11-16T20:29:10+00:00",
+      "hashObservado": "21538143fe9a7e535ab9fb6dd7496e2b23afcc75bd386205c8557cfcaefa0df1",
+      "ultimaConsulta": "2026-11-17T19:11:41+00:00",
       "consultaIntermediada": true,
       "referenciaCapturadaEm": "2026-11-11T14:38:47+00:00",
-      "mudancaDetectadaEm": "2026-11-15T17:11:34+00:00",
-      "ultimoErro": "HTTP Error 422: Unprocessable Entity"
+      "mudancaDetectadaEm": "2026-11-17T19:11:41+00:00"
     },
     {
       "id": "lei_966_2023",
@@ -27,12 +26,11 @@
       "url": "https://freiinocencio.mg.gov.br/arquivo/67d484b2ddc9d.pdf",
       "estado": "mudanca_detectada",
       "hashReferencia": "02e7010d5e3086c845e14d30d2fcdff3a87ed735efc13c05aa774c6c1630f7ab",
-      "hashObservado": "67402919a215548056f64edcedde0cd8739e33b80e51efc6f7c56d75fc17c6a8",
-      "ultimaConsulta": "2026-11-16T20:29:10+00:00",
+      "hashObservado": "2e87c8d8780d5efe94e3ffec278c440d65b89e02f46e514b48c37876f8752c5a",
+      "ultimaConsulta": "2026-11-17T19:11:41+00:00",
       "consultaIntermediada": true,
       "referenciaCapturadaEm": "2026-11-11T14:38:47+00:00",
-      "mudancaDetectadaEm": "2026-11-15T17:11:34+00:00",
-      "ultimoErro": "HTTP Error 422: Unprocessable Entity"
+      "mudancaDetectadaEm": "2026-11-17T19:11:41+00:00"
     },
     {
       "id": "municipal_publicacoes",
@@ -41,12 +39,11 @@
       "url": "https://camarafreiinocencio.mg.gov.br/legislacoes",
       "estado": "mudanca_detectada",
       "hashReferencia": "9caa5f15e1bdb091e5c4ec2cec91ce53bff259661755bb8a5e07bc5efba019d3",
-      "hashObservado": "a604afba1862e762df7d91be6f95feca035acb3612bbda3ef47ddac2f2aa3999",
-      "ultimaConsulta": "2026-11-16T20:29:10+00:00",
+      "hashObservado": "d2de361f0bfcfc582736d45e4d809347ea5709fdf3c0babfa413aab39ece5a96",
+      "ultimaConsulta": "2026-11-17T19:11:41+00:00",
       "consultaIntermediada": true,
       "referenciaCapturadaEm": "2026-11-11T14:38:47+00:00",
-      "mudancaDetectadaEm": "2026-11-15T17:11:34+00:00",
-      "ultimoErro": "HTTP Error 422: Unprocessable Entity"
+      "mudancaDetectadaEm": "2026-11-17T19:11:41+00:00"
     },
     {
       "id": "receita_normas",
@@ -56,7 +53,7 @@
       "estado": "mudanca_detectada",
       "hashReferencia": "b4f3ab2d0410857b779e224ddcd66fef149a0783253e22993d11b103ac4e5f37",
       "hashObservado": "2468f5f99d226938e0055daea835346110c7ce5d002371e6d2993c379d36fdde",
-      "ultimaConsulta": "2026-11-16T20:29:10+00:00",
+      "ultimaConsulta": "2026-11-17T19:11:41+00:00",
       "referenciaCapturadaEm": "2026-11-11T14:32:50+00:00",
       "consultaIntermediada": false,
       "mudancaDetectadaEm": "2026-11-16T20:29:10+00:00"
@@ -68,11 +65,11 @@
       "url": "https://www.gov.br/receitafederal/pt-br/acesso-a-informacao/acoes-e-programas/programas-e-atividades/reforma-tributaria-do-consumo/legislacao/principais-marcos-regulatorios",
       "estado": "mudanca_detectada",
       "hashReferencia": "012a14f4844f6b3e66a6fc485dc54931e110cb6f6d6b49d8b1c9ecf81f67aef3",
-      "hashObservado": "612fa3a5b129549428f49114080f4094167644e28767dbd0abfe4622bf0e861a",
-      "ultimaConsulta": "2026-11-16T20:29:10+00:00",
+      "hashObservado": "1841a29d1382b808c0cc9812f61181529b0fb3c95a44ed7dd6dafc4da51d0adc",
+      "ultimaConsulta": "2026-11-17T19:11:41+00:00",
       "referenciaCapturadaEm": "2026-11-11T14:32:50+00:00",
       "consultaIntermediada": false,
-      "mudancaDetectadaEm": "2026-11-16T20:29:10+00:00"
+      "mudancaDetectadaEm": "2026-11-17T19:11:41+00:00"
     },
     {
       "id": "reforma_orientacoes",
@@ -82,7 +79,7 @@
       "estado": "mudanca_detectada",
       "hashReferencia": "aebca686da08a5d2d17c07c15d5c5893ccafefbcb13e88fbd40b237fbca1861e",
       "hashObservado": "0df1ce1f83bcfc12afbeb043d1fbf2705e657be3a76524d540958acc52d2654c",
-      "ultimaConsulta": "2026-11-16T20:29:10+00:00",
+      "ultimaConsulta": "2026-11-17T19:11:41+00:00",
       "referenciaCapturadaEm": "2026-11-11T14:32:50+00:00",
       "consultaIntermediada": false,
       "mudancaDetectadaEm": "2026-11-16T20:29:10+00:00"
@@ -90,8 +87,9 @@
   ],
   "aplicacaoAutomaticaDeAliquotas": false,
   "novosAlertas": [
-    "Acervo de normas da Receita Federal",
-    "Marcos regulatórios da Reforma Tributária",
-    "Cronograma de documentos fiscais da RTC"
+    "Código Tributário Municipal (Lei 883/2017)",
+    "Lei Municipal 966/2023 — base do ISS",
+    "Publicações legislativas do Município",
+    "Marcos regulatórios da Reforma Tributária"
   ]
 }
