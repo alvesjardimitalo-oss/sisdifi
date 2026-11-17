@@ -789,3 +789,11 @@ progress { width: 260px; vertical-align: middle; }
 /* Fonte herdada de outra competência: a fonte é decisão do mês, então ela
    aparece marcada até ser confirmada. */
 input.fe-herdada { background: var(--amarelo-claro, #fff8dc); border-color: var(--laranja, #d08700); }
+
+/* Envio dos arquivos: enviar guarda, processar lê. */
+.fe-sub { font-size: 13px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted); margin: 1rem 0 .4rem; }
+.fe-processar { display: flex; align-items: flex-end; gap: 1rem; flex-wrap: wrap;
+  margin-top: 1rem; padding-top: .9rem; border-top: 1px solid var(--borda); }
+.fe-outros { margin-top: 1rem; }
+.fe-outros summary { cursor: pointer; color: var(--muted); font-size: .92em; }
