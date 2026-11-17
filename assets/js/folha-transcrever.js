@@ -56,25 +56,35 @@ const DETECTA=[
 const semAcento=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
 
 /**
+ * Vínculo de um registro, pelo texto do último nível da lotação.
+ * É a mesma detecção que decide o histórico e a ordem dos empenhos: uma só,
+ * para as duas não divergirem. Devolve '' quando nada no dado revela o vínculo.
+ */
+/**
  * Modelo de histórico de um empenho.
  * O tipo do arquivo manda sobre o vínculo: no 13º e na rescisão o texto é o do
  * bloco, qualquer que seja o cargo. `escolhas` associa lotação ao modelo que a
  * Contabilidade fixou, e tem a última palavra.
  * Devolve '' quando não há como saber — aí a tela pede.
  */
-export function modeloDoEmpenho(empenho={}, escolhas={}){
- const daMao=escolhas[empenho.lotacao];
- if(daMao)return daMao;
- if(empenho.tipo==='decimo')return 'decimo';
- if(empenho.tipo==='rescisao')return 'rescisao';
- const texto=semAcento((empenho.caminho||[]).slice(-1)[0]||empenho.vinculo||'');
+export function vinculoDoRegistro(registro={}){
+ const texto=semAcento((registro.caminho||[]).slice(-1)[0]||registro.vinculo||'');
  for(const [re,chave] of DETECTA)if(re.test(texto))return chave;
  /* Sobra o Prefeito. A lotação dele tem três níveis, então o último é a ação e
     não há vínculo escrito em lugar nenhum — mas ela está no Gabinete do
     Prefeito, e as outras lotações de lá dizem o vínculo. Os subsídios de agente
     político são todos de secretários de pasta, já reconhecidos acima. */
- if(/GABINETE DO PREFEITO/.test(semAcento(empenho.secretaria)))return 'prefeito';
+ if(/GABINETE DO PREFEITO/.test(semAcento(registro.secretaria)))return 'prefeito';
  return '';
+}
+
+export function modeloDoEmpenho(empenho={}, escolhas={}){
+ const daMao=escolhas[empenho.lotacao];
+ if(daMao)return daMao;
+ // No 13º e na rescisão o texto é o do bloco, qualquer que seja o cargo.
+ if(empenho.tipo==='decimo')return 'decimo';
+ if(empenho.tipo==='rescisao')return 'rescisao';
+ return vinculoDoRegistro(empenho);
 }
 
 /**

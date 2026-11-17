@@ -398,14 +398,13 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
   // alfabética/heuristicamente trocaria os empenhos de lotação.
   const todas=arquivos.flatMap(a=>(a?.registros||[]).map(r=>({...r,tipo:a.tipo,competencia:a.competencia})));
   const destino=r=>mapa[r.tipo+'|'+r.lotacao]||mapa[r.lotacao]||{};
-  // Grupos sempre nessa ordem; dentro de cada grupo respeita a posição
-  // no PDF do RH, inclusive com vínculo especial ou secretaria específica.
+  /* Blocos sempre nessa ordem; dentro de cada bloco vale a ordem em que os
+     registros chegaram, e sort é estável. Antes isto reordenava por página do
+     PDF, o que desfazia a ordem de digitação da Contabilidade — e a ordem é o
+     que decide o número do empenho. Quem chama ordena (folha-ordem.js); sem
+     ordenação, a ordem de chegada ainda é a do PDF, como antes. */
   const ordem=['principal','extra','decimo','rescisao'];
-  const ordenadas=todas.sort((a,b)=>{
-    const ga=ordem.indexOf(a.tipo),gb=ordem.indexOf(b.tipo);
-    if(ga!==gb)return ga-gb;
-    return (a.paginaInicio||0)-(b.paginaInicio||0);
-  });
+  const ordenadas=todas.sort((a,b)=>ordem.indexOf(a.tipo)-ordem.indexOf(b.tipo));
   const empenhos=ordenadas.map((r,i)=>{
     const destino=mapa[r.tipo+'|'+r.lotacao]||mapa[r.lotacao]||{};
     const a=ajustes[r.tipo+'|'+r.lotacao]||{};

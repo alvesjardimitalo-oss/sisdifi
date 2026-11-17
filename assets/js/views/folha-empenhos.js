@@ -7,6 +7,7 @@ import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,p
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
 import {varrerServidores,servidoresComRepasse,codigosDeDesconto} from '../folha-servidores.js';
+import {ordenarEmpenhos,gruposEmOrdem,moverGrupo,grupoDaLotacao} from '../folha-ordem.js';
 import {passosDoEmpenho,conferirEmpenho,fichasOPpendentes,modeloDoEmpenho,textoDoModelo,MODELOS_HISTORICO} from '../folha-transcrever.js';
 import {ratearPorSaldo,ehFundeb,mesmaFonte,FONTE_EDUCACAO_PROPRIA,FONTE_SAUDE_PROPRIA} from '../folha-saldos.js';
 import {pensoesParaOP,chaveCadastro,RUBRICAS_PENSAO} from '../folha-pensoes.js';
@@ -51,6 +52,7 @@ export function telaFolhaEmpenhos(el){
      competência toda; as fichas extra das OPs são fixas e voltam todo mês;
      `transcritos` guarda o que já foi digitado, para retomar de onde parou. */
   let dataLiquidacao='',escolhasHistorico={},textosHistorico={},fichasOP={},transcritos=[],atual=0;
+  let ordemGrupos=[];
   /* Saldo por fonte, informado pela Contabilidade: é o que decide se a educação
      cabe no FUNDEB. Muda todo mês, então fica no registro da competência. */
   let saldos={};
@@ -140,7 +142,12 @@ export function telaFolhaEmpenhos(el){
   /* O resumo da folha mensal já contém o 13º e a rescisão; os relatórios
      próprios desses tipos são o detalhamento. Descontar antes de empenhar
      evita contar o mesmo dinheiro duas vezes. */
-  const arquivosLista=()=>descontarFolhasProprias(Object.values(arquivos)).arquivos;
+  /* A numeração segue a ordem de digitação, então a ordem dos registros decide
+     o número de cada empenho. Dentro do grupo ela se deriva do vínculo; entre
+     os grupos é a sequência que a Contabilidade fixou, guardada por grupo e
+     reaproveitada nos meses seguintes. */
+  const arquivosLista=()=>descontarFolhasProprias(Object.values(arquivos)).arquivos
+    .map(a=>({...a,registros:ordenarEmpenhos(a.registros,ordemGrupos)}));
   const montar=()=>{
     if(!Object.values(arquivos).some(x=>x?.registros?.length))return null;
     const maternidade=consolidarMaternidade(pessoas,[arquivos.principal].filter(Boolean));
@@ -191,7 +198,7 @@ export function telaFolhaEmpenhos(el){
       await salvarRegistroFolha(uid,compAtual,mensal);
       await salvarRegistroFolha(uid,'mapa-lotacoes',mapaAtual);
       await salvarRegistroFolha(uid,'pensoes-beneficiarios',cadastroPensaoAtual);
-      await salvarRegistroFolha(uid,'transcricao',{escolhasHistorico,textosHistorico,fichasOP});
+      await salvarRegistroFolha(uid,'transcricao',{escolhasHistorico,textosHistorico,fichasOP,ordemGrupos});
     }).catch(e=>{status('Erro ao salvar localmente: '+(e.message||e));});
     return filaDeSalvamento;
   }
@@ -202,7 +209,7 @@ export function telaFolhaEmpenhos(el){
       if(!ativa||alvo!==competencia)return;
       primeiro=mensal?.primeiro||5000;arquivos=mensal?.arquivos||{};pessoas=mensal?.pessoas||[];servidores=mensal?.servidores||[];saldos=mensal?.saldos||{};numerosOP=mensal?.numerosOP||{};dataLiquidacao=mensal?.dataLiquidacao||'';transcritos=mensal?.transcritos||[];
     escolhasHistorico=transc?.escolhasHistorico||{};textosHistorico=transc?.textosHistorico||{};
-    fichasOP=transc?.fichasOP||{};atual=0;
+    fichasOP=transc?.fichasOP||{};ordemGrupos=transc?.ordemGrupos||[];atual=0;
       aprovouMapa=!!mensal?.aprovouMapa;aprovouConsignados=!!mensal?.aprovouConsignados;origemIndividual=mensal?.origemIndividual||'';nomeConsolidado=mensal?.nomeConsolidado||'';
       mapa=reusavel||{};cadastroPensao=benef||{};
       $('#fe-inicio').value=primeiro;$('#fe-confirmar-mapa').checked=aprovouMapa;$('#fe-confirmar-bancos').checked=aprovouConsignados;
@@ -429,7 +436,7 @@ export function telaFolhaEmpenhos(el){
       return [dinheiroFolha(q.reduce((n,x)=>n+(x.bruto||0),0)),
         q.some(x=>x.inss)?dinheiroFolha(q.reduce((n,x)=>n+(x.inss||0),0)):''];
     };
-    let blocoAtual='';
+    let blocoAtual='',grupoAtual='';
     const corpo=registros.map(r=>{
       const m=mapa[r.id]||mapa[r.lotacao]||{};
       const meus=ops[r.empenho]||[];
@@ -437,9 +444,16 @@ export function telaFolhaEmpenhos(el){
       const rotulo=blocos[r.tipo]||tipos[r.tipo]||'';
       const primeira=rotulo!==blocoAtual;
       blocoAtual=rotulo;
+      const grupo=grupoDaLotacao(r);
+      const grupoNovo=grupo!==grupoAtual;
+      grupoAtual=grupo;
       const pend=r.problemas.length?' fe-pendente':'';
       return '<tr class="fe-linha'+pend+'">'+
-        '<td class="fe-bloco">'+(primeira?'<strong>'+esc(rotulo)+'</strong>':'')+'</td>'+
+        '<td class="fe-bloco">'+(primeira?'<strong>'+esc(rotulo)+'</strong>':'')+
+          (grupoNovo?'<div class="fe-ordem"><button type="button" class="secundario" data-mover="'+esc(grupo)+
+            '" data-passo="-1" title="subir este grupo">&uarr;</button>'+
+            '<button type="button" class="secundario" data-mover="'+esc(grupo)+
+            '" data-passo="1" title="descer este grupo">&darr;</button></div>':'')+'</td>'+
         '<td><strong>'+r.empenho+'</strong></td>'+
         '<td><input style="width:168px" data-ref="'+esc(r.id)+'" data-campo="secretaria" value="'+esc(m.secretaria||r.secretaria||'')+'"></td>'+
         '<td><input style="width:68px" list="fe-fichas-2026" data-ref="'+esc(r.id)+'" data-campo="ficha" value="'+esc(m.ficha||'')+'"></td>'+
@@ -477,6 +491,13 @@ export function telaFolhaEmpenhos(el){
         const v=i.value.trim();
         if(v)numerosOP[i.dataset.op]=v; else delete numerosOP[i.dataset.op];
         persistir();
+      });
+      $('#fe-tabela').querySelectorAll('[data-mover]').forEach(b=>b.onclick=()=>{
+        /* A ordem guardada precisa conter todos os grupos antes de mexer, senão
+           mover um grupo que não está nela não faria nada. */
+        if(!ordemGrupos.length)ordemGrupos=gruposEmOrdem(registros);
+        ordemGrupos=moverGrupo(ordemGrupos,b.dataset.mover,Number(b.dataset.passo));
+        aprovouMapa=false;$('#fe-confirmar-mapa').checked=false;persistir();render();
       });
     }else if(visao==='resumo'){
     $('#fe-tabela').innerHTML='<table><thead><tr><th>Empenho</th><th>Grupo</th><th>Secretaria/unidade</th><th>Vínculo</th><th>Lotação RH</th><th>Lotação orçamentária (ação)</th><th>Ficha</th><th>Natureza da despesa</th><th>Fonte</th><th>Desdobr.</th><th>Conta</th><th class="fe-money">Bruto</th><th class="fe-money">Desconto RH</th><th class="fe-money">INSS extra</th><th class="fe-money">Líquido</th><th>Pendências</th></tr></thead><tbody>'+
