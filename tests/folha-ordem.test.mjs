@@ -8,12 +8,14 @@
 // Transportes (002.013), que veio antes de Obras (002.012).
 import assert from 'node:assert/strict';
 import { ordenarEmpenhos, rankVinculo, grupoDaLotacao, gruposEmOrdem,
-  moverGrupo, ultimoNivelEhVinculo, RANK_OUTROS } from '../assets/js/folha-ordem.js';
+  moverGrupo, ultimoNivelEhVinculo, RANK_OUTROS,
+  ORDEM_GRUPOS_2026 } from '../assets/js/folha-ordem.js';
 
 let ok = 0; const falhas = [];
 const t = (nome, fn) => { try { fn(); ok++; } catch (e) { falhas.push(nome + ': ' + e.message); } };
 const reg = (lotacao, ultimo, secretaria = '') => ({ lotacao, secretaria,
   caminho: ['PREF. MUNIC.', 'ACAO', ultimo].filter(Boolean) });
+const regA = (lotacao, acao, ultimo) => ({ lotacao, caminho: ['PREF. MUNIC.', acao, ultimo] });
 
 t('o vínculo define a posição dentro do grupo', () => {
   assert.equal(rankVinculo(reg('x', 'VICE PREFEITO')), 2);
@@ -39,27 +41,50 @@ t('o que não é vínculo de pessoal ativo vai para o fim', () => {
 });
 
 // --- grupo ---
-t('o grupo é a lotação sem o nível do vínculo', () => {
-  assert.equal(grupoDaLotacao(reg('002.004.217.00002', 'PESSOAL EFETIVO')), '002.004.217');
-  assert.equal(grupoDaLotacao(reg('002.004.217.00006', 'COMISSIONADOS')), '002.004.217');
+/* O grupo é a AÇÃO dentro da secretaria, não o código da lotação. Dois códigos
+   podem ser a mesma ação: em outubro 002.005.235 e 002.005.236 são as duas
+   "ATENÇÃO BÁSICA", e a Contabilidade faz a ação de uma vez — o agente político
+   junto dos efetivos e contratados dela. */
+t('o grupo é a ação dentro da secretaria', () => {
+  assert.equal(grupoDaLotacao(regA('002.004.217.00002', 'MANUT. ENSINO FUNDAMENTAL', 'PESSOAL EFETIVO')),
+    '002.004|MANUT ENSINO FUNDAMENTAL');
 });
 
-// Em '002.016.002' o vínculo já é o 3º nível: o grupo é a secretaria.
-t('lotação de três níveis agrupa pela secretaria', () => {
-  assert.equal(grupoDaLotacao(reg('002.016.002', 'PESSOAL EFETIVO')), '002.016');
-  assert.equal(grupoDaLotacao(reg('002.016.001', 'PESSOAL CONTRATADO')), '002.016');
+t('códigos diferentes da mesma ação são um grupo só', () => {
+  const a = regA('002.005.235.00002', 'MANUTENÇAO ATENÇÃO BASICA', 'PESSOAL EFETIVO');
+  const b = regA('002.005.236.00004', 'MANUTENÇÃO ATENÇÃO BÁSICA 159', 'AGENTE POLITICO');
+  assert.equal(grupoDaLotacao(a), grupoDaLotacao(b),
+    'o acento e o sufixo numérico não podem separar a mesma ação');
+  assert.equal(grupoDaLotacao(a), '002.005|MANUTENCAO ATENCAO BASICA');
 });
 
-/* Na lotação do Prefeito o último nível é a AÇÃO, então não pode ser removido:
-   o grupo é ela inteira, e é o mesmo das outras lotações daquela ação. */
-t('a lotação do Prefeito não perde o último nível', () => {
+t('a mesma ação em secretarias diferentes não se mistura', () => {
+  assert.notEqual(grupoDaLotacao(regA('002.004.100.00001', 'MANUTENCAO', 'PESSOAL EFETIVO')),
+    grupoDaLotacao(regA('002.005.100.00001', 'MANUTENCAO', 'PESSOAL EFETIVO')));
+});
+
+// Em '002.016.002' o vínculo já é o 3º nível: a ação é o nome da secretaria.
+t('lotação de três níveis agrupa pelo nome da secretaria', () => {
+  const a = regA('002.016.002', 'SECRETARIA MUNIC. DE LIMPEZA URBANA', 'PESSOAL EFETIVO');
+  const b = regA('002.016.001', 'SECRETARIA MUNIC. DE LIMPEZA URBANA', 'PESSOAL CONTRATADO');
+  assert.equal(grupoDaLotacao(a), grupoDaLotacao(b));
+  assert.equal(grupoDaLotacao(a), '002.016|SECRETARIA MUNIC DE LIMPEZA URBANA');
+});
+
+/* Na lotação do Prefeito o último nível é a AÇÃO, então é dele que sai o grupo
+   — o mesmo das outras lotações daquela ação, o Vice incluído. */
+t('o Prefeito cai no grupo da ação dele', () => {
   const p = { lotacao: '002.001.201', secretaria: 'GABINETE DO PREFEITO',
     caminho: ['PREF. MUNIC.', 'MANUT. DO GAB. E SECRET. DE GOVERNO'] };
-  assert.equal(grupoDaLotacao(p), '002.001.201');
-  assert.equal(grupoDaLotacao(reg('002.001.201.00005', 'VICE PREFEITO')), '002.001.201',
-    'o Vice está no mesmo grupo que o Prefeito');
+  const vice = regA('002.001.201.00005', 'MANUT. DO GAB. E SECRET. DE GOVERNO', 'VICE PREFEITO');
+  assert.equal(grupoDaLotacao(p), grupoDaLotacao(vice));
   assert.ok(!ultimoNivelEhVinculo(p));
-  assert.ok(ultimoNivelEhVinculo(reg('002.001.201.00005', 'VICE PREFEITO')));
+  assert.ok(ultimoNivelEhVinculo(vice));
+});
+
+t('sem nome de ação, cai para o código da lotação', () => {
+  assert.equal(grupoDaLotacao({ lotacao: '002.016.002' }), '002.016.002');
+  assert.equal(grupoDaLotacao({}), '');
 });
 
 // --- ordenação ---
@@ -67,18 +92,19 @@ t('a lotação do Prefeito não perde o último nível', () => {
    Prefeito, Vice e comissionados (4912, 4913, 4914), e os códigos de lotação
    não seguem essa ordem — 201, 201.00005, 201.00003. */
 t('o Gabinete sai na ordem de outubro', () => {
+  const ACAO = 'MANUT. DO GAB. E SECRET. DE GOVERNO';
   const r = ordenarEmpenhos([
-    reg('002.001.201.00003', 'COMISSIONADOS'),
-    { lotacao: '002.001.201', secretaria: 'GABINETE DO PREFEITO',
-      caminho: ['PREF. MUNIC.', 'MANUT. DO GAB. E SECRET. DE GOVERNO'] },
-    reg('002.001.201.00005', 'VICE PREFEITO')]);
+    regA('002.001.201.00003', ACAO, 'COMISSIONADOS'),
+    { lotacao: '002.001.201', secretaria: 'GABINETE DO PREFEITO', caminho: ['PREF. MUNIC.', ACAO] },
+    regA('002.001.201.00005', ACAO, 'VICE PREFEITO')]);
   assert.deepEqual(r.map(x => x.lotacao), ['002.001.201', '002.001.201.00005', '002.001.201.00003']);
 });
 
 t('a Limpeza Urbana sai na ordem de outubro', () => {
+  const L = 'SECRETARIA MUNIC. DE LIMPEZA URBANA';
   const r = ordenarEmpenhos([
-    reg('002.016.001', 'PESSOAL CONTRATADO'), reg('002.016.002', 'PESSOAL EFETIVO'),
-    reg('002.016.003', 'PESSOAL COMISSIONADO'), reg('002.016.004', 'AGENTE POLITICO')]);
+    regA('002.016.001', L, 'PESSOAL CONTRATADO'), regA('002.016.002', L, 'PESSOAL EFETIVO'),
+    regA('002.016.003', L, 'PESSOAL COMISSIONADO'), regA('002.016.004', L, 'AGENTE POLITICO')]);
   assert.deepEqual(r.map(x => x.lotacao),
     ['002.016.004', '002.016.003', '002.016.002', '002.016.001']);
 });
@@ -86,41 +112,68 @@ t('a Limpeza Urbana sai na ordem de outubro', () => {
 /* A ordem entre grupos é da Contabilidade e não sai de nenhum dado: em outubro
    Esporte (002.011) veio antes de Transportes (002.013) e de Obras (002.012). */
 t('a ordem de grupos informada é respeitada', () => {
-  const entrada = [reg('002.012.296.00001', 'PESSOAL EFETIVO'),
-    reg('002.011.289.00001', 'PESSOAL EFETIVO'), reg('002.013.002', 'PESSOAL EFETIVO')];
-  const r = ordenarEmpenhos(entrada, ['002.011.289', '002.013', '002.012.296']);
-  assert.deepEqual(r.map(x => grupoDaLotacao(x)), ['002.011.289', '002.013', '002.012.296']);
+  const obras = regA('002.012.296.00001', 'MANUT. VIAS', 'PESSOAL EFETIVO');
+  const esporte = regA('002.011.289.00001', 'MANUT. ESPORTE', 'PESSOAL EFETIVO');
+  const transp = regA('002.013.002', 'SEC. TRANSPORTES', 'PESSOAL EFETIVO');
+  const r = ordenarEmpenhos([obras, esporte, transp],
+    [grupoDaLotacao(esporte), grupoDaLotacao(transp), grupoDaLotacao(obras)]);
+  assert.deepEqual(r.map(x => x.lotacao), ['002.011.289.00001', '002.013.002', '002.012.296.00001']);
 });
 
 // Secretaria nova tem de aparecer no fim, não se perder no meio da sequência.
 t('grupo que não está na ordem entra depois dos conhecidos', () => {
-  const entrada = [reg('002.099.999.00001', 'PESSOAL EFETIVO'), reg('002.016.002', 'PESSOAL EFETIVO')];
-  const r = ordenarEmpenhos(entrada, ['002.016']);
+  const novo = regA('002.099.999.00001', 'SECRETARIA NOVA', 'PESSOAL EFETIVO');
+  const velho = regA('002.016.002', 'LIMPEZA URBANA', 'PESSOAL EFETIVO');
+  const r = ordenarEmpenhos([novo, velho], [grupoDaLotacao(velho)]);
   assert.deepEqual(r.map(x => x.lotacao), ['002.016.002', '002.099.999.00001']);
 });
 
 t('grupos novos entram na ordem em que o resumo os trouxe', () => {
-  const entrada = [reg('002.050.001', 'PESSOAL EFETIVO'), reg('002.040.001', 'PESSOAL EFETIVO')];
+  const entrada = [regA('002.050.001', 'SEC A', 'PESSOAL EFETIVO'),
+    regA('002.040.001', 'SEC B', 'PESSOAL EFETIVO')];
   assert.deepEqual(ordenarEmpenhos(entrada, []).map(x => x.lotacao),
     ['002.050.001', '002.040.001'], 'não reordena por código quem não foi informado');
 });
 
 t('o vínculo manda dentro do grupo, mesmo com a ordem informada', () => {
-  const r = ordenarEmpenhos([reg('002.016.001', 'PESSOAL CONTRATADO'),
-    reg('002.016.004', 'AGENTE POLITICO')], ['002.016']);
-  assert.deepEqual(r.map(x => x.lotacao), ['002.016.004', '002.016.001']);
+  const a = regA('002.016.001', 'LIMPEZA URBANA', 'PESSOAL CONTRATADO');
+  const b = regA('002.016.004', 'LIMPEZA URBANA', 'AGENTE POLITICO');
+  assert.deepEqual(ordenarEmpenhos([a, b], [grupoDaLotacao(a)]).map(x => x.lotacao),
+    ['002.016.004', '002.016.001']);
+});
+
+// A ação é uma só, em dois códigos de lotação: o vínculo ordena os dois juntos.
+t('ação em dois códigos é ordenada como um grupo', () => {
+  const ag = regA('002.005.236.00004', 'MANUTENÇÃO ATENÇÃO BÁSICA 159', 'AGENTE POLITICO');
+  const ef = regA('002.005.235.00019', 'MANUTENÇAO ATENÇÃO BASICA', 'SERVIDOR EFETIVO');
+  const ct = regA('002.005.235.00008', 'MANUTENÇAO ATENÇÃO BASICA', 'SERVIDORES CONTRATADOS');
+  assert.deepEqual(ordenarEmpenhos([ct, ef, ag], []).map(x => x.lotacao),
+    ['002.005.236.00004', '002.005.235.00019', '002.005.235.00008'],
+    'é assim que a Contabilidade fez em outubro');
 });
 
 // Mesmo vínculo duas vezes no grupo: a lotação decide, para o resultado não
 // depender da ordem de leitura do PDF.
 t('empate de vínculo é resolvido pela lotação', () => {
-  const r = ordenarEmpenhos([reg('002.004.217.00009', 'PESSOAL EFETIVO'),
-    reg('002.004.217.00002', 'PESSOAL EFETIVO')], ['002.004.217']);
-  assert.deepEqual(r.map(x => x.lotacao), ['002.004.217.00002', '002.004.217.00009']);
+  const a = regA('002.004.217.00009', 'MANUT. ENSINO FUNDAMENTAL', 'PESSOAL EFETIVO');
+  const b = regA('002.004.217.00002', 'MANUT. ENSINO FUNDAMENTAL', 'PESSOAL EFETIVO');
+  assert.deepEqual(ordenarEmpenhos([a, b], []).map(x => x.lotacao),
+    ['002.004.217.00002', '002.004.217.00009']);
+});
+
+/* A sequência de 2026 foi recuperada da planilha de outubro: os 35 grupos que
+   deu para casar saem na mesma ordem, nenhum fora de lugar. */
+t('a ordem de 2026 está cadastrada e sem repetição', () => {
+  assert.equal(ORDEM_GRUPOS_2026.length, 36);
+  assert.equal(new Set(ORDEM_GRUPOS_2026).size, 36);
+  for (const g of ORDEM_GRUPOS_2026) assert.match(g, /^002\.\d{3}\|[A-Z0-9 ]+$/, g);
+  assert.equal(ORDEM_GRUPOS_2026[0], '002.001|MANUT DO GAB E SECRET DE GOVERNO',
+    'o Gabinete abre, porque o Prefeito e o Vice são os primeiros');
 });
 
 t('não mexe na lista que recebeu', () => {
-  const entrada = [reg('002.016.001', 'PESSOAL CONTRATADO'), reg('002.016.004', 'AGENTE POLITICO')];
+  const entrada = [regA('002.016.001', 'LIMPEZA', 'PESSOAL CONTRATADO'),
+    regA('002.016.004', 'LIMPEZA', 'AGENTE POLITICO')];
   const copia = [...entrada];
   ordenarEmpenhos(entrada, []);
   assert.deepEqual(entrada, copia);
@@ -134,9 +187,10 @@ t('lista vazia não quebra', () => {
 
 // --- guardar e mexer na ordem ---
 t('gruposEmOrdem devolve a sequência sem repetir', () => {
-  const r = [reg('002.016.004', 'AGENTE POLITICO'), reg('002.016.001', 'PESSOAL CONTRATADO'),
-    reg('002.013.002', 'PESSOAL EFETIVO')];
-  assert.deepEqual(gruposEmOrdem(r), ['002.016', '002.013']);
+  const r = [regA('002.016.004', 'LIMPEZA', 'AGENTE POLITICO'),
+    regA('002.016.001', 'LIMPEZA', 'PESSOAL CONTRATADO'),
+    regA('002.013.002', 'TRANSPORTES', 'PESSOAL EFETIVO')];
+  assert.deepEqual(gruposEmOrdem(r), ['002.016|LIMPEZA', '002.013|TRANSPORTES']);
   assert.deepEqual(gruposEmOrdem(), []);
 });
 

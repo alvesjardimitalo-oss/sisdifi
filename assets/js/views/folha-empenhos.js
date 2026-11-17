@@ -7,7 +7,7 @@ import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,p
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
 import {varrerServidores,servidoresComRepasse,codigosDeDesconto} from '../folha-servidores.js';
-import {ordenarEmpenhos,gruposEmOrdem,moverGrupo,grupoDaLotacao} from '../folha-ordem.js';
+import {ordenarEmpenhos,gruposEmOrdem,moverGrupo,grupoDaLotacao,ORDEM_GRUPOS_2026} from '../folha-ordem.js';
 import {passosDoEmpenho,conferirEmpenho,fichasOPpendentes,modeloDoEmpenho,textoDoModelo,MODELOS_HISTORICO} from '../folha-transcrever.js';
 import {ratearPorSaldo,ehFundeb,mesmaFonte,FONTE_EDUCACAO_PROPRIA,FONTE_SAUDE_PROPRIA} from '../folha-saldos.js';
 import {pensoesParaOP,chaveCadastro,RUBRICAS_PENSAO} from '../folha-pensoes.js';
@@ -147,7 +147,7 @@ export function telaFolhaEmpenhos(el){
      os grupos é a sequência que a Contabilidade fixou, guardada por grupo e
      reaproveitada nos meses seguintes. */
   const arquivosLista=()=>descontarFolhasProprias(Object.values(arquivos)).arquivos
-    .map(a=>({...a,registros:ordenarEmpenhos(a.registros,ordemGrupos)}));
+    .map(a=>({...a,registros:ordenarEmpenhos(a.registros,ordemGrupos.length?ordemGrupos:ORDEM_GRUPOS_2026)}));
   const montar=()=>{
     if(!Object.values(arquivos).some(x=>x?.registros?.length))return null;
     const maternidade=consolidarMaternidade(pessoas,[arquivos.principal].filter(Boolean));

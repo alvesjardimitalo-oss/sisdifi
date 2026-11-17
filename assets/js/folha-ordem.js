@@ -45,16 +45,78 @@ export function ultimoNivelEhVinculo(registro={}){
  return !!vinculoDoRegistro({caminho:[ultimoNivel(registro)]});
 }
 
+/* O nome da ação, que é o nível acima do vínculo. Dois códigos de lotação
+   podem ser a MESMA ação: em outubro, 002.005.235 e 002.005.236 são as duas
+   "ATENÇÃO BÁSICA", e 002.009.267 e 002.009.269 são as duas "CRAS/CREAS" — e a
+   Contabilidade faz cada ação de uma vez, o agente político junto dos efetivos
+   e contratados dela. Daí o grupo ser o nome, não o código.
+   O sufixo numérico sai fora: "ATENÇÃO BÁSICA 159" é a mesma ação. */
+const nomeAcao=registro=>{
+ const caminho=registro?.caminho||[];
+ const bruto=ultimoNivelEhVinculo(registro)?caminho.slice(-2)[0]:caminho.slice(-1)[0];
+ return normalizar(bruto||'').replace(/[^A-Z0-9]+/g,' ').replace(/\s+\d+\s*$/,'').trim();
+};
+
 /**
- * Grupo da lotação: ela sem o nível do vínculo.
- * Mantém o nível quando ele não é vínculo — é o caso da lotação do Prefeito,
- * cujo último nível é a ação.
+ * Grupo de um empenho: a ação dentro da secretaria.
+ *
+ * A chave leva a secretaria junto, para duas secretarias com ação de nome
+ * parecido não se misturarem. Sem nome de ação no caminho, cai para a lotação
+ * sem o nível do vínculo — que é o que dava antes.
  */
 export function grupoDaLotacao(registro={}){
  const partes=String(registro.lotacao||'').split('.');
+ const secretaria=partes.slice(0,2).join('.');
+ const acao=nomeAcao(registro);
+ if(secretaria&&acao)return secretaria+'|'+acao;
  if(partes.length>1&&ultimoNivelEhVinculo(registro))partes.pop();
  return partes.join('.');
 }
+
+/* Sequência de grupos de 2026, recuperada da planilha de outubro da
+   Contabilidade e conferida contra ela: os 35 grupos que deu para casar saem
+   na mesma ordem, sem nenhum fora de lugar, e o rank do vínculo bate nos 36.
+   Serve como ponto de partida para a competência não começar do zero; as setas
+   da tela mudam o que precisar, e a ordem salva tem precedência.
+   Em 2027 as ações mudam, e aí a Contabilidade reordena uma vez. */
+export const ORDEM_GRUPOS_2026=[
+ '002.001|MANUT DO GAB E SECRET DE GOVERNO',
+ '002.001|MANUT DO CONTROLE INTERNO',
+ '002.002|MANUT SECRET DE ADMINISTRACAO',
+ '002.002|MANUT SERV RH COMPRAS LICITA E PATRI',
+ '002.002|PAGAMENTO DE INATIVOS E PENSIONISTAS',
+ '002.008|MANUT ATIV SECRET CULTURA E TURISMO',
+ '002.003|MANUT DA SECRET DA FAZEDA',
+ '002.011|MANUT DA SECRETARIA DE ESPORTE E LAZER',
+ '002.013|SECRETARIA MUNIC DE TRANSPORTES',
+ '002.014|SECRETARIA MUNIC DE AGRICULTURA',
+ '002.012|MAUTENCAO SECRETARIA DE OBRAS PUBLICAS',
+ '002.006|MANUT SECRET MUNIC OBRAS SERV URBAN',
+ '002.012|MANUT VIAS PRACAS JARDINS E CEMITERIOS',
+ '002.015|MANUTENCAO SEC MEIO AMBIENTE',
+ '002.016|SECRETARIA MUNIC DE LIMPEZA URBANA',
+ '002.004|MANUT SECRETARIA DE EDUCACAO',
+ '002.004|MANUTENCAO CRECHE',
+ '002.004|MANUT ENSINO FUNDAMENTAL',
+ '002.004|MANUTENCAO ENSINO INFANTIL',
+ '002.004|MANUTENCAO ENSINO FUNDAMENTAL',
+ '002.004|MANUT TRANSPORTE ESCOLAR',
+ '002.005|MANUTENCAO ATENCAO BASICA',
+ '002.005|MANUTENCAO ACOES VIGILANCIA EM SAUDE',
+ '002.005|MANUTENCAO FARMACIA',
+ '002.005|MANUTENCAO ACOES VIGILANCIA SANITARIA',
+ '002.005|GESTAO SAUDE MEDIA COMPLEXIDADE',
+ '002.005|MANUT SECRETARIA MUNIC DE SAUDE',
+ '002.005|MANUT ATIV HOSPITAL MUNICIPAL',
+ '002.004|MANUTENCAO DO ENSINO TEMPO INTEGRAL',
+ '002.009|MANUTENCAO DA SEC DE ACAO SOCIAL',
+ '002.009|MANUTENCAO DO CONSELHO TUTELAR',
+ '002.009|MANUTENCAO DO CRAS CREAS',
+ '002.009|MANUT PROGRAMA IGD PBF SUAS',
+ '002.009|PROCAD SUAS',
+ '002.009|MANUTENCAO DO PROGRAMA PRIMEIRA INFANCIA',
+ '002.009|MANUT ATIV COORDENACAO DEFESA CIVIL'
+];
 
 /**
  * Ordena os empenhos como a Contabilidade os faz.
