@@ -39,7 +39,8 @@ const arquivo = (tipo, blocos) => analisarResumoVerbas(
   [{ pagina: 1, texto: 'TIPO CÁLCULO: ' + (tipo === 'decimo' ? '05-DÉCIMO' : tipo === 'rescisao' ? '06-RESCISÃO' : '01-FOLHA MENSAL') },
     ...blocos.flat().map(texto => ({ pagina: 1, texto }))],
   { tipo, nome: tipo });
-const empenhosDe = arquivos => prepararEmpenhos(descontarFolhasProprias(arquivos).arquivos, 1, {}, {}).empenhos;
+const empenhosDe = (arquivos, mapa = {}) =>
+  prepararEmpenhos(descontarFolhasProprias(arquivos).arquivos, 1, mapa, {}).empenhos;
 
 const SALARIO = [['101', 'VENCIMENTO', 500000]];
 
@@ -130,6 +131,64 @@ t('destino sem desconto no mês não aparece na lista', () => {
 
 /* As fichas extra-orçamentárias são as mesmas todo mês: é por elas que a
    retenção sai do passivo quando o repasse é feito. */
+/* A soma por destino tem de bater, mas a OP é feita por FONTE: a retenção sai
+   da fonte em que a despesa foi empenhada. Então a Caixa com 43 mil pode virar
+   quatro OPs — 20 mil na 1500, 15 mil na 1540, 5 mil na 1621, 3 mil na 1600. */
+t('o destino sai aberto por fonte de recursos', () => {
+  const men = arquivo('principal', [
+    linhas('001.001.001.00002', SALARIO, [['221', 'EMPRÉSTIMO CAIXA', 2000000]]),
+    linhas('001.001.002.00002', SALARIO, [['221', 'EMPRÉSTIMO CAIXA', 1500000]]),
+    linhas('001.001.003.00002', SALARIO, [['221', 'EMPRÉSTIMO CAIXA', 500000]]),
+    linhas('001.001.004.00002', SALARIO, [['221', 'EMPRÉSTIMO CAIXA', 300000]])]);
+  const fontes = { 'principal|001.001.001.00002': { fonte: '1500' },
+    'principal|001.001.002.00002': { fonte: '1540' },
+    'principal|001.001.003.00002': { fonte: '1621' },
+    'principal|001.001.004.00002': { fonte: '1600' } };
+  const p = pagamentosConsignados(empenhosDe([men], fontes));
+  const caixa = p.destinos.find(d => d.chave === 'Caixa');
+  assert.equal(caixa.valor, 4300000, 'a soma do destino não muda');
+  assert.deepEqual(caixa.porFonte.map(f => [f.fonte, f.valor]),
+    [['1500', 2000000], ['1540', 1500000], ['1621', 500000], ['1600', 300000]],
+    'da maior para a menor');
+  assert.equal(p.ops, 4, 'quatro OPs, uma por fonte');
+});
+
+t('a soma das fontes fecha com o total do destino', () => {
+  const men = arquivo('principal', [
+    linhas('001.001.001.00002', SALARIO, [['221', 'EMPRÉSTIMO CAIXA', 30000], ['201', 'I.N.S.S.', 50000]]),
+    linhas('001.001.002.00002', SALARIO, [['221', 'EMPRÉSTIMO CAIXA', 12000], ['201', 'I.N.S.S.', 20000]])]);
+  const p = pagamentosConsignados(empenhosDe([men],
+    { 'principal|001.001.001.00002': { fonte: '1500' }, 'principal|001.001.002.00002': { fonte: '1540' } }));
+  for (const d of p.destinos)
+    assert.equal(d.porFonte.reduce((n, f) => n + f.valor, 0), d.valor, d.nome);
+  assert.equal(p.total, p.destinos.reduce((n, d) => n + d.valor, 0));
+});
+
+t('a mesma fonte em vários empenhos vira uma OP só', () => {
+  const men = arquivo('principal', [
+    linhas('001.001.001.00002', SALARIO, [['221', 'EMPRÉSTIMO CAIXA', 30000]]),
+    linhas('001.001.002.00002', SALARIO, [['221', 'EMPRÉSTIMO CAIXA', 12000]])]);
+  const p = pagamentosConsignados(empenhosDe([men],
+    { 'principal|001.001.001.00002': { fonte: '1500' }, 'principal|001.001.002.00002': { fonte: '1500' } }));
+  const caixa = p.destinos.find(d => d.chave === 'Caixa');
+  assert.equal(caixa.porFonte.length, 1);
+  assert.equal(caixa.porFonte[0].valor, 42000);
+  assert.equal(caixa.porFonte[0].empenhos.length, 2, 'a OP sabe de quais empenhos veio');
+});
+
+// Sem a fonte não há como emitir a OP: somar em outra fonte seria pagar errado.
+t('empenho sem fonte fica numa linha à parte, no fim', () => {
+  const men = arquivo('principal', [
+    linhas('001.001.001.00002', SALARIO, [['221', 'EMPRÉSTIMO CAIXA', 30000]]),
+    linhas('001.001.002.00002', SALARIO, [['221', 'EMPRÉSTIMO CAIXA', 12000]])]);
+  const p = pagamentosConsignados(empenhosDe([men], { 'principal|001.001.001.00002': { fonte: '1500' } }));
+  const caixa = p.destinos.find(d => d.chave === 'Caixa');
+  assert.deepEqual(caixa.porFonte.map(f => [f.fonte, f.valor]), [['1500', 30000], ['', 12000]]);
+  assert.equal(p.semFonte.length, 1);
+  assert.equal(p.totalSemFonte, 12000);
+  assert.equal(caixa.valor, 42000, 'o total do destino continua certo');
+});
+
 t('cada destino traz a ficha extra-orçamentária fixa', () => {
   const men = arquivo('principal', [linhas('001.001.001.00002', SALARIO,
     [['201', 'I.N.S.S.', 50000], ['204', 'IMPOSTO DE RENDA', 20000], ['230', 'PENSAO JUDICIAL', 10000],

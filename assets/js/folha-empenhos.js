@@ -552,24 +552,52 @@ const DESTINOS_PAGAMENTO=[
  {chave:'Sicoob',nome:'Sicoob',forma:'guia do banco'},
  {chave:'Bradesco',nome:'Bradesco',forma:'guia do banco'}
 ].map(d=>({...d,fichaExtra:FICHAS_EXTRA_ORCAMENTARIAS[d.chave]||''}));
+/**
+ * Lista de repasse do mês.
+ *
+ * A soma por destino tem de bater, mas a ORDEM DE PAGAMENTO é feita por fonte
+ * de recursos: a retenção sai da fonte em que a despesa foi empenhada. Então a
+ * Caixa com 43 mil pode virar quatro OPs — 20 mil na 1500, 15 mil na 1540, 5
+ * mil na 1621 e 3 mil na 1600. Daí cada destino vir aberto por fonte, e o
+ * número de OPs ser o de pares destino+fonte.
+ *
+ * Empenho sem fonte informada entra numa linha à parte: sem a fonte não há
+ * como emitir a OP, e somar esse valor em outra fonte seria pagar errado.
+ */
 export function pagamentosConsignados(empenhos=[]){
  const lista=Array.isArray(empenhos)?empenhos:[];
- const porRubrica=new Map();
+ const porRubrica=new Map(),porFonte=new Map();
  for(const e of lista)for(const d of e.rubricasDesconto||[]){
    const k=d.categoria+'|'+d.codigo;
    const at=porRubrica.get(k)||{categoria:d.categoria,codigo:d.codigo,descricao:d.descricao||'',valor:0,empenhos:[]};
    at.valor+=d.valor;
    if(e.empenho!=null&&!at.empenhos.includes(e.empenho))at.empenhos.push(e.empenho);
    porRubrica.set(k,at);
+
+   const fonte=String(e.fonte||'');
+   const kf=d.categoria+'|'+fonte;
+   const af=porFonte.get(kf)||{categoria:d.categoria,fonte,valor:0,empenhos:[]};
+   af.valor+=d.valor;
+   if(e.empenho!=null&&!af.empenhos.includes(e.empenho))af.empenhos.push(e.empenho);
+   porFonte.set(kf,af);
  }
  const rubricas=[...porRubrica.values()].filter(r=>r.valor!==0);
+ const fontes=[...porFonte.values()].filter(r=>r.valor!==0);
  const destinos=DESTINOS_PAGAMENTO.map(d=>{
    const suas=rubricas.filter(r=>r.categoria===d.chave).sort((a,b)=>b.valor-a.valor);
-   return {...d,valor:suas.reduce((n,r)=>n+r.valor,0),rubricas:suas};
+   const minhasFontes=fontes.filter(r=>r.categoria===d.chave)
+     // Fonte informada primeiro, da maior para a menor; o que falta fonte no fim.
+     .sort((a,b)=>(a.fonte?0:1)-(b.fonte?0:1)||b.valor-a.valor);
+   return {...d,valor:suas.reduce((n,r)=>n+r.valor,0),rubricas:suas,porFonte:minhasFontes};
  }).filter(d=>d.valor!==0);
- // O que não é banco nem pensão não se paga a terceiro: fica para a Contabilidade ver.
+ // O que não é banco, tributo nem pensão não se paga a terceiro: fica para a
+ // Contabilidade ver.
  const outros=rubricas.filter(r=>r.categoria==='Outros').sort((a,b)=>b.valor-a.valor);
- return {destinos,outros,total:destinos.reduce((n,d)=>n+d.valor,0)};
+ const ops=destinos.flatMap(d=>d.porFonte).length;
+ const semFonte=destinos.flatMap(d=>d.porFonte).filter(f=>!f.fonte);
+ return {destinos,outros,fontes,ops,semFonte,
+  total:destinos.reduce((n,d)=>n+d.valor,0),
+  totalSemFonte:semFonte.reduce((n,f)=>n+f.valor,0)};
 }
 export function conferirConsignadosFolha(empenhos,arquivosMinuta){
   const calc={Caixa:0,Sicoob:0,Bradesco:0,Pensao:0};

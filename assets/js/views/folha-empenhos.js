@@ -598,8 +598,15 @@ export function telaFolhaEmpenhos(el){
     if(!alvo)return;
     const r=pagamentosConsignados(p.previsao.empenhos);
     if(!r.destinos.length){alvo.innerHTML='';return;}
+    /* Uma OP por fonte: a retenção sai da fonte em que a despesa foi
+       empenhada, então o destino aparece aberto por fonte e cada linha dessas é
+       uma ordem de pagamento. A soma do destino é que tem de bater. */
     const linha=d=>'<tr><td><strong>'+esc(d.fichaExtra||'—')+'</strong></td><td>'+esc(d.nome)+'</td>'+
       '<td class="fe-money"><strong>'+dinheiroFolha(d.valor)+'</strong></td><td>'+esc(d.forma)+'</td></tr>'+
+      d.porFonte.map(f=>'<tr class="fe-historico'+(f.fonte?'':' fe-pendente')+'"><td></td>'+
+        '<td>fonte '+(f.fonte?esc(f.fonte):'<strong>a informar</strong>')+'</td>'+
+        '<td class="fe-money">'+dinheiroFolha(f.valor)+'</td>'+
+        '<td class="fe-muted">'+f.empenhos.length+' empenho'+(f.empenhos.length===1?'':'s')+'</td></tr>').join('')+
       (d.detalhar?d.rubricas.map(x=>'<tr class="fe-historico"><td></td><td>'+esc(x.codigo)+' — '+esc(x.descricao)+
         '</td><td class="fe-money">'+dinheiroFolha(x.valor)+'</td>'+
         '<td class="fe-muted">'+x.empenhos.length+' empenho'+(x.empenhos.length===1?'':'s')+'</td></tr>').join(''):'');
@@ -608,7 +615,12 @@ export function telaFolhaEmpenhos(el){
        nominal — então o número das liquidações sai de lá, não daqui. */
     const outros=r.outros.length?'<p class="fe-muted">Fora do repasse a terceiro: '+
       r.outros.map(x=>esc(x.codigo)+' '+esc(x.descricao)+' · '+dinheiroFolha(x.valor)).join('; ')+'.</p>':'';
-    alvo.innerHTML='<section class="fe-card"><h2>Repasses do mês · '+dinheiroFolha(r.total)+'</h2>'+
+    alvo.innerHTML='<section class="fe-card"><h2>Repasses do mês · '+dinheiroFolha(r.total)+
+      ' · '+r.ops+' ordem'+(r.ops===1?'':'ns')+' de pagamento</h2>'+
+      '<p class="fe-muted">Uma OP por fonte de recursos: a retenção sai da fonte em que a despesa foi empenhada.</p>'+
+      (r.semFonte.length?'<p class="fe-alert">'+dinheiroFolha(r.totalSemFonte)+
+        ' em '+r.semFonte.length+' linha'+(r.semFonte.length===1?'':'s')+
+        ' sem fonte informada: sem ela não há como emitir a OP.</p>':'')+
       '<div class="fe-scroll"><table><thead><tr><th>Ficha extra</th><th>Destino</th>'+
       '<th class="fe-money">Valor</th><th>Como se paga</th></tr></thead><tbody>'+
       r.destinos.map(linha).join('')+'</tbody></table></div>'+outros+'</section>';
