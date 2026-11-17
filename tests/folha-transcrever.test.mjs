@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { passosDoEmpenho, conferirEmpenho, montarHistorico, fichasOPpendentes,
   modeloDoEmpenho, textoDoModelo, MODELOS_HISTORICO,
   MODELO_HISTORICO_OP } from '../assets/js/folha-transcrever.js';
+import { FICHAS_EXTRA_OP } from '../assets/js/folha-empenhos.js';
 
 let ok = 0; const falhas = [];
 const t = (nome, fn) => { try { fn(); ok++; } catch (e) { falhas.push(nome + ': ' + e.message); } };
@@ -88,15 +89,28 @@ t('categoria sem ficha extra cadastrada é marcada para informar', () => {
 
 // --- ordens de pagamento ---
 /* A ficha da OP é extra-orçamentária e fixa por tipo de benefício. O sistema
-   repetia a ficha orçamentária do empenho, o que não serve: é informada. */
-t('a OP pede a ficha extra por tipo e a guarda', () => {
+   repetia a ficha ORÇAMENTÁRIA do empenho — 56, 173, 174 em outubro — que não
+   serve: ordem de pagamento é despesa extra. */
+t('a OP traz a ficha extra fixa do benefício', () => {
+  assert.deepEqual(FICHAS_EXTRA_OP,
+    { 'Salário-família': '1', 'Salário-maternidade': '31', 'Auxílio-natalidade': '44' });
   const ps = passosDoEmpenho(emp(), [op()], {});
   const f = achar(ps, 'Salário-família — ficha extra');
-  assert.ok(f.informar);
-  assert.match(f.nota, /vale para os próximos meses/);
+  assert.equal(f.valor, '1');
+  assert.ok(f.copiavel);
+  assert.ok(!f.informar);
+});
+
+t('o cadastro corrige a ficha extra quando a Contabilidade quiser', () => {
   const com = passosDoEmpenho(emp(), [op()], { fichasOP: { 'Salário-família': '12' } });
   assert.equal(achar(com, 'Salário-família — ficha extra').valor, '12');
-  assert.ok(achar(com, 'Salário-família — ficha extra').copiavel);
+});
+
+t('benefício desconhecido pede a ficha extra', () => {
+  const ps = passosDoEmpenho(emp(), [op({ tipo: 'Auxílio-funeral', id: 'z' })], {});
+  const f = achar(ps, 'Auxílio-funeral — ficha extra');
+  assert.ok(f.informar);
+  assert.match(f.nota, /vale para os próximos meses/);
 });
 
 t('a OP sem desconto não pede desconto', () => {
@@ -132,10 +146,13 @@ t('duas OPs no mesmo empenho saem em sequência', () => {
   assert.deepEqual([...new Set(tipos)], ['Salário-família', 'Salário-maternidade']);
 });
 
-t('fichasOPpendentes lista os tipos sem ficha, sem repetir', () => {
+// Os três benefícios de Frei Inocêncio já têm ficha: nada a pedir.
+t('fichasOPpendentes só lista benefício sem ficha cadastrada', () => {
   const extras = [op(), op({ id: 'b' }), op({ tipo: 'Salário-maternidade', id: 'c' })];
-  assert.deepEqual(fichasOPpendentes(extras, {}), ['Salário-família', 'Salário-maternidade']);
-  assert.deepEqual(fichasOPpendentes(extras, { 'Salário-família': '12' }), ['Salário-maternidade']);
+  assert.deepEqual(fichasOPpendentes(extras, {}), []);
+  assert.deepEqual(fichasOPpendentes([op({ tipo: 'Auxílio-funeral', id: 'z' })], {}), ['Auxílio-funeral']);
+  assert.deepEqual(fichasOPpendentes([op({ tipo: 'Auxílio-funeral', id: 'z' })],
+    { 'Auxílio-funeral': '50' }), []);
   assert.deepEqual(fichasOPpendentes(), []);
 });
 
@@ -296,7 +313,7 @@ t('a OP traz o histórico do empenho dela', () => {
 });
 
 t('o histórico da OP vem antes do número dela', () => {
-  const ps = passosDoEmpenho(emp(), [op()], { competencia: '2026-10', fichasOP: { 'Salário-família': '12' } });
+  const ps = passosDoEmpenho(emp(), [op()], { competencia: '2026-10' });
   assert.deepEqual(ps.filter(p => p.grupo === 'Ordem de pagamento').map(p => p.rotulo),
     ['Salário-família — ficha extra', 'Salário-família — valor bruto',
      'Salário-família — histórico', 'Salário-família — nº da OP']);

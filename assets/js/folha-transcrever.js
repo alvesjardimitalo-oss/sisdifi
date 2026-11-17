@@ -9,7 +9,8 @@
 // Este módulo devolve exatamente essa sequência, um empenho por vez, para a
 // tela mostrar o campo que está sendo digitado. Conferir num quadro de várias
 // abas não serve para digitar: serve para auditar depois.
-import { CATEGORIAS_DESCONTOS, FICHAS_EXTRA_ORCAMENTARIAS, dinheiroFolha } from './folha-empenhos.js';
+import { CATEGORIAS_DESCONTOS, FICHAS_EXTRA_ORCAMENTARIAS, FICHAS_EXTRA_OP,
+  dinheiroFolha } from './folha-empenhos.js';
 
 const MESES=['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO',
  'AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
@@ -199,7 +200,8 @@ export function passosDoEmpenho(empenho={}, ops=[], opcoes={}){
     orçamentária do empenho, o que não serve. Então ela é informada e guardada
     por tipo, como as outras fichas extra. */
  for(const op of ops||[]){
-  const ficha=fichasOP[op.tipo]||'';
+  // A ficha extra do benefício é fixa; o cadastro só serve para corrigi-la.
+  const ficha=fichasOP[op.tipo]||FICHAS_EXTRA_OP[op.tipo]||op.ficha||'';
   passos.push(passo('Ordem de pagamento',op.tipo+' — ficha extra',ficha,
    {copiavel:!!ficha,informar:!ficha,
     nota:ficha?'':'informar a ficha extra de '+op.tipo+' (vale para os próximos meses)'}));
@@ -255,5 +257,5 @@ export function conferirEmpenho(empenho={}, ops=[]){
 /** Tipos de OP que ainda não têm ficha extra cadastrada. */
 export function fichasOPpendentes(extras=[], fichasOP={}){
  const tipos=new Set((extras||[]).map(o=>o.tipo).filter(Boolean));
- return [...tipos].filter(t=>!fichasOP[t]).sort();
+ return [...tipos].filter(t=>!fichasOP[t]&&!FICHAS_EXTRA_OP[t]).sort();
 }

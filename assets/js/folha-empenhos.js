@@ -490,14 +490,18 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
     };
   });
   const extras=empenhos.flatMap(r=>{
+    /* A ficha da OP é a extra-orçamentária do benefício, não a orçamentária do
+       empenho: ordem de pagamento é despesa extra. O tipo e a ficha saem do
+       mesmo lugar, para não divergirem. */
+    const op=(chave,tipo,bruto,inss=0,problemas=[])=>({
+      id:r.id+'|'+chave,empenhoReferencia:r.empenho,tipo,lotacao:r.lotacao,
+      ficha:FICHAS_EXTRA_OP[tipo]||'',fonte:r.fonte,conta:r.conta,
+      bruto,inss,liquido:bruto-inss,problemas});
     const itens=[];
-    if(r.familia)itens.push({id:r.id+'|familia',empenhoReferencia:r.empenho,tipo:'Salário-família',lotacao:r.lotacao,
-      ficha:r.ficha,fonte:r.fonte,conta:r.conta,bruto:r.familia,inss:0,liquido:r.familia,problemas:[]});
-    if(r.maternidade)itens.push({id:r.id+'|maternidade',empenhoReferencia:r.empenho,tipo:'Salário-maternidade',lotacao:r.lotacao,
-      ficha:r.ficha,fonte:r.fonte,conta:r.conta,bruto:r.maternidade,inss:r.maisInssExtra,liquido:r.maternidade-r.maisInssExtra,
-      problemas:r.problemas.filter(x=>/maternidade|INSS/.test(x))});
-    if(r.natalidade)itens.push({id:r.id+'|natalidade',empenhoReferencia:r.empenho,tipo:'Auxílio-natalidade',lotacao:r.lotacao,
-      ficha:r.ficha,fonte:r.fonte,conta:r.conta,bruto:r.natalidade,inss:0,liquido:r.natalidade,problemas:[]});
+    if(r.familia)itens.push(op('familia','Salário-família',r.familia));
+    if(r.maternidade)itens.push(op('maternidade','Salário-maternidade',r.maternidade,r.maisInssExtra,
+      r.problemas.filter(x=>/maternidade|INSS/.test(x))));
+    if(r.natalidade)itens.push(op('natalidade','Auxílio-natalidade',r.natalidade));
     return itens;
   });
   return {empenhos,extras,primeiro:Number(primeiro),ultimo:Number(primeiro)+empenhos.length-1,
@@ -530,6 +534,12 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
    passivo quando o repasse é feito. */
 export const FICHAS_EXTRA_ORCAMENTARIAS={
  INSS:'4',Pensao:'8',IRRF:'9',Caixa:'21',Sicoob:'41',Bradesco:'42'
+};
+/* Fichas extra-orçamentárias das ordens de pagamento, pelo tipo de benefício.
+   Também fixas todo mês. Antes a OP levava a ficha ORÇAMENTÁRIA do empenho —
+   56, 173, 174 em outubro — que não serve: ordem de pagamento é extra. */
+export const FICHAS_EXTRA_OP={
+ 'Salário-família':'1','Salário-maternidade':'31','Auxílio-natalidade':'44'
 };
 /* Ordem da lista de repasse: primeiro os tributos, que têm prazo legal, depois
    a pensão e os bancos. */
