@@ -459,6 +459,9 @@ export function telaFolhaEmpenhos(el){
       (d.detalhar?d.rubricas.map(x=>'<tr class="fe-historico"><td></td><td>'+esc(x.codigo)+' — '+esc(x.descricao)+
         '</td><td class="fe-money">'+dinheiroFolha(x.valor)+'</td>'+
         '<td class="fe-muted">'+x.empenhos.length+' empenho'+(x.empenhos.length===1?'':'s')+'</td></tr>').join(''):'');
+    /* A rubrica não conta beneficiários: a mesma rubrica em dois servidores são
+       duas liquidações. Quem sabe disso é o quadro de pensões, que lê a folha
+       nominal — então o número das liquidações sai de lá, não daqui. */
     const outros=r.outros.length?'<p class="fe-muted">Fora do repasse a terceiro: '+
       r.outros.map(x=>esc(x.codigo)+' '+esc(x.descricao)+' · '+dinheiroFolha(x.valor)).join('; ')+'.</p>':'';
     alvo.innerHTML='<section class="fe-card"><h2>Repasses do mês · '+dinheiroFolha(r.total)+'</h2>'+
