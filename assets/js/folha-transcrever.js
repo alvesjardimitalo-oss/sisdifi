@@ -35,8 +35,17 @@ export const MODELOS_HISTORICO=[
  {chave:'aposentadoria',rotulo:'Aposentadorias',
   texto:'VALOR QUE SE EMPENHA REFERE-SE A PAGAMENTO DE APOSENTADORIAS NO MES DE {mes}.'},
  {chave:'rescisao',rotulo:'Rescisão contratual',
-  texto:'VALOR QUE SE EMPENHA REFERE-SE A PAGAMENTO DE RESCISÃO CONTRATUAL NO MES DE {mes}.'}
+  texto:'VALOR QUE SE EMPENHA REFERE-SE A PAGAMENTO DE RESCISÃO CONTRATUAL NO MES DE {mes}.'},
+ {chave:'pensao',rotulo:'Pensões',
+  texto:'VALOR QUE SE EMPENHA REFERE-SE A PAGAMENTO DE PENSOES NO MES DE {mes}.'},
+ {chave:'estagio',rotulo:'Estagiários',
+  texto:'VALOR QUE SE EMPENHA REFERE-SE A PAGAMENTO DE ESTAGIARIOS NO MES DE {mes}.'},
+ {chave:'conselhoTutelar',rotulo:'Conselheiros tutelares',
+  texto:'VALOR QUE SE EMPENHA REFERE-SE A  PAGAMENTO DE CONSELHEIROS TUTELARES NO MES DE {mes}.'}
 ];
+
+/* Histórico da ordem de pagamento: por padrão é o empenho a que ela pertence. */
+export const MODELO_HISTORICO_OP='REFERENTE AO EMPENHO {empenho}/{ano}';
 export const textoDoModelo=chave=>MODELOS_HISTORICO.find(m=>m.chave===chave)?.texto||'';
 
 /* O vínculo vem do último nível da lotação, e o RH não o escreve de um jeito
@@ -50,9 +59,19 @@ const DETECTA=[
  [/AGENTE\s+POL/,'agentePolitico'],
  [/COMISSION/,'comissionado'],
  [/APOSENT|INATIV/,'aposentadoria'],
+ [/PENSO|PENSION|PENSAO/,'pensao'],
+ [/CONSELHO\s+TUTELAR/,'conselhoTutelar'],
  [/EFETIV/,'efetivo'],
  [/CONTRATAD|PESSOAS CONTRATADAS/,'contratado']
 ];
+/* Estágio não se reconhece pelo nome da lotação — a da Ação Social diz só
+   "MANUTENCAO DA SEC. DE AÇAO SOCIAL". Quem denuncia é a rubrica: a lotação de
+   estágio tem a 370 e mais nada. */
+const RUBRICA_ESTAGIO='370';
+const soEstagio=registro=>{
+ const r=registro?.rubricas||[];
+ return r.length>0&&r.every(x=>String(x.codigo)===RUBRICA_ESTAGIO);
+};
 const semAcento=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
 
 /**
@@ -68,6 +87,7 @@ const semAcento=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
  * Devolve '' quando não há como saber — aí a tela pede.
  */
 export function vinculoDoRegistro(registro={}){
+ if(soEstagio(registro))return 'estagio';
  const texto=semAcento((registro.caminho||[]).slice(-1)[0]||registro.vinculo||'');
  for(const [re,chave] of DETECTA)if(re.test(texto))return chave;
  /* Sobra o Prefeito. A lotação dele tem três níveis, então o último é a ação e
@@ -99,6 +119,7 @@ export function modeloDoEmpenho(empenho={}, escolhas={}){
 export function montarHistorico(modelo, empenho={}, competencia=''){
  const [ano,mes]=String(competencia||'').split('-');
  const valores={
+  empenho:empenho.empenho!=null?String(empenho.empenho):'',
   mes:MESES[Number(mes)-1]||'',
   mes_numero:mes||'',
   ano:ano||'',
@@ -185,6 +206,8 @@ export function passosDoEmpenho(empenho={}, ops=[], opcoes={}){
   passos.push(passo('Ordem de pagamento',op.tipo+' — valor bruto',dinheiroFolha(op.bruto||0),{copiavel:true}));
   if(op.inss)
    passos.push(passo('Ordem de pagamento',op.tipo+' — desconto (INSS)',dinheiroFolha(op.inss),{copiavel:true}));
+  passos.push(passo('Ordem de pagamento',op.tipo+' — histórico',
+   montarHistorico(textosHistorico.op||MODELO_HISTORICO_OP,empenho,competencia),{copiavel:true}));
   passos.push(passo('Ordem de pagamento',op.tipo+' — nº da OP',numerosOP[op.id]||'',
    {informar:!numerosOP[op.id],chaveOP:op.id,
     nota:'o número vem do sistema da Memory'}));

@@ -9,7 +9,8 @@ import assert from 'node:assert/strict';
 // dinheiroFolha separa o "R$" com espaço não separável: os literais abaixo
 // usam \u00A0 de propósito, senão a comparação falha por um caractere.
 import { passosDoEmpenho, conferirEmpenho, montarHistorico, fichasOPpendentes,
-  modeloDoEmpenho, textoDoModelo, MODELOS_HISTORICO } from '../assets/js/folha-transcrever.js';
+  modeloDoEmpenho, textoDoModelo, MODELOS_HISTORICO,
+  MODELO_HISTORICO_OP } from '../assets/js/folha-transcrever.js';
 
 let ok = 0; const falhas = [];
 const t = (nome, fn) => { try { fn(); ok++; } catch (e) { falhas.push(nome + ': ' + e.message); } };
@@ -101,7 +102,8 @@ t('a OP pede a ficha extra por tipo e a guarda', () => {
 t('a OP sem desconto não pede desconto', () => {
   const ps = passosDoEmpenho(emp(), [op()], {});
   assert.deepEqual(ps.filter(p => p.grupo === 'Ordem de pagamento').map(p => p.rotulo),
-    ['Salário-família — ficha extra', 'Salário-família — valor bruto', 'Salário-família — nº da OP']);
+    ['Salário-família — ficha extra', 'Salário-família — valor bruto',
+     'Salário-família — histórico', 'Salário-família — nº da OP']);
 });
 
 // O INSS da maternidade sai na própria OP, e é por isso que ela tem desconto.
@@ -110,7 +112,8 @@ t('a OP de maternidade pede o desconto do INSS', () => {
     liquido: 192608, id: 'x|mat' })], {});
   assert.deepEqual(ps.filter(p => p.grupo === 'Ordem de pagamento').map(p => p.rotulo),
     ['Salário-maternidade — ficha extra', 'Salário-maternidade — valor bruto',
-     'Salário-maternidade — desconto (INSS)', 'Salário-maternidade — nº da OP']);
+     'Salário-maternidade — desconto (INSS)', 'Salário-maternidade — histórico',
+     'Salário-maternidade — nº da OP']);
   assert.equal(achar(ps, 'Salário-maternidade — desconto (INSS)').valor, 'R$\u00A0272,18');
 });
 
@@ -152,8 +155,8 @@ t('o espaçamento do modelo é preservado', () => {
   assert.match(textoDoModelo('decimo'), /DÉCIMO TERCEIRO; NO MES DE/, 'o ponto e vírgula também fica');
 });
 
-t('os nove modelos estão cadastrados e têm a marca do mês', () => {
-  assert.equal(MODELOS_HISTORICO.length, 9);
+t('os modelos estão cadastrados e têm a marca do mês', () => {
+  assert.equal(MODELOS_HISTORICO.length, 12);
   for (const m of MODELOS_HISTORICO) {
     assert.ok(m.chave && m.rotulo, m.chave);
     assert.match(m.texto, /^VALOR QUE SE EMPENHA REFERE-SE A /, m.chave);
@@ -161,7 +164,32 @@ t('os nove modelos estão cadastrados e têm a marca do mês', () => {
   }
   assert.deepEqual(MODELOS_HISTORICO.map(m => m.chave),
     ['prefeito','vice','agentePolitico','comissionado','efetivo','contratado',
-     'decimo','aposentadoria','rescisao']);
+     'decimo','aposentadoria','rescisao','pensao','estagio','conselhoTutelar']);
+});
+
+t('pensão, conselho tutelar e estágio têm o texto da Contabilidade', () => {
+  assert.match(textoDoModelo('pensao'), /PAGAMENTO DE PENSOES NO MES DE/);
+  assert.match(textoDoModelo('conselhoTutelar'), /REFERE-SE A {2}PAGAMENTO DE CONSELHEIROS TUTELARES/,
+    'o espaço duplo é o que ela escreve');
+  assert.match(textoDoModelo('estagio'), /PAGAMENTO DE ESTAGIARIOS NO MES DE/);
+});
+
+t('pensão e conselho tutelar são reconhecidos pelo texto da lotação', () => {
+  const caso = ultimo => modeloDoEmpenho({ tipo: 'principal', caminho: ['A', 'B', ultimo] }, {});
+  assert.equal(caso('PENSOES DO RPPS'), 'pensao');
+  assert.equal(caso('CONSELHO TUTELAR'), 'conselhoTutelar');
+  assert.equal(caso('APOSENTADORIAS RPPS'), 'aposentadoria', 'aposentadoria não virou pensão');
+});
+
+/* Estágio não se reconhece pelo nome: a lotação da Ação Social diz só
+   "MANUTENCAO DA SEC. DE AÇAO SOCIAL". Quem denuncia é a rubrica 370 sozinha. */
+t('estágio é reconhecido pela rubrica 370 sozinha', () => {
+  const base = { tipo: 'principal', lotacao: '002.009.266',
+    caminho: ['PREF.', 'MANUTENCAO DA SEC. DE AÇAO SOCIAL'] };
+  assert.equal(modeloDoEmpenho({ ...base, rubricas: [{ codigo: '370' }] }, {}), 'estagio');
+  assert.notEqual(modeloDoEmpenho({ ...base, rubricas: [{ codigo: '370' }, { codigo: '101' }] }, {}), 'estagio',
+    'bolsa junto de salário não é lotação de estágio');
+  assert.notEqual(modeloDoEmpenho({ ...base, rubricas: [] }, {}), 'estagio');
 });
 
 // O vínculo vem do último nível da lotação, e o RH não o escreve de um jeito só.
@@ -210,10 +238,10 @@ t('o vínculo escrito manda, mesmo no Gabinete', () => {
 });
 
 t('vínculo que nada revela fica para a Contabilidade escolher', () => {
-  const conselho = { tipo: 'principal', lotacao: '002.009.268.00004',
-    secretaria: 'SECRETARIA MUNIC. DE ACAO SOCIAL', caminho: ['A', 'CONSELHO TUTELAR'] };
-  assert.equal(modeloDoEmpenho(conselho, {}), '', 'melhor pedir do que chutar um histórico');
-  const h = achar(passosDoEmpenho(conselho, [], { competencia: '2026-10' }), 'Histórico');
+  const desconhecido = { tipo: 'principal', lotacao: '002.020.500.00001',
+    secretaria: 'SECRETARIA NOVA', caminho: ['A', 'MANUTENCAO DE ALGUMA COISA'] };
+  assert.equal(modeloDoEmpenho(desconhecido, {}), '', 'melhor pedir do que chutar um histórico');
+  const h = achar(passosDoEmpenho(desconhecido, [], { competencia: '2026-10' }), 'Histórico');
   assert.ok(h.informar);
   assert.equal(h.valor, '');
   assert.match(h.nota, /vale para os próximos meses/);
@@ -241,12 +269,12 @@ t('texto editado pela Contabilidade substitui o de fábrica', () => {
 
 // Lotação sem modelo entre os nove: texto próprio, guardado por lotação.
 t('texto próprio de uma lotação é aceito', () => {
-  const conselho = { tipo: 'principal', lotacao: '002.009.268.00004', caminho: ['A', 'CONSELHO TUTELAR'] };
-  const chave = 'proprio:002.009.268.00004';
-  const ps = passosDoEmpenho(conselho, [], { competencia: '2026-10',
-    escolhasHistorico: { '002.009.268.00004': chave },
-    textosHistorico: { [chave]: 'VALOR QUE SE EMPENHA REFERE-SE A PAGAMENTO DE SUBSÍDIO DOS CONSELHEIROS TUTELARES NO MES DE {mes}.' } });
-  assert.match(achar(ps, 'Histórico').valor, /CONSELHEIROS TUTELARES NO MES DE OUTUBRO\.$/);
+  const nova = { tipo: 'principal', lotacao: '002.020.500.00001', caminho: ['A', 'MANUTENCAO NOVA'] };
+  const chave = 'proprio:002.020.500.00001';
+  const ps = passosDoEmpenho(nova, [], { competencia: '2026-10',
+    escolhasHistorico: { '002.020.500.00001': chave },
+    textosHistorico: { [chave]: 'VALOR QUE SE EMPENHA REFERE-SE A PAGAMENTO DE ALGUMA COISA NO MES DE {mes}.' } });
+  assert.match(achar(ps, 'Histórico').valor, /ALGUMA COISA NO MES DE OUTUBRO\.$/);
 });
 
 t('marca desconhecida não vaza para o histórico', () => {
@@ -256,6 +284,28 @@ t('marca desconhecida não vaza para o histórico', () => {
 t('campo vazio não deixa traço solto nem espaço duplo', () => {
   const h = montarHistorico('PAGAMENTO - {vinculo} - {secretaria}.', emp({ vinculo: '', secretaria: '' }), '2026-10');
   assert.equal(h, 'PAGAMENTO.');
+});
+
+/* O histórico da OP é, por padrão, o empenho a que ela pertence. */
+t('a OP traz o histórico do empenho dela', () => {
+  assert.equal(MODELO_HISTORICO_OP, 'REFERENTE AO EMPENHO {empenho}/{ano}');
+  const ps = passosDoEmpenho(emp(), [op()], { competencia: '2026-10' });
+  const h = achar(ps, 'Salário-família — histórico');
+  assert.equal(h.valor, 'REFERENTE AO EMPENHO 4916/2026');
+  assert.ok(h.copiavel);
+});
+
+t('o histórico da OP vem antes do número dela', () => {
+  const ps = passosDoEmpenho(emp(), [op()], { competencia: '2026-10', fichasOP: { 'Salário-família': '12' } });
+  assert.deepEqual(ps.filter(p => p.grupo === 'Ordem de pagamento').map(p => p.rotulo),
+    ['Salário-família — ficha extra', 'Salário-família — valor bruto',
+     'Salário-família — histórico', 'Salário-família — nº da OP']);
+});
+
+t('o histórico da OP pode ser trocado pela Contabilidade', () => {
+  const ps = passosDoEmpenho(emp(), [op()], { competencia: '2026-10',
+    textosHistorico: { op: 'OP DO EMPENHO {empenho} — {mes}/{ano}' } });
+  assert.equal(achar(ps, 'Salário-família — histórico').valor, 'OP DO EMPENHO 4916 — OUTUBRO/2026');
 });
 
 // --- conferência ---

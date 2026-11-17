@@ -473,6 +473,10 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
       secretaria:destino.secretaria||r.secretaria,vinculo:destino.vinculo||r.vinculo,
       ficha:String(destino.ficha||''),fonte:String(destino.fonte||''),conta:String(destino.conta||''),
       desdobramento:String(destino.desdobramento||''),
+      /* O caminho e as rubricas seguem no empenho porque quem decide o
+         histórico e a ordem precisa deles: o vínculo está no caminho, e a
+         lotação de estágio só se reconhece pela rubrica 370 sozinha. */
+      caminho:r.caminho||[],rubricas:r.rubricas||[],
       // De onde veio a ficha, para a tela mostrar o que merece conferência.
       fichaSugerida:!!destino.sugerida,confiancaFicha:String(destino.confiancaFicha||''),
       motivoFicha:String(destino.motivoFicha||''),
