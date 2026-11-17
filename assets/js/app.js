@@ -28,7 +28,7 @@ import { telaCopasa } from './views/copasa.js?v=3.22.0.b19a4d74';
 function telaFolhaEmpenhos(elemento, contexto) {
   let ativa = true, encerrarModulo = null;
   elemento.innerHTML = '<div class="carregando-tela"><div class="spinner"></div><p>Abrindo folha de pagamentos…</p></div>';
-  import('./views/folha-empenhos.js?v=3.22.0.0b2b153c').then(modulo => {
+  import('./views/folha-empenhos.js?v=3.22.0.59150df4').then(modulo => {
     if (!ativa || !elemento.isConnected) return;
     const retorno = modulo.telaFolhaEmpenhos(elemento, contexto);
     if (typeof retorno?.limpar === 'function') encerrarModulo = retorno.limpar;

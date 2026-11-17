@@ -3,7 +3,7 @@
 import {estado,pode} from '../estado.js';
 import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificacaoPessoal,sugerirFichaDaLotacao,fontesParaEscolher,FICHAS_PESSOAL_2026} from '../folha-orcamento-2026.js';
 import {esc,toast} from '../ui.js';
-import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,categoriaRubricaDesconto,centavosFolha,dinheiroFolha} from '../folha-empenhos.js';
+import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,pagamentosConsignados,categoriaRubricaDesconto,centavosFolha,dinheiroFolha} from '../folha-empenhos.js';
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
 import {varrerServidores,servidoresComRepasse,codigosDeDesconto} from '../folha-servidores.js';
@@ -127,7 +127,7 @@ export function telaFolhaEmpenhos(el){
       '<button class="btn" type="button" id="fe-final" disabled>Baixar planilha conferida XLSX</button></div>'+
       '<div id="fe-kpis" class="fe-kpis"></div><div id="fe-pendencias"></div>'+ 
       '<p class="fe-muted">Uma linha por empenho. A composição mostra Caixa, Sicoob, Bradesco, pensões, INSS, IRRF e demais descontos, com rubricas originais e conferência da soma.</p>'+ 
-      '<div id="fe-saldos"></div><div class="fe-scroll" id="fe-tabela"></div><div id="fe-extras"></div><div id="fe-pensoes"></div>'+
+      '<div id="fe-repasses"></div><div id="fe-saldos"></div><div class="fe-scroll" id="fe-tabela"></div><div id="fe-extras"></div><div id="fe-pensoes"></div>'+
       '<p class="fe-muted">Dados armazenados no navegador, separados pela conta. A planilha contém fórmulas de líquido para a Contabilidade conferir e preencher a liquidação no sistema oficial.</p>'+
     '</section></div>';
   const status=t=>{$('#fe-status').textContent=t;};
@@ -260,6 +260,7 @@ export function telaFolhaEmpenhos(el){
       $('#fe-tabela').innerHTML='';$('#fe-extras').innerHTML='';
       if($('#fe-pensoes'))$('#fe-pensoes').innerHTML='';
       if($('#fe-saldos'))$('#fe-saldos').innerHTML='';
+      if($('#fe-repasses'))$('#fe-repasses').innerHTML='';
       $('#fe-final').disabled=true;return;
     }
     const p=pacote.previsao,possivel=finalPossivel(pacote);
@@ -429,6 +430,7 @@ export function telaFolhaEmpenhos(el){
       p.extras.map(x=>'<tr><td>'+esc(x.tipo)+'</td><td>'+x.empenhoReferencia+'</td><td>'+esc(x.lotacao)+'</td>'+
         '<td>'+dinheiroFolha(x.bruto)+'</td><td>'+dinheiroFolha(x.inss)+'</td><td>'+dinheiroFolha(x.liquido)+'</td>'+
         '<td>'+esc(x.problemas.join('; ')||'A conferir')+'</td></tr>').join('')+'</tbody></table></div></details>';
+    renderRepasses(p);
     renderSaldos(p);
     renderPensoes(p);
     $('#fe-extras').querySelectorAll('[data-extra-bruto]').forEach(c=>c.onchange=()=>{
@@ -443,6 +445,27 @@ export function telaFolhaEmpenhos(el){
      faltar dinheiro. O saldo é comparado com o bruto do empenho, porque o
      líquido vai para o servidor e as retenções para terceiros, mas tudo sai
      da mesma conta. */
+  /* Quanto vai para cada destino e por qual ficha extra-orçamentária. As
+     fichas são fixas todo mês; é por elas que a retenção sai do passivo quando
+     o repasse é feito. A pensão sai detalhada porque é uma OP com uma
+     liquidação por beneficiário. */
+  function renderRepasses(p){
+    const alvo=$('#fe-repasses');
+    if(!alvo)return;
+    const r=pagamentosConsignados(p.previsao.empenhos);
+    if(!r.destinos.length){alvo.innerHTML='';return;}
+    const linha=d=>'<tr><td><strong>'+esc(d.fichaExtra||'—')+'</strong></td><td>'+esc(d.nome)+'</td>'+
+      '<td class="fe-money"><strong>'+dinheiroFolha(d.valor)+'</strong></td><td>'+esc(d.forma)+'</td></tr>'+
+      (d.detalhar?d.rubricas.map(x=>'<tr class="fe-historico"><td></td><td>'+esc(x.codigo)+' — '+esc(x.descricao)+
+        '</td><td class="fe-money">'+dinheiroFolha(x.valor)+'</td>'+
+        '<td class="fe-muted">'+x.empenhos.length+' empenho'+(x.empenhos.length===1?'':'s')+'</td></tr>').join(''):'');
+    const outros=r.outros.length?'<p class="fe-muted">Fora do repasse a terceiro: '+
+      r.outros.map(x=>esc(x.codigo)+' '+esc(x.descricao)+' · '+dinheiroFolha(x.valor)).join('; ')+'.</p>':'';
+    alvo.innerHTML='<section class="fe-card"><h2>Repasses do mês · '+dinheiroFolha(r.total)+'</h2>'+
+      '<div class="fe-scroll"><table><thead><tr><th>Ficha extra</th><th>Destino</th>'+
+      '<th class="fe-money">Valor</th><th>Como se paga</th></tr></thead><tbody>'+
+      r.destinos.map(linha).join('')+'</tbody></table></div>'+outros+'</section>';
+  }
   /* Listas de autocompletar, compartilhadas pelas visões. Os três
      desdobramentos de pessoal da educação ficam aqui para não digitar errado:
      1071 é o magistério dos 70%, 1073 o tempo integral e 0000 os 30% e os

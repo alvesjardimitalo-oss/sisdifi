@@ -522,13 +522,23 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
    total único de "Pensão" não diz quantas liquidações fazer. Quem é o servidor
    de cada liquidação vem da folha nominal, em folha-pensoes.js: o resumo de
    verbas só traz o total da rubrica por lotação. */
+/* Fichas extra-orçamentárias fixas de Frei Inocêncio: são as mesmas todo mês,
+   então ficam aqui em vez de serem digitadas. É por elas que a retenção sai do
+   passivo quando o repasse é feito. */
+export const FICHAS_EXTRA_ORCAMENTARIAS={
+ INSS:'4',Pensao:'8',IRRF:'9',Caixa:'21',Sicoob:'41',Bradesco:'42'
+};
+/* Ordem da lista de repasse: primeiro os tributos, que têm prazo legal, depois
+   a pensão e os bancos. */
 const DESTINOS_PAGAMENTO=[
+ {chave:'INSS',nome:'INSS',forma:'guia da previdência (GPS)'},
+ {chave:'IRRF',nome:'Imposto de Renda retido',forma:'DARF'},
+ {chave:'Pensao',nome:'Pensão alimentícia',
+  forma:'uma OP, com uma liquidação por pensão',detalhar:true},
  {chave:'Caixa',nome:'Caixa Econômica Federal',forma:'guia do banco'},
  {chave:'Sicoob',nome:'Sicoob',forma:'guia do banco'},
- {chave:'Bradesco',nome:'Bradesco',forma:'guia do banco'},
- {chave:'Pensao',nome:'Pensão alimentícia',
-  forma:'uma OP, com uma liquidação por pensão',detalhar:true}
-];
+ {chave:'Bradesco',nome:'Bradesco',forma:'guia do banco'}
+].map(d=>({...d,fichaExtra:FICHAS_EXTRA_ORCAMENTARIAS[d.chave]||''}));
 export function pagamentosConsignados(empenhos=[]){
  const lista=Array.isArray(empenhos)?empenhos:[];
  const porRubrica=new Map();

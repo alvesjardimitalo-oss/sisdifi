@@ -8,7 +8,7 @@
 //     liquidações fazer.
 import assert from 'node:assert/strict';
 import { analisarResumoVerbas, descontarFolhasProprias, prepararEmpenhos,
-  pagamentosConsignados } from '../assets/js/folha-empenhos.js';
+  pagamentosConsignados, FICHAS_EXTRA_ORCAMENTARIAS } from '../assets/js/folha-empenhos.js';
 
 let ok = 0; const falhas = [];
 const t = (nome, fn) => { try { fn(); ok++; } catch (e) { falhas.push(nome + ': ' + e.message); } };
@@ -128,8 +128,32 @@ t('destino sem desconto no mês não aparece na lista', () => {
   assert.deepEqual(p.destinos.map(d => d.chave), ['Caixa'], 'não pede guia de banco que não descontou nada');
 });
 
-t('folha sem consignado devolve lista vazia, não erro', () => {
-  const men = arquivo('principal', [linhas('001.001.001.00002', SALARIO, [['201', 'I.N.S.S.', 50000]])]);
+/* As fichas extra-orçamentárias são as mesmas todo mês: é por elas que a
+   retenção sai do passivo quando o repasse é feito. */
+t('cada destino traz a ficha extra-orçamentária fixa', () => {
+  const men = arquivo('principal', [linhas('001.001.001.00002', SALARIO,
+    [['201', 'I.N.S.S.', 50000], ['204', 'IMPOSTO DE RENDA', 20000], ['230', 'PENSAO JUDICIAL', 10000],
+     ['221', 'EMPRÉSTIMO CAIXA', 30000], ['226', 'EMPRÉSTIMO SICOOB', 20000], ['352', 'EMPRESTIMO BRADESCO', 5000]])]);
+  const p = pagamentosConsignados(empenhosDe([men]));
+  assert.deepEqual(Object.fromEntries(p.destinos.map(d => [d.chave, d.fichaExtra])),
+    { INSS: '4', IRRF: '9', Pensao: '8', Caixa: '21', Sicoob: '41', Bradesco: '42' });
+  assert.deepEqual(FICHAS_EXTRA_ORCAMENTARIAS,
+    { INSS: '4', Pensao: '8', IRRF: '9', Caixa: '21', Sicoob: '41', Bradesco: '42' });
+});
+
+// Tributo tem prazo legal: vem antes da pensão e dos bancos.
+t('os tributos aparecem primeiro na lista de repasse', () => {
+  const men = arquivo('principal', [linhas('001.001.001.00002', SALARIO,
+    [['221', 'EMPRÉSTIMO CAIXA', 30000], ['201', 'I.N.S.S.', 50000], ['204', 'IMPOSTO DE RENDA', 20000]])]);
+  const p = pagamentosConsignados(empenhosDe([men]));
+  assert.deepEqual(p.destinos.map(d => d.chave), ['INSS', 'IRRF', 'Caixa']);
+  assert.equal(p.destinos[0].forma, 'guia da previdência (GPS)');
+  assert.equal(p.destinos[1].forma, 'DARF');
+  assert.equal(p.total, 100000);
+});
+
+t('folha sem desconto nenhum devolve lista vazia, não erro', () => {
+  const men = arquivo('principal', [linhas('001.001.001.00002', SALARIO, [])]);
   const p = pagamentosConsignados(empenhosDe([men]));
   assert.deepEqual(p.destinos, []);
   assert.equal(p.total, 0);
