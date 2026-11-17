@@ -53,6 +53,21 @@ t('ficha e fonte em branco saem marcadas como faltando', () => {
   assert.ok(achar(ps, 'Fonte de recursos').faltando);
 });
 
+/* A fonte é decisão do MÊS: depende de onde o dinheiro entrou, e um mês pode
+   sair por recurso de exercício anterior sem o seguinte sair. Herdada de outra
+   competência, ela aparece marcada para conferência. */
+t('fonte vinda de outro mês avisa para conferir', () => {
+  const ps = passosDoEmpenho(emp({ fonteHerdada: true, fonteDe: '2026-08' }), [], {});
+  const f = achar(ps, 'Fonte de recursos');
+  assert.match(f.nota, /escolhida em 2026-08/);
+  assert.match(f.nota, /confirmar neste mês/);
+  assert.ok(f.copiavel, 'ainda dá para copiar: é um aviso, não um bloqueio');
+});
+
+t('fonte do próprio mês não leva aviso', () => {
+  assert.equal(achar(passosDoEmpenho(emp(), [], {}), 'Fonte de recursos').nota, '');
+});
+
 t('sem data informada, a liquidação pede a data', () => {
   const ps = passosDoEmpenho(emp(), [], {});
   const data = achar(ps, 'Data da liquidação');

@@ -473,6 +473,9 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
       secretaria:destino.secretaria||r.secretaria,vinculo:destino.vinculo||r.vinculo,
       ficha:String(destino.ficha||''),fonte:String(destino.fonte||''),conta:String(destino.conta||''),
       desdobramento:String(destino.desdobramento||''),
+      /* A fonte é decisão do mês: fica estampada com a competência em que foi
+         escolhida, para o mês seguinte não herdá-la calada. */
+      fonteDe:String(destino.fonteDe||''),fonteHerdada:!!destino.fonteHerdada,
       /* O caminho e as rubricas seguem no empenho porque quem decide o
          histórico e a ordem precisa deles: o vínculo está no caminho, e a
          lotação de estágio só se reconhece pela rubrica 370 sozinha. */

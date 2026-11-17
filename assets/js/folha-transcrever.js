@@ -174,7 +174,9 @@ export function passosDoEmpenho(empenho={}, ops=[], opcoes={}){
  const passos=[
   passo('Empenho','Número do empenho',String(empenho.empenho??''),{copiavel:true,destaque:true}),
   passo('Empenho','Ficha',String(empenho.ficha||''),{copiavel:true,faltando:!empenho.ficha}),
-  passo('Empenho','Fonte de recursos',String(empenho.fonte||''),{copiavel:true,faltando:!empenho.fonte}),
+  passo('Empenho','Fonte de recursos',String(empenho.fonte||''),
+   {copiavel:true,faltando:!empenho.fonte,
+    nota:empenho.fonteHerdada?'escolhida em '+empenho.fonteDe+': confirmar neste mês':''}),
   passo('Empenho','Desdobramento',String(empenho.desdobramento||''),{copiavel:true}),
   passo('Empenho','Valor bruto',dinheiroFolha(empenho.bruto||0),{copiavel:true}),
   passo('Empenho','Histórico',modeloTexto?montarHistorico(modeloTexto,empenho,competencia):'',

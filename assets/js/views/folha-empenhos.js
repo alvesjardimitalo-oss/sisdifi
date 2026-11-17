@@ -166,7 +166,14 @@ export function telaFolhaEmpenhos(el){
       const m=mapa[chave]||{},sug=sugestoes[chave];
       const ficha=m.ficha||sug?.ficha||'';
       const ref=localizarFicha(ficha);
-      return [chave,{...m,ficha,
+      /* Herdada só conta onde havia escolha: ficha que admite mais de uma
+         fonte, ou fonte de exercício anterior (grupo 2) — essas são decisão do
+         mês. Ficha de fonte única na própria fonte não é escolha, e marcá-la
+         todo mês seria ruído. */
+      const refFonte=localizarFicha(m.ficha);
+      const escolheu=(refFonte?.fontes?.length||0)>1||String(m.fonte||'').trim().startsWith('2');
+      const fonteHerdada=!!m.fonte&&!!m.fonteDe&&m.fonteDe!==competencia&&escolheu;
+      return [chave,{...m,ficha,fonteHerdada,
         fonte:m.fonte||sug?.fonte||'',
         desdobramento:m.desdobramento||sug?.desdobramento||'',
         sugerida:!m.ficha&&!!sug?.ficha,confiancaFicha:m.ficha?'':(sug?.confianca||''),
@@ -457,7 +464,9 @@ export function telaFolhaEmpenhos(el){
         '<td><strong>'+r.empenho+'</strong></td>'+
         '<td><input style="width:168px" data-ref="'+esc(r.id)+'" data-campo="secretaria" value="'+esc(m.secretaria||r.secretaria||'')+'"></td>'+
         '<td><input style="width:68px" list="fe-fichas-2026" data-ref="'+esc(r.id)+'" data-campo="ficha" value="'+esc(m.ficha||'')+'"></td>'+
-        '<td><input style="width:76px" list="fe-fontes" data-ref="'+esc(r.id)+'" data-campo="fonte" value="'+esc(m.fonte||'')+'"></td>'+
+        '<td><input style="width:76px" list="fe-fontes" data-ref="'+esc(r.id)+'" data-campo="fonte"'+
+          (m.fonteHerdada?' class="fe-herdada" title="fonte escolhida em '+esc(m.fonteDe||'')+': confirmar neste mês"':'')+
+          ' value="'+esc(m.fonte||'')+'"></td>'+
         '<td><input style="width:62px" list="fe-desdobramentos" data-ref="'+esc(r.id)+'" data-campo="desdobramento" value="'+esc(m.desdobramento||r.desdobramento||'')+'"></td>'+
         '<td><input style="width:96px" data-ref="'+esc(r.id)+'" data-campo="conta" value="'+esc(m.conta||'')+'"></td>'+
         '<td class="fe-money">'+dinheiroFolha(r.bruto||0)+'</td>'+
@@ -516,7 +525,9 @@ export function telaFolhaEmpenhos(el){
         '<td><input style="width:225px" data-ref="'+esc(r.id)+'" data-campo="lotacaoOrcamentaria" value="'+esc(m.lotacaoOrcamentaria||ref?.acao||'')+'"><small style="display:block;color:#526b80">'+esc(ref?.origem||'Edição manual')+'</small></td>'+
         '<td><input style="width:88px" list="fe-fichas-2026" data-ref="'+esc(r.id)+'" data-campo="ficha" value="'+esc(m.ficha||'')+'"></td>'+
         '<td style="min-width:225px"><strong>'+esc(classe.titulo)+'</strong>'+(classe.codigo?'<small style="display:block;color:#526b80">'+esc(classe.codigo)+'</small>':'')+'</td>'+
-        '<td><input style="width:132px" list="fe-fontes" data-ref="'+esc(r.id)+'" data-campo="fonte" value="'+esc(m.fonte||'')+'"></td>'+
+        '<td><input style="width:132px" list="fe-fontes" data-ref="'+esc(r.id)+'" data-campo="fonte"'+
+          (m.fonteHerdada?' class="fe-herdada" title="fonte escolhida em '+esc(m.fonteDe||'')+': confirmar neste mês"':'')+
+          ' value="'+esc(m.fonte||'')+'"></td>'+
         '<td><input style="width:72px" list="fe-desdobramentos" data-ref="'+esc(r.id)+'" data-campo="desdobramento" value="'+esc(m.desdobramento||r.desdobramento||'')+'"></td>'+
         '<td><input data-ref="'+esc(r.id)+'" data-campo="conta" value="'+esc(m.conta||'')+'"></td>'+
         '<td class="fe-money">'+dinheiroFolha(r.bruto||0)+(r.tipo==='extra'&&r.incentivo?'<small style="display:block;color:#506d82">Incentivo: '+dinheiroFolha(r.incentivo)+'</small>':'')+'</td><td class="fe-money">'+dinheiroFolha(r.descontoRH||0)+'</td>'+
@@ -554,7 +565,13 @@ export function telaFolhaEmpenhos(el){
     $('#fe-tabela').querySelectorAll('[data-ref]').forEach(input=>input.onchange=()=>{
       const k=input.dataset.ref,campo=input.dataset.campo;
       if(campo==='ficha')preencherPelaFicha(k,input.value);
-      else mapa[k]={...(mapa[k]||{}),[campo]:input.value.trim()};
+      else mapa[k]={...(mapa[k]||{}),[campo]:input.value.trim(),
+        /* A fonte é decisão do MÊS: depende de onde o dinheiro entrou, e um mês
+           pode sair por recurso de exercício anterior sem o seguinte sair. A
+           ficha é estável e se reaproveita; a fonte fica estampada com a
+           competência em que foi escolhida, para o mês seguinte não herdá-la
+           calada. */
+        ...(campo==='fonte'?{fonteDe:competencia}:{})};
       aprovouMapa=false;$('#fe-confirmar-mapa').checked=false;persistir();render();
     });
     const situacoes=p.previsao?.empenhos||p.empenhos;

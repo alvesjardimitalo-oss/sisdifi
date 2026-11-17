@@ -785,3 +785,7 @@ progress { width: 260px; vertical-align: middle; }
 /* Botões de ordem do grupo, na coluna do bloco da visão planilha. */
 .fe-planilha .fe-ordem { display: inline-flex; gap: .15rem; margin-top: .2rem; }
 .fe-planilha .fe-ordem button { padding: 0 .35rem; line-height: 1.4; font-size: .85em; }
+
+/* Fonte herdada de outra competência: a fonte é decisão do mês, então ela
+   aparece marcada até ser confirmada. */
+input.fe-herdada { background: var(--amarelo-claro, #fff8dc); border-color: var(--laranja, #d08700); }
