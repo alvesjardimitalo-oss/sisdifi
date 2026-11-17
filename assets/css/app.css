@@ -797,3 +797,8 @@ input.fe-herdada { background: var(--amarelo-claro, #fff8dc); border-color: var(
   margin-top: 1rem; padding-top: .9rem; border-top: 1px solid var(--borda); }
 .fe-outros { margin-top: 1rem; }
 .fe-outros summary { cursor: pointer; color: var(--muted); font-size: .92em; }
+
+/* Limpar a competência: destrutivo, então fica recolhido e em dois passos. */
+.fe-limpar summary { color: var(--vermelho); }
+.fe-limpar .fe-check { display: block; margin: .6rem 0; font-size: .92em; line-height: 1.45; }
+.fe-limpar button { margin-right: .7rem; }

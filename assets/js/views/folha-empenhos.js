@@ -12,7 +12,7 @@ import {passosDoEmpenho,conferirEmpenho,fichasOPpendentes,modeloDoEmpenho,textoD
 import {ratearPorSaldo,ehFundeb,mesmaFonte,FONTE_EDUCACAO_PROPRIA,FONTE_SAUDE_PROPRIA} from '../folha-saldos.js';
 import {pensoesParaOP,chaveCadastro,RUBRICAS_PENSAO} from '../folha-pensoes.js';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js';
-import {carregarRegistroFolha,salvarRegistroFolha} from '../folha-empenhos-store.js';
+import {carregarRegistroFolha,salvarRegistroFolha,apagarRegistroFolha} from '../folha-empenhos-store.js';
 import {carregarMes} from '../consignacoes-mensal.js?v=3.13.0.357fc820';
 
 const tipos={principal:'Folha principal',extra:'Folha extra · incentivo federal (dia 10)',decimo:'Adiantamento de 50% do 13º',rescisao:'Rescisões'};
@@ -119,6 +119,21 @@ export function telaFolhaEmpenhos(el){
         '<span id="fe-processar-nota" class="fe-muted"></span>'+
       '</div>'+
       '<p id="fe-status" class="fe-muted" role="status" aria-live="polite"></p>'+
+      /* Arquivo trocado deixa o mês com dados de dois envios misturados, e aí a
+         conferência passa a mentir. Limpar é separado em dois: o mês, que é o
+         que costuma estar errado, e os cadastros reaproveitados — fichas,
+         beneficiários de pensão, ordem dos grupos e modelos de histórico —
+         que custam caro para refazer e raramente são o problema. */
+      '<details class="fe-outros fe-limpar"><summary>Limpar a competência</summary>'+
+        '<p class="fe-muted">Apaga o que foi lido e montado para '+esc(competencia)+': arquivos, '+
+        'empenhos, servidoras com maternidade, saldos, números de OP e o que já foi transcrito. '+
+        'Use quando um arquivo entrar errado — reenviar por cima deixaria os dois envios misturados.</p>'+
+        '<label class="fe-check"><input type="checkbox" id="fe-limpar-cadastros"> '+
+        'limpar também os cadastros reaproveitados entre meses: fichas e fontes por lotação, '+
+        'beneficiários das pensões, ordem dos grupos e modelos de histórico</label>'+
+        '<button class="btn btn-sec" type="button" id="fe-limpar">Apagar os dados de '+esc(competencia)+'</button>'+
+        '<span id="fe-limpar-nota" class="fe-muted"></span>'+
+      '</details>'+
       '<details class="fe-outros"><summary>Outros formatos de arquivo</summary>'+
       '<label class="fe-file" style="border-color:#3d89bd;background:#eff8ff"><strong>Resumo de Verbas consolidado · todos os tipos</strong><small>Um único PDF com folha principal, extra, 13º e rescisões. Separa pelo tipo do cabeçalho e pela lotação completa.</small><input data-importar="automatico" type="file" accept=".pdf"><span id="fe-nome-automatico" class="fe-muted">Não enviado</span></label>'+
       '<label class="fe-file"><strong>Resumo de Verbas · Folha extra do dia 10</strong><small>Incentivo da enfermagem e eventuais diferenças salariais. Informe se o incentivo já compõe o bruto do RH.</small><input data-bruto="extra" type="file" accept=".pdf"><span id="fe-nome-extra" class="fe-muted">Não enviado</span></label>'+
@@ -765,6 +780,48 @@ export function telaFolhaEmpenhos(el){
       if(alvo)alvo.textContent=f.name+' · '+linhas.length+' linhas';
       status('Guardado '+f.name+'. Envie os demais e clique em Processar dados.');
       atualizarProcessar();
+  $('#fe-limpar').onclick=async()=>{
+    const tambem=$('#fe-limpar-cadastros').checked;
+    const nota=$('#fe-limpar-nota');
+    const b=$('#fe-limpar');
+    /* Duas etapas em vez de um aviso do navegador: o segundo clique é a
+       confirmação, e some sozinho se a pessoa desistir. */
+    if(b.dataset.confirmar!=='sim'){
+      b.dataset.confirmar='sim';
+      b.textContent='Confirmar: apagar '+competencia+(tambem?' e os cadastros':'');
+      nota.textContent='clique de novo para apagar, ou saia desta caixa para desistir';
+      setTimeout(()=>{ if(b.dataset.confirmar==='sim'){
+        delete b.dataset.confirmar;
+        b.textContent='Apagar os dados de '+competencia;
+        nota.textContent='';
+      }},8000);
+      return;
+    }
+    delete b.dataset.confirmar;
+    b.disabled=true;nota.textContent='apagando…';
+    try{
+      const uid=estado.usuario?.uid;
+      if(!uid)throw Error('Sessão sem conta identificada.');
+      await apagarRegistroFolha(uid,competencia);
+      if(tambem)for(const chave of ['mapa-lotacoes','pensoes-beneficiarios','transcricao'])
+        await apagarRegistroFolha(uid,chave);
+      /* Tudo que é do mês volta ao estado de competência nova, inclusive o
+         número inicial: o registro foi apagado, então memória e armazenamento
+         têm de dizer a mesma coisa depois de recarregar a página. */
+      brutos={};arquivos={};pessoas=[];servidores=[];saldos={};numerosOP={};
+      transcritos=[];dataLiquidacao='';processado=false;alertas=[];minutas=[];
+      origemIndividual='';nomeConsolidado='';atual=0;primeiro=5000;
+      aprovouMapa=false;aprovouConsignados=false;
+      if(tambem){mapa={};cadastroPensao={};escolhasHistorico={};textosHistorico={};
+        fichasOP={};ordemGrupos=[];}
+      toast('Competência '+competencia+' apagada.','ok');
+      status('Competência limpa. Envie os arquivos de novo.');
+      render();
+    }catch(e){
+      toast('Não apagado: '+(e.message||e),'erro');
+      nota.textContent='não apagado: '+(e.message||e);
+    }finally{b.disabled=false;b.textContent='Apagar os dados de '+competencia;}
+  };
     }catch(e){toast('Falha em '+f.name+': '+(e.message||e),'erro');status('Arquivo não guardado: '+e.message);}
     finally{input.disabled=false;input.value='';}
   });

@@ -351,6 +351,32 @@ assert.match(view,/id="fe-inicio-2"/);
 // O resumo da folha é obrigatório: sem ele não há lotação nem valor.
 assert.match(view,/o resumo de verbas da folha é obrigatório/);
 
+/* Arquivo trocado deixa o mês com dados de dois envios misturados, e aí a
+   conferência passa a mentir. Limpar é separado em dois: o mês e os cadastros
+   reaproveitados entre meses, que custam caro para refazer. */
+assert.match(view,/id="fe-limpar"/);
+assert.match(view,/id="fe-limpar-cadastros"/);
+assert.match(view,/apagarRegistroFolha/);
+// A confirmação é em dois cliques, sem caixa do navegador.
+assert.match(view,/dataset\.confirmar/);
+{
+  const limpa = view.slice(view.indexOf("$('#fe-limpar').onclick"));
+  const corpo = limpa.slice(0, limpa.indexOf('\n  };'));
+  // Tudo que é do mês volta ao estado de competência nova.
+  for (const v of ['brutos={}','arquivos={}','pessoas=[]','servidores=[]','saldos={}',
+    'numerosOP={}','transcritos=[]','processado=false','primeiro=5000','alertas=[]'])
+    assert.ok(corpo.includes(v), 'limpar não zera ' + v);
+  // Os cadastros entre meses só caem com a opção marcada.
+  for (const v of ['mapa={}','cadastroPensao={}','ordemGrupos=[]','fichasOP={}'])
+    assert.ok(corpo.includes(v), 'limpar não oferece zerar ' + v);
+  const semOpcao = corpo.slice(0, corpo.indexOf('if(tambem)'));
+  for (const v of ['mapa={}','ordemGrupos=[]'])
+    assert.ok(!semOpcao.includes(v), v + ' não pode cair sem a opção marcada');
+}
+const store = readFileSync(new URL('../assets/js/folha-empenhos-store.js',import.meta.url),'utf8');
+assert.match(store,/export async function apagarRegistroFolha/);
+assert.match(store,/export async function competenciasGuardadas/);
+
 /* Todo #fe-... que o código procura tem de existir na marcação. Sem isso uma
    caixa removida deixa um $('#fe-...') órfão, e a tela quebra ao renderizar —
    foi o que aconteceu com #fe-nome-nominal ao trocar o fluxo de importação.
