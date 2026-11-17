@@ -7,6 +7,7 @@ import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,p
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
 import {varrerServidores,servidoresComRepasse,codigosDeDesconto} from '../folha-servidores.js';
+import {passosDoEmpenho,conferirEmpenho,fichasOPpendentes,MODELO_HISTORICO_PADRAO} from '../folha-transcrever.js';
 import {ratearPorSaldo,ehFundeb,mesmaFonte,FONTE_EDUCACAO_PROPRIA,FONTE_SAUDE_PROPRIA} from '../folha-saldos.js';
 import {pensoesParaOP,chaveCadastro,RUBRICAS_PENSAO} from '../folha-pensoes.js';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js';
@@ -46,6 +47,10 @@ export function telaFolhaEmpenhos(el){
   /* Número da OP é atribuído no sistema da Memory, não aqui: a Contabilidade
      digita e o sistema guarda, para a planilha sair completa na conferência. */
   let numerosOP={};
+  /* Transcrição: a data da liquidação e o modelo do histórico valem para a
+     competência toda; as fichas extra das OPs são fixas e voltam todo mês;
+     `transcritos` guarda o que já foi digitado, para retomar de onde parou. */
+  let dataLiquidacao='',modeloHistorico=MODELO_HISTORICO_PADRAO,fichasOP={},transcritos=[],atual=0;
   /* Saldo por fonte, informado pela Contabilidade: é o que decide se a educação
      cabe no FUNDEB. Muda todo mês, então fica no registro da competência. */
   let saldos={};
@@ -120,6 +125,7 @@ export function telaFolhaEmpenhos(el){
       '<label><input type="checkbox" id="fe-confirmar-bancos"> Conferi também a distribuição dos descontos por empenho</label></div><div id="fe-bancos"></div></section>'+
     '<section class="fe-card"><div class="fe-actions"><h2>5 · Empenhos gerados automaticamente</h2>'+ 
       '<label class="campo"><span>Visualização</span><select id="fe-visao">'+
+      '<option value="transcrever">Transcrever: um empenho por vez, na ordem do sistema</option>'+
       '<option value="planilha">Planilha de empenhos (igual à sua)</option>'+
       '<option value="resumo">Detalhada: natureza, lotação e pendências</option>'+
       '<option value="composicao">Composição dos descontos</option></select></label>'+
@@ -178,22 +184,24 @@ export function telaFolhaEmpenhos(el){
   function persistir(){
     if(!uid||!ativa||carregando)return Promise.resolve();
     const compAtual=competencia;
-    const mensal=structuredClone({primeiro,arquivos,pessoas,servidores,saldos,numerosOP,aprovouMapa,aprovouConsignados,origemIndividual,nomeConsolidado});
+    const mensal=structuredClone({primeiro,arquivos,pessoas,servidores,saldos,numerosOP,dataLiquidacao,transcritos,aprovouMapa,aprovouConsignados,origemIndividual,nomeConsolidado});
     const mapaAtual=structuredClone(mapa);
     const cadastroPensaoAtual=structuredClone(cadastroPensao);
     filaDeSalvamento=filaDeSalvamento.catch(()=>{}).then(async()=>{
       await salvarRegistroFolha(uid,compAtual,mensal);
       await salvarRegistroFolha(uid,'mapa-lotacoes',mapaAtual);
       await salvarRegistroFolha(uid,'pensoes-beneficiarios',cadastroPensaoAtual);
+      await salvarRegistroFolha(uid,'transcricao',{modeloHistorico,fichasOP});
     }).catch(e=>{status('Erro ao salvar localmente: '+(e.message||e));});
     return filaDeSalvamento;
   }
   async function carregar(){
     const alvo=competencia;carregando=true;status('Carregando dados de '+alvo+'…');
     try{
-      const [mensal,reusavel,benef]=await Promise.all([carregarRegistroFolha(uid,alvo),carregarRegistroFolha(uid,'mapa-lotacoes'),carregarRegistroFolha(uid,'pensoes-beneficiarios')]);
+      const [mensal,reusavel,benef,transc]=await Promise.all([carregarRegistroFolha(uid,alvo),carregarRegistroFolha(uid,'mapa-lotacoes'),carregarRegistroFolha(uid,'pensoes-beneficiarios'),carregarRegistroFolha(uid,'transcricao')]);
       if(!ativa||alvo!==competencia)return;
-      primeiro=mensal?.primeiro||5000;arquivos=mensal?.arquivos||{};pessoas=mensal?.pessoas||[];servidores=mensal?.servidores||[];saldos=mensal?.saldos||{};numerosOP=mensal?.numerosOP||{};
+      primeiro=mensal?.primeiro||5000;arquivos=mensal?.arquivos||{};pessoas=mensal?.pessoas||[];servidores=mensal?.servidores||[];saldos=mensal?.saldos||{};numerosOP=mensal?.numerosOP||{};dataLiquidacao=mensal?.dataLiquidacao||'';transcritos=mensal?.transcritos||[];
+    modeloHistorico=transc?.modeloHistorico||MODELO_HISTORICO_PADRAO;fichasOP=transc?.fichasOP||{};atual=0;
       aprovouMapa=!!mensal?.aprovouMapa;aprovouConsignados=!!mensal?.aprovouConsignados;origemIndividual=mensal?.origemIndividual||'';nomeConsolidado=mensal?.nomeConsolidado||'';
       mapa=reusavel||{};cadastroPensao=benef||{};
       $('#fe-inicio').value=primeiro;$('#fe-confirmar-mapa').checked=aprovouMapa;$('#fe-confirmar-bancos').checked=aprovouConsignados;
@@ -287,7 +295,95 @@ export function telaFolhaEmpenhos(el){
       (!minutas.length?'<p class="fe-alert">Sem minutas carregadas. Consulte a competência correspondente.</p>':'')+
       '<p class="fe-muted">A igualdade do total por banco não prova que cada guia está vinculada à lotação correta.</p>';
     const registros=p.empenhos.filter(e=>filtro==='todos'||filtro==='pendentes'&&e.problemas.length||e.tipo===filtro);
-    if(visao==='planilha'){
+    if(visao==='transcrever'){
+    /* Um empenho por vez, na ordem em que os campos são digitados no sistema
+       da Memory. Conferir num quadro grande serve para auditar depois; para
+       digitar, o que serve é ter na frente só o campo da vez. */
+    const ops=p.extras.reduce((a,x)=>{(a[x.empenhoReferencia]??=[]).push(x);return a;},{});
+    const feitos=new Set(transcritos);
+    atual=Math.max(0,Math.min(atual,registros.length-1));
+    const r=registros[atual];
+    if(!r){$('#fe-tabela').innerHTML='';return;}
+    const meus=ops[r.empenho]||[];
+    const passos=passosDoEmpenho(r,meus,{dataLiquidacao,modeloHistorico,competencia,fichasOP,numerosOP});
+    const conf=conferirEmpenho(r,meus);
+    const pendFichas=fichasOPpendentes(p.extras,fichasOP);
+    let g='';
+    const corpo=passos.map((x,i)=>{
+      const abre=x.grupo!==g;g=x.grupo;
+      const cab=abre?'<tr class="fe-grupo"><td colspan="3">'+esc(x.grupo)+'</td></tr>':'';
+      const valor=x.valor
+        ?'<span class="fe-valor'+(x.destaque?' fe-destaque':'')+'">'+esc(x.valor)+'</span>'
+        :'<em class="fe-muted">a informar</em>';
+      const acao=x.chaveOP!=null
+        ?'<input style="width:72px" data-op="'+esc(x.chaveOP)+'" placeholder="nº" value="'+esc(numerosOP[x.chaveOP]||'')+'">'
+        :x.copiavel?'<button type="button" class="secundario" data-copiar="'+i+'">copiar</button>':'';
+      return cab+'<tr'+(x.faltando||x.informar?' class="fe-pendente"':'')+'>'+
+        '<td>'+esc(x.rotulo)+(x.nota?'<br><small class="fe-muted">'+esc(x.nota)+'</small>':'')+'</td>'+
+        '<td class="fe-money">'+valor+'</td><td>'+acao+'</td></tr>';
+    }).join('');
+    const contas=conf.linhas.map(l=>'<tr'+(l.total?' class="fe-rodape"':'')+'><td>'+esc(l.rotulo)+'</td>'+
+      '<td class="fe-money">'+(l.total?'<strong>':'')+dinheiroFolha(l.valor)+(l.total?'</strong>':'')+'</td><td></td></tr>').join('');
+    const aviso=conf.problemas.map(x=>'<p class="fe-alert">'+esc(x)+'</p>').join('')+
+      conf.pendencias.map(x=>'<p class="fe-muted">Falta preencher: '+esc(x)+'</p>').join('')+
+      (conf.bateu&&!conf.pendencias.length?'<p class="fe-ok">Bateu com a folha.</p>':'');
+    $('#fe-tabela').innerHTML=
+      '<section class="fe-card fe-transcrever">'+
+      '<div class="fe-navegar">'+
+        '<button type="button" class="secundario" data-passo="-1"'+(atual?'':' disabled')+'>&larr; anterior</button>'+
+        '<strong>'+(atual+1)+' de '+registros.length+'</strong>'+
+        '<span class="fe-muted">'+feitos.size+' já transcrito'+(feitos.size===1?'':'s')+'</span>'+
+        '<button type="button" class="secundario" data-passo="1"'+(atual<registros.length-1?'':' disabled')+'>próximo &rarr;</button>'+
+        '<label class="fe-feito"><input type="checkbox" data-feito'+(feitos.has(r.id)?' checked':'')+'> transcrito</label>'+
+      '</div>'+
+      '<h2>Empenho '+r.empenho+' · '+esc(r.secretaria||'')+' · '+esc(r.vinculo||'')+'</h2>'+
+      '<p class="fe-muted">Lotação '+esc(r.lotacao)+' · '+esc(tipos[r.tipo]||r.tipo)+'</p>'+
+      '<div class="fe-scroll"><table class="fe-passos"><tbody>'+corpo+
+        '<tr class="fe-grupo"><td colspan="3">Conferência</td></tr>'+contas+'</tbody></table></div>'+
+      aviso+'</section>'+
+      '<section class="fe-card"><h2>Vale para todos os empenhos</h2>'+
+      '<label class="campo"><span>Data da liquidação</span>'+
+        '<input id="fe-data-liq" placeholder="dd/mm/aaaa" value="'+esc(dataLiquidacao)+'"></label>'+
+      '<label class="campo"><span>Modelo do histórico</span>'+
+        '<input id="fe-modelo-hist" style="width:100%" value="'+esc(modeloHistorico)+'"></label>'+
+      '<p class="fe-muted">Marcas: {bloco} {mes} {mes_numero} {ano} {vinculo} {secretaria} {lotacao}.</p>'+
+      (pendFichas.length?'<p class="fe-alert">Informe a ficha extra-orçamentária de: '+
+        pendFichas.map(esc).join(', ')+'. O sistema vinha repetindo a ficha orçamentária do empenho, que não serve para OP.</p>':'')+
+      pendFichas.map(t2=>'<label class="campo"><span>Ficha extra · '+esc(t2)+'</span>'+
+        '<input data-ficha-op="'+esc(t2)+'" placeholder="nº da ficha"></label>').join('')+
+      Object.entries(fichasOP).map(([t2,f])=>'<label class="campo"><span>Ficha extra · '+esc(t2)+'</span>'+
+        '<input data-ficha-op="'+esc(t2)+'" value="'+esc(f)+'"></label>').join('')+
+      '</section>'+listas();
+    const tabela=$('#fe-tabela');
+    tabela.querySelectorAll('[data-copiar]').forEach(b=>b.onclick=async()=>{
+      const x=passos[Number(b.dataset.copiar)];
+      try{ await navigator.clipboard.writeText(x.valor); b.textContent='copiado'; }
+      catch{ status('Não foi possível copiar: selecione o valor à mão.'); }
+    });
+    tabela.querySelectorAll('[data-passo]').forEach(b=>b.onclick=()=>{
+      atual+=Number(b.dataset.passo);render();
+    });
+    tabela.querySelector('[data-feito]').onchange=ev=>{
+      const s2=new Set(transcritos);
+      if(ev.target.checked){s2.add(r.id); if(atual<registros.length-1)atual++;}
+      else s2.delete(r.id);
+      transcritos=[...s2];persistir();render();
+    };
+    tabela.querySelectorAll('[data-op]').forEach(i=>i.onchange=()=>{
+      const v=i.value.trim();
+      if(v)numerosOP[i.dataset.op]=v; else delete numerosOP[i.dataset.op];
+      persistir();render();
+    });
+    tabela.querySelectorAll('[data-ficha-op]').forEach(i=>i.onchange=()=>{
+      const v=i.value.trim();
+      if(v)fichasOP[i.dataset.fichaOp]=v; else delete fichasOP[i.dataset.fichaOp];
+      persistir();render();
+    });
+    $('#fe-data-liq').onchange=ev=>{dataLiquidacao=ev.target.value.trim();persistir();render();};
+    $('#fe-modelo-hist').onchange=ev=>{
+      modeloHistorico=ev.target.value.trim()||MODELO_HISTORICO_PADRAO;persistir();render();
+    };
+    }else if(visao==='planilha'){
     /* Mesmo desenho da planilha da Contabilidade: os três blocos na primeira
        coluna, o empenho orçamentário, as duas vagas de OP e o líquido no fim.
        A coluna do desdobramento é a única que a planilha não tem — ela vai

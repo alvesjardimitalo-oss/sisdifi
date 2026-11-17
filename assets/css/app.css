@@ -763,3 +763,21 @@ progress { width: 260px; vertical-align: middle; }
 .fe-planilha tr.fe-rodape td { border-top: 1px solid var(--borda); font-size: .95em; }
 .fe-planilha tr.fe-rodape.fe-pendente td { color: var(--vermelho); }
 .fe-planilha input { font-size: inherit; padding: .1rem .25rem; }
+
+/* Assistente de transcrição: um empenho por vez, na ordem dos campos do
+   sistema da Memory. O valor fica grande porque é lido e digitado em outra
+   janela, não conferido de relance. */
+.fe-transcrever .fe-navegar {
+  display: flex; align-items: center; gap: .9rem; flex-wrap: wrap;
+  padding-bottom: .6rem; border-bottom: 1px solid var(--borda); margin-bottom: .4rem;
+}
+.fe-transcrever .fe-feito { display: inline-flex; align-items: center; gap: .35rem; margin-left: auto; }
+.fe-passos td { padding: .35rem .5rem; vertical-align: middle; }
+.fe-passos tr.fe-grupo td {
+  background: var(--cinza-claro); font-size: .82em; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .04em; padding-top: .5rem;
+}
+.fe-passos tr.fe-pendente td:first-child { border-left: 3px solid var(--vermelho); }
+.fe-passos .fe-valor { font-variant-numeric: tabular-nums; font-size: 1.08em; }
+.fe-passos .fe-valor.fe-destaque { font-size: 1.3em; font-weight: 700; }
+.fe-passos tr.fe-rodape td { border-top: 1px solid var(--borda); }
