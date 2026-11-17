@@ -3,7 +3,7 @@
 // permite saber de quem é cada desconto.
 import assert from 'node:assert/strict';
 import { varrerServidores, somarRubricas, lotacoesDoResumo,
-  servidoresComRepasse, codigosDeDesconto } from '../assets/js/folha-servidores.js';
+  servidoresComRepasse, codigosDeDesconto, extrairNome } from '../assets/js/folha-servidores.js';
 import { categoriaRubricaDesconto } from '../assets/js/folha-empenhos.js';
 import { pensoesParaOP, historicoPensao, chaveCadastro,
   RUBRICAS_PENSAO } from '../assets/js/folha-pensoes.js';
@@ -82,6 +82,36 @@ t('lotacoesDoResumo junta as lotações dos arquivos', () => {
   const s = lotacoesDoResumo([{ registros: [{ lotacao: '002.012.296.00001' }, { lotacao: '002.016.002' }] },
     null, { registros: [{ lotacao: '002.016.002' }] }]);
   assert.deepEqual([...s].sort(), ['002.012.296.00001', '002.016.002']);
+});
+
+/* O nível tem duas formas na mesma folha: "1_20 /0073 -" em 511 linhas de
+   outubro e um algarismo romano, "II /0032 -", em outras 102. Cobrir só a
+   primeira deixava um sexto dos nomes com o cargo e a data grudados — e o nome
+   vai no histórico da liquidação de pensão, que a Contabilidade copia. */
+t('o nome para no nível, nas duas formas que a folha usa', () => {
+  assert.equal(extrairNome('MICHELE LOPES GONÇALVES 1_20 /0073 -MONITOR (SALA DE AULA) 01/01/2026 CONTRATADO'),
+    'MICHELE LOPES GONÇALVES');
+  assert.equal(extrairNome('GLEISSIKELI GOMES DOS SANTOS II /0032 -PROFESSOR GRADUADO E 03/02/2025 CONTRATADO'),
+    'GLEISSIKELI GOMES DOS SANTOS');
+  assert.equal(extrairNome('VALDEVI DIAS DE ARAUJO 1_20 /0008 -OPERÁRIO BRAÇAL 13/03/2000 EFETIVO'),
+    'VALDEVI DIAS DE ARAUJO');
+});
+
+// Em quatro linhas as colunas se sobrepõem no PDF e o nível entra no meio do
+// nome: o fim é irrecuperável, mas o cargo e a data não podem sobrar.
+t('coluna sobreposta apara o nome, não devolve o cargo', () => {
+  const n = extrairNome('THIAGO MARQUES TEIXEIRA DE OLIVEIR1A_20 /0061 -MEDICO PSF 20/01/2020 EFETIVO');
+  assert.equal(n, 'THIAGO MARQUES TEIXEIRA DE OLIVEIR');
+  assert.ok(!/MEDICO|2020|_/.test(n));
+});
+
+t('nenhum nome sai com dígito, sublinhado ou barra', () => {
+  for (const linha of [
+    'MICHELE LOPES GONÇALVES 1_20 /0073 -MONITOR 01/01/2026 CONTRATADO',
+    'GLEISSIKELI GOMES DOS SANTOS II /0032 -PROFESSOR 03/02/2025 CONTRATADO',
+    'RODRIGO RODRIGUES PEREIRA DA CRU1Z_20 /0026 -TÉCNICO 01/02/2026 CONTRATADO'])
+    assert.ok(!/[\d_\/]/.test(extrairNome(linha)), linha);
+  assert.equal(extrairNome(''), '');
 });
 
 // --- OP de pensão ---

@@ -50,10 +50,24 @@ export function lotacoesDoResumo(resumos = []) {
     .flatMap(a => a.registros || []).map(r => limparLotacao(r.lotacao)).filter(Boolean));
 }
 
+/* O nome vem entre a matrícula e a coluna NÍVEL / PADRÃO - FUNÇÃO. O nível tem
+   duas formas na mesma folha: "1_20 /0073 -" em 511 linhas de outubro e um
+   algarismo romano, "II /0032 -", em outras 102. Cobrir só a primeira deixava
+   um sexto dos nomes com o cargo e a data grudados — e o nome vai no histórico
+   da liquidação de pensão, que a Contabilidade copia para o sistema.
+
+   Em quatro linhas as colunas se sobrepõem no PDF e o nível entra no meio do
+   nome ("...DE OLIVEIR1A_20"). Aí o fim do nome é irrecuperável: apara-se o
+   trecho com dígito ou sublinhado e fica o que dá, em vez de devolver o cargo
+   e a data junto. */
+const NIVEL = /\s*(?:\d+_\d+|[IVX]{1,4})?\s*\/\s*\d+\s*-/;
 export function extrairNome(s) {
-  // Entre matrícula e coluna NÍVEL / PADRÃO - FUNÇÃO ("1_20 / 0073").
-  const m = s.match(/^(.+?)\s+\d+_\d+\s*\/\s*\d+\s*-\s+/);
-  return (m ? m[1] : s.replace(/\s+\d+_\d+\s*\/.*$/, '')).trim();
+  const bruto = String(s || '');
+  const corte = bruto.search(NIVEL);
+  let nome = (corte >= 0 ? bruto.slice(0, corte) : bruto).trim();
+  // Resto do nível colado no último termo, ou solto depois do nome.
+  nome = nome.replace(/\s+(?:\d+_\d+|[IVX]{1,4})$/, '').replace(/[\d_]+[A-Z]?_?\d*$/, '');
+  return nome.trim();
 }
 
 /** Rubrica da linha, com o valor da última coluna preenchida. */
