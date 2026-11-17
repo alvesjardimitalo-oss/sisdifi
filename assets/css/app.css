@@ -750,3 +750,16 @@ progress { width: 260px; vertical-align: middle; }
 
 /* Situação do saldo no painel de fontes. */
 .fe-ok { color: var(--verde); font-weight: 600; }
+
+/* Visão "planilha": o mesmo desenho da planilha da Contabilidade, para a
+   conferência acontecer na ordem em que ela já trabalha. */
+.fe-planilha { font-size: .9em; border-collapse: collapse; }
+.fe-planilha th, .fe-planilha td { padding: .25rem .4rem; white-space: nowrap; }
+.fe-planilha thead tr:first-child th { text-align: center; font-size: .85em; text-transform: uppercase; letter-spacing: .03em; }
+/* O bloco extra-orçamentário fica sombreado, como as colunas agrupadas dela. */
+.fe-planilha .fe-op { background: var(--cinza-claro); }
+.fe-planilha td.fe-bloco { font-size: .82em; text-transform: uppercase; vertical-align: top; max-width: 9rem; white-space: normal; }
+.fe-planilha tr.fe-pendente td:first-child, .fe-planilha tr.fe-pendente td:nth-child(2) { border-left: 3px solid var(--vermelho); }
+.fe-planilha tr.fe-rodape td { border-top: 1px solid var(--borda); font-size: .95em; }
+.fe-planilha tr.fe-rodape.fe-pendente td { color: var(--vermelho); }
+.fe-planilha input { font-size: inherit; padding: .1rem .25rem; }

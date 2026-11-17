@@ -14,6 +14,9 @@ import {carregarRegistroFolha,salvarRegistroFolha} from '../folha-empenhos-store
 import {carregarMes} from '../consignacoes-mensal.js?v=3.13.0.357fc820';
 
 const tipos={principal:'Folha principal',extra:'Folha extra · incentivo federal (dia 10)',decimo:'Adiantamento de 50% do 13º',rescisao:'Rescisões'};
+/* Os mesmos rótulos que a planilha da Contabilidade traz na primeira coluna,
+   para a tela abrir no formato em que ela já trabalha. */
+const blocos={principal:'FOLHA DE PAGAMENTO',extra:'EXTRA FOLHA',decimo:'ADIANTAMENTO DE 50% 13º SALÁRIO',rescisao:'RECISÃO CONTRATUAL'};
 const formato=c=>(Number(c||0)/100).toFixed(2).replace('.',',');
 function baixar(nome,blob){
   const url=URL.createObjectURL(blob),a=document.createElement('a');
@@ -40,10 +43,13 @@ export function telaFolhaEmpenhos(el){
   /* A folha nominal diz de quem é cada desconto; o beneficiário da pensão não
      está em documento nenhum e vem de cadastro, por matrícula e rubrica. */
   let servidores=[],cadastroPensao={};
+  /* Número da OP é atribuído no sistema da Memory, não aqui: a Contabilidade
+     digita e o sistema guarda, para a planilha sair completa na conferência. */
+  let numerosOP={};
   /* Saldo por fonte, informado pela Contabilidade: é o que decide se a educação
      cabe no FUNDEB. Muda todo mês, então fica no registro da competência. */
   let saldos={};
-  let minutas=[],alertas=[],nomeConsolidado='',origemIndividual='',filtro='todos',visao='resumo',carregando=false,ativa=true,filaDeSalvamento=Promise.resolve();
+  let minutas=[],alertas=[],nomeConsolidado='',origemIndividual='',filtro='todos',visao='planilha',carregando=false,ativa=true,filaDeSalvamento=Promise.resolve();
   const $=sel=>el.querySelector(sel);
   // Ficha da LOA -> órgão/unidade e ação orçamentária. Nunca alterar o código RH da lotação.
   const localizarFicha=numero=>consultarFichaOrcamento(numero,Number(competencia.slice(0,4)),estado.fichas||[],estado.secretarias||[]);
@@ -113,7 +119,10 @@ export function telaFolhaEmpenhos(el){
       '<div class="fe-actions"><button class="btn btn-sec" type="button" id="fe-buscar-minutas">Consultar minutas</button>'+
       '<label><input type="checkbox" id="fe-confirmar-bancos"> Conferi também a distribuição dos descontos por empenho</label></div><div id="fe-bancos"></div></section>'+
     '<section class="fe-card"><div class="fe-actions"><h2>5 · Empenhos gerados automaticamente</h2>'+ 
-      '<label class="campo"><span>Visualização</span><select id="fe-visao"><option value="resumo">Empenhos: ficha, fonte, bruto e líquido</option><option value="composicao">Composição dos descontos</option></select></label>'+
+      '<label class="campo"><span>Visualização</span><select id="fe-visao">'+
+      '<option value="planilha">Planilha de empenhos (igual à sua)</option>'+
+      '<option value="resumo">Detalhada: natureza, lotação e pendências</option>'+
+      '<option value="composicao">Composição dos descontos</option></select></label>'+
       '<button class="btn btn-sec" type="button" id="fe-rascunho">Baixar rascunho XLSX</button>'+
       '<button class="btn" type="button" id="fe-final" disabled>Baixar planilha conferida XLSX</button></div>'+
       '<div id="fe-kpis" class="fe-kpis"></div><div id="fe-pendencias"></div>'+ 
@@ -169,7 +178,7 @@ export function telaFolhaEmpenhos(el){
   function persistir(){
     if(!uid||!ativa||carregando)return Promise.resolve();
     const compAtual=competencia;
-    const mensal=structuredClone({primeiro,arquivos,pessoas,servidores,saldos,aprovouMapa,aprovouConsignados,origemIndividual,nomeConsolidado});
+    const mensal=structuredClone({primeiro,arquivos,pessoas,servidores,saldos,numerosOP,aprovouMapa,aprovouConsignados,origemIndividual,nomeConsolidado});
     const mapaAtual=structuredClone(mapa);
     const cadastroPensaoAtual=structuredClone(cadastroPensao);
     filaDeSalvamento=filaDeSalvamento.catch(()=>{}).then(async()=>{
@@ -184,7 +193,7 @@ export function telaFolhaEmpenhos(el){
     try{
       const [mensal,reusavel,benef]=await Promise.all([carregarRegistroFolha(uid,alvo),carregarRegistroFolha(uid,'mapa-lotacoes'),carregarRegistroFolha(uid,'pensoes-beneficiarios')]);
       if(!ativa||alvo!==competencia)return;
-      primeiro=mensal?.primeiro||5000;arquivos=mensal?.arquivos||{};pessoas=mensal?.pessoas||[];servidores=mensal?.servidores||[];saldos=mensal?.saldos||{};
+      primeiro=mensal?.primeiro||5000;arquivos=mensal?.arquivos||{};pessoas=mensal?.pessoas||[];servidores=mensal?.servidores||[];saldos=mensal?.saldos||{};numerosOP=mensal?.numerosOP||{};
       aprovouMapa=!!mensal?.aprovouMapa;aprovouConsignados=!!mensal?.aprovouConsignados;origemIndividual=mensal?.origemIndividual||'';nomeConsolidado=mensal?.nomeConsolidado||'';
       mapa=reusavel||{};cadastroPensao=benef||{};
       $('#fe-inicio').value=primeiro;$('#fe-confirmar-mapa').checked=aprovouMapa;$('#fe-confirmar-bancos').checked=aprovouConsignados;
@@ -277,7 +286,75 @@ export function telaFolhaEmpenhos(el){
       (!minutas.length?'<p class="fe-alert">Sem minutas carregadas. Consulte a competência correspondente.</p>':'')+
       '<p class="fe-muted">A igualdade do total por banco não prova que cada guia está vinculada à lotação correta.</p>';
     const registros=p.empenhos.filter(e=>filtro==='todos'||filtro==='pendentes'&&e.problemas.length||e.tipo===filtro);
-    if(visao==='resumo'){
+    if(visao==='planilha'){
+    /* Mesmo desenho da planilha da Contabilidade: os três blocos na primeira
+       coluna, o empenho orçamentário, as duas vagas de OP e o líquido no fim.
+       A coluna do desdobramento é a única que a planilha não tem — ela vai
+       no empenho e não havia onde anotar. */
+    const ops=p.extras.reduce((a,x)=>{(a[x.empenhoReferencia]??=[]).push(x);return a;},{});
+    /* Na planilha da Contabilidade o líquido da linha é o do empenho MAIS o das
+       OPs daquela linha: é o total que sai por aquele empenho. Em outubro isso
+       aparece em 24 das 113 linhas, e é o que faz a coluna somar o mesmo
+       1.708.128,24 que o arquivo do RH. */
+    const liquidoDaLinha=(r,meus)=>(r.liquido||0)+(meus||[]).reduce((n,x)=>n+(x.liquido||0),0);
+    const vaga=(lista,i)=>{
+      if(!lista||!lista.length)return ['',''];
+      // Mais de duas OPs: as excedentes somam na segunda vaga, como na planilha.
+      const q=i===0?lista.slice(0,1):lista.slice(1);
+      if(!q.length)return ['',''];
+      return [dinheiroFolha(q.reduce((n,x)=>n+(x.bruto||0),0)),
+        q.some(x=>x.inss)?dinheiroFolha(q.reduce((n,x)=>n+(x.inss||0),0)):''];
+    };
+    let blocoAtual='';
+    const corpo=registros.map(r=>{
+      const m=mapa[r.id]||mapa[r.lotacao]||{};
+      const meus=ops[r.empenho]||[];
+      const [b1,d1]=vaga(meus,0),[b2,d2]=vaga(meus,1);
+      const rotulo=blocos[r.tipo]||tipos[r.tipo]||'';
+      const primeira=rotulo!==blocoAtual;
+      blocoAtual=rotulo;
+      const pend=r.problemas.length?' fe-pendente':'';
+      return '<tr class="fe-linha'+pend+'">'+
+        '<td class="fe-bloco">'+(primeira?'<strong>'+esc(rotulo)+'</strong>':'')+'</td>'+
+        '<td><strong>'+r.empenho+'</strong></td>'+
+        '<td><input style="width:168px" data-ref="'+esc(r.id)+'" data-campo="secretaria" value="'+esc(m.secretaria||r.secretaria||'')+'"></td>'+
+        '<td><input style="width:68px" list="fe-fichas-2026" data-ref="'+esc(r.id)+'" data-campo="ficha" value="'+esc(m.ficha||'')+'"></td>'+
+        '<td><input style="width:76px" list="fe-fontes" data-ref="'+esc(r.id)+'" data-campo="fonte" value="'+esc(m.fonte||'')+'"></td>'+
+        '<td><input style="width:62px" list="fe-desdobramentos" data-ref="'+esc(r.id)+'" data-campo="desdobramento" value="'+esc(m.desdobramento||r.desdobramento||'')+'"></td>'+
+        '<td><input style="width:96px" data-ref="'+esc(r.id)+'" data-campo="conta" value="'+esc(m.conta||'')+'"></td>'+
+        '<td class="fe-money">'+dinheiroFolha(r.bruto||0)+'</td>'+
+        '<td class="fe-money">'+dinheiroFolha(r.descontoAjustado??r.descontoRH??0)+'</td>'+
+        '<td class="fe-op">'+(meus.length?meus.map(x=>'<input style="width:54px" data-op="'+esc(x.id)+
+          '" title="'+esc(x.tipo)+'" placeholder="nº" value="'+esc(numerosOP[x.id]||'')+'">').join(' '):'')+'</td>'+
+        '<td class="fe-money fe-op">'+b1+'</td><td class="fe-money fe-op">'+d1+'</td>'+
+        '<td class="fe-money fe-op">'+b2+'</td><td class="fe-money fe-op">'+d2+'</td>'+
+        '<td class="fe-money"><strong>'+dinheiroFolha(liquidoDaLinha(r,meus))+'</strong></td></tr>';
+    }).join('');
+    const brutoTotal=p.empenhos.reduce((n,x)=>n+(x.bruto||0),0)+p.extras.reduce((n,x)=>n+(x.bruto||0),0);
+    const liquidoTotal=p.empenhos.reduce((n,x)=>n+(x.liquido||0),0)+p.extras.reduce((n,x)=>n+(x.liquido||0),0);
+    const doRH=p.totalLiquidoResumo??p.totalLiquidoRH??null;
+    const diferenca=doRH==null?null:liquidoTotal-doRH;
+    const rodape=[['Valor total Bruto',dinheiroFolha(brutoTotal)],
+      ['Valor Líquido',dinheiroFolha(liquidoTotal)],
+      ['Valor do arquivo do RH',doRH==null?'—':dinheiroFolha(doRH)],
+      ['Diferença?',diferenca==null?'—':dinheiroFolha(diferenca)]]
+      .map(([t,v],i)=>'<tr class="fe-rodape'+(i===3&&diferenca?' fe-pendente':'')+'">'+
+        '<td colspan="9"></td><td colspan="5">'+esc(t)+'</td><td class="fe-money"><strong>'+v+'</strong></td></tr>').join('');
+    $('#fe-tabela').innerHTML='<table class="fe-planilha"><thead>'+
+      '<tr><th colspan="3"></th><th colspan="6">Empenho orçamentário</th>'+
+      '<th colspan="5" class="fe-op">Extra-orçamentária</th><th></th></tr>'+
+      '<tr><th></th><th>Empenho</th><th>Secretaria</th><th>Ficha</th><th>Fonte de Recursos</th>'+
+      '<th>Desdobr.</th><th>Conta Bancária</th><th class="fe-money">Valor Bruto</th>'+
+      '<th class="fe-money">Desconto Liquidação</th><th class="fe-op">Nº OP</th>'+
+      '<th class="fe-money fe-op">Valor Bruto</th><th class="fe-money fe-op">Desconto Liquidação</th>'+
+      '<th class="fe-money fe-op">Valor Bruto</th><th class="fe-money fe-op">Desconto Liquidação</th>'+
+      '<th class="fe-money">Valor Líquido</th></tr></thead><tbody>'+corpo+rodape+'</tbody></table>'+listas();
+      $('#fe-tabela').querySelectorAll('[data-op]').forEach(i=>i.onchange=()=>{
+        const v=i.value.trim();
+        if(v)numerosOP[i.dataset.op]=v; else delete numerosOP[i.dataset.op];
+        persistir();
+      });
+    }else if(visao==='resumo'){
     $('#fe-tabela').innerHTML='<table><thead><tr><th>Empenho</th><th>Grupo</th><th>Secretaria/unidade</th><th>Vínculo</th><th>Lotação RH</th><th>Lotação orçamentária (ação)</th><th>Ficha</th><th>Natureza da despesa</th><th>Fonte</th><th>Desdobr.</th><th>Conta</th><th class="fe-money">Bruto</th><th class="fe-money">Desconto RH</th><th class="fe-money">INSS extra</th><th class="fe-money">Líquido</th><th>Pendências</th></tr></thead><tbody>'+
       registros.map(r=>{
         const m=mapa[r.id]||mapa[r.lotacao]||{};
@@ -301,17 +378,7 @@ export function telaFolhaEmpenhos(el){
         '<td class="fe-money">'+dinheiroFolha(r.maisInssExtra)+'</td><td class="fe-money"><strong>'+dinheiroFolha(r.liquido||0)+'</strong></td>'+
         '<td class="fe-status">'+esc([...r.problemas,avisoFicha,avisoFonte,avisoNatureza].filter(Boolean).join('; ')||'Pronto para conferir')+'</td></tr>';
       }).join('')+'</tbody></table>'+
-      /* Os três desdobramentos de pessoal da educação, para não digitar errado:
-         1071 é o magistério dos 70%, 1073 o tempo integral e 0000 os 30% e os
-         demais servidores. */
-      '<datalist id="fe-fontes">'+fontesParaEscolher()
-        .map(f=>'<option value="'+esc(f.codigo)+'" label="'+esc(f.rotulo)+'"></option>').join('')+'</datalist>'+
-      '<datalist id="fe-desdobramentos">'+
-      [['1071','Remuneração de profissional da educação — 70%'],
-       ['1073','Educação em tempo integral'],
-       ['0000','Demais servidores e os 30%']]
-        .map(([c,t])=>'<option value="'+c+'" label="'+esc(t)+'"></option>').join('')+'</datalist>'+
-      (Number(competencia.slice(0,4))===2026?'<datalist id="fe-fichas-2026">'+FICHAS_PESSOAL_2026.map(f=>'<option value="'+esc(f.ficha)+'" label="'+esc(f.acao)+'"></option>').join('')+'</datalist>':'');
+      listas();
     }else{
       const cabecalhos=['Empenho','Secretaria / vínculo','Lotação','Bruto','Caixa','Sicoob','Bradesco','Pensão',
         'INSS original','Imposto de Renda','Outros','Soma das rubricas','Desconto do RH','Diferença',
@@ -376,6 +443,21 @@ export function telaFolhaEmpenhos(el){
      faltar dinheiro. O saldo é comparado com o bruto do empenho, porque o
      líquido vai para o servidor e as retenções para terceiros, mas tudo sai
      da mesma conta. */
+  /* Listas de autocompletar, compartilhadas pelas visões. Os três
+     desdobramentos de pessoal da educação ficam aqui para não digitar errado:
+     1071 é o magistério dos 70%, 1073 o tempo integral e 0000 os 30% e os
+     demais servidores. */
+  function listas(){
+    return '<datalist id="fe-fontes">'+fontesParaEscolher()
+        .map(f=>'<option value="'+esc(f.codigo)+'" label="'+esc(f.rotulo)+'"></option>').join('')+'</datalist>'+
+      '<datalist id="fe-desdobramentos">'+
+      [['1071','Remuneração de profissional da educação — 70%'],
+       ['1073','Educação em tempo integral'],
+       ['0000','Demais servidores e os 30%']]
+        .map(([c,t])=>'<option value="'+c+'" label="'+esc(t)+'"></option>').join('')+'</datalist>'+
+      (Number(competencia.slice(0,4))===2026?'<datalist id="fe-fichas-2026">'+FICHAS_PESSOAL_2026
+        .map(f=>'<option value="'+esc(f.ficha)+'" label="'+esc(f.acao)+'"></option>').join('')+'</datalist>':'');
+  }
   function renderSaldos(p){
     const alvo=$('#fe-saldos');
     if(!alvo)return;
