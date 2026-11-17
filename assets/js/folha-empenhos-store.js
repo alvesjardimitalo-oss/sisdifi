@@ -29,3 +29,34 @@ export async function salvarRegistroFolha(uid,chave,dados){
     tx.onerror=()=>{db.close();reject(tx.error)};
   });
 }
+/**
+ * Apaga um registro. Usado para limpar a competência quando os arquivos
+ * entraram errados: sem isso o mês fica com dados de um envio anterior
+ * misturados com os do novo, e a conferência passa a mentir.
+ */
+export async function apagarRegistroFolha(uid,chave){
+  if(!uid||!chave)throw Error('Conta e competência obrigatórias.');
+  const id=JSON.stringify([uid,chave]),db=await abrir();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction('registros','readwrite');
+    tx.objectStore('registros').delete(id);
+    tx.oncomplete=()=>{db.close();resolve(true)};
+    tx.onerror=()=>{db.close();reject(tx.error)};
+  });
+}
+/** Competências com registro guardado nesta conta, da mais recente para a mais antiga. */
+export async function competenciasGuardadas(uid){
+  if(!uid)return [];
+  const db=await abrir();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction('registros','readonly'),q=tx.objectStore('registros').getAllKeys();
+    tx.oncomplete=()=>{
+      db.close();
+      const chaves=(q.result||[]).map(id=>{try{return JSON.parse(id)}catch{return null}})
+        .filter(x=>Array.isArray(x)&&x[0]===uid).map(x=>x[1])
+        .filter(c=>/^\d{4}-\d{2}$/.test(c));
+      resolve([...new Set(chaves)].sort().reverse());
+    };
+    tx.onerror=()=>{db.close();reject(tx.error)};
+  });
+}

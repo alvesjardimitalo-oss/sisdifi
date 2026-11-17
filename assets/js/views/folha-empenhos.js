@@ -1,16 +1,24 @@
 // SISDIFI — Folha de pagamentos: geração de relação prévia de empenhos.
 // Exclusivo de Contabilidade/ADM. Não grava dados de folha no Firebase.
 import {estado,pode} from '../estado.js';
-import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificacaoPessoal,FICHAS_PESSOAL_2026} from '../folha-orcamento-2026.js';
+import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificacaoPessoal,sugerirFichaDaLotacao,fontesParaEscolher,FICHAS_PESSOAL_2026} from '../folha-orcamento-2026.js';
 import {esc,toast} from '../ui.js';
-import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha} from '../folha-empenhos.js';
+import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,pagamentosConsignados,categoriaRubricaDesconto,centavosFolha,dinheiroFolha} from '../folha-empenhos.js';
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
+import {varrerServidores,servidoresComRepasse,codigosDeDesconto} from '../folha-servidores.js';
+import {ordenarEmpenhos,gruposEmOrdem,moverGrupo,grupoDaLotacao,ORDEM_GRUPOS_2026} from '../folha-ordem.js';
+import {passosDoEmpenho,conferirEmpenho,fichasOPpendentes,modeloDoEmpenho,textoDoModelo,MODELOS_HISTORICO} from '../folha-transcrever.js';
+import {ratearPorSaldo,ehFundeb,mesmaFonte,FONTE_EDUCACAO_PROPRIA,FONTE_SAUDE_PROPRIA} from '../folha-saldos.js';
+import {pensoesParaOP,chaveCadastro,RUBRICAS_PENSAO} from '../folha-pensoes.js';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js';
-import {carregarRegistroFolha,salvarRegistroFolha} from '../folha-empenhos-store.js';
+import {carregarRegistroFolha,salvarRegistroFolha,apagarRegistroFolha} from '../folha-empenhos-store.js';
 import {carregarMes} from '../consignacoes-mensal.js?v=3.13.0.357fc820';
 
 const tipos={principal:'Folha principal',extra:'Folha extra · incentivo federal (dia 10)',decimo:'Adiantamento de 50% do 13º',rescisao:'Rescisões'};
+/* Os mesmos rótulos que a planilha da Contabilidade traz na primeira coluna,
+   para a tela abrir no formato em que ela já trabalha. */
+const blocos={principal:'FOLHA DE PAGAMENTO',extra:'EXTRA FOLHA',decimo:'ADIANTAMENTO DE 50% 13º SALÁRIO',rescisao:'RECISÃO CONTRATUAL'};
 const formato=c=>(Number(c||0)/100).toFixed(2).replace('.',',');
 function baixar(nome,blob){
   const url=URL.createObjectURL(blob),a=document.createElement('a');
@@ -34,7 +42,27 @@ export function telaFolhaEmpenhos(el){
   const uid=estado.sessao?.uid;
   let competencia=new Date().getFullYear()+'-'+String(new Date().getMonth()+1).padStart(2,'0');
   let primeiro=5000,arquivos={},pessoas=[],mapa={},aprovouMapa=false,aprovouConsignados=false;
-  let minutas=[],alertas=[],nomeConsolidado='',origemIndividual='',filtro='todos',visao='resumo',carregando=false,ativa=true,filaDeSalvamento=Promise.resolve();
+  /* A folha nominal diz de quem é cada desconto; o beneficiário da pensão não
+     está em documento nenhum e vem de cadastro, por matrícula e rubrica. */
+  let servidores=[],cadastroPensao={};
+  /* Número da OP é atribuído no sistema da Memory, não aqui: a Contabilidade
+     digita e o sistema guarda, para a planilha sair completa na conferência. */
+  let numerosOP={};
+  /* Transcrição: a data da liquidação e o modelo do histórico valem para a
+     competência toda; as fichas extra das OPs são fixas e voltam todo mês;
+     `transcritos` guarda o que já foi digitado, para retomar de onde parou. */
+  let dataLiquidacao='',escolhasHistorico={},textosHistorico={},fichasOP={},transcritos=[],atual=0;
+  let ordemGrupos=[];
+  /* Os PDFs ficam crus até a Contabilidade mandar processar: enviar não é
+     processar. Guardá-los sem ler também desfaz a ordem obrigatória de antes,
+     em que o resumo tinha de vir antes da folha nominal para que a leitura
+     soubesse quais códigos são lotação. Como são megabytes de texto e o
+     processamento acontece logo em seguida, ficam só na memória. */
+  let brutos={},processado=false;
+  /* Saldo por fonte, informado pela Contabilidade: é o que decide se a educação
+     cabe no FUNDEB. Muda todo mês, então fica no registro da competência. */
+  let saldos={};
+  let minutas=[],alertas=[],nomeConsolidado='',origemIndividual='',filtro='todos',visao='planilha',carregando=false,ativa=true,filaDeSalvamento=Promise.resolve();
   const $=sel=>el.querySelector(sel);
   // Ficha da LOA -> órgão/unidade e ação orçamentária. Nunca alterar o código RH da lotação.
   const localizarFicha=numero=>consultarFichaOrcamento(numero,Number(competencia.slice(0,4)),estado.fichas||[],estado.secretarias||[]);
@@ -73,22 +101,44 @@ export function telaFolhaEmpenhos(el){
     '<p class="fe-muted">Prefeitura Municipal de Frei Inocêncio — prévia contábil por lotação. Uma linha por empenho, com bruto, descontos, líquido, ficha e fonte. Não registra empenho ou liquidação no sistema contábil.</p>'+
     '<section class="fe-card"><div class="fe-grid">'+
       '<label class="campo"><span>Competência</span><input type="month" id="fe-comp" value="'+esc(competencia)+'"></label>'+
-      '<label class="campo"><span>Primeiro número do empenho</span><input type="number" min="1" id="fe-inicio" value="5000"></label>'+
       '<label class="campo"><span>Filtrar empenhos</span><select id="fe-filtro"><option value="todos">Todos</option><option value="pendentes">Com pendências</option><option value="principal">Folha principal</option><option value="decimo">13º adiantamento</option><option value="rescisao">Rescisões</option></select></label>'+
-    '</div><p id="fe-status" class="fe-muted" role="status" aria-live="polite"></p></section>'+
-    '<section class="fe-card"><h2>1 · Importar a folha</h2>'+
-      '<label class="fe-file" style="display:block;border:2px solid #3981b4;background:#eef7ff;padding:19px;margin-bottom:12px">'+
-      '<strong style="font-size:1.05rem;color:#16456a">Escolha um único arquivo do RH (PDF)</strong>'+
-      '<small>Importe o Resumo de Verbas consolidado. O SISDIFI identifica as lotações, separa folha principal, adiantamento do 13º, folha extra e rescisões, gera os valores e calcula os descontos. Ficha e fonte ficam para você preencher.</small>'+
-      '<input data-importar="automatico" type="file" accept=".pdf,application/pdf">'+
-      '<span id="fe-nome-automatico" class="fe-muted">Nenhum arquivo importado</span></label>'+
-      '<details><summary>Importação separada (opcional, para casos especiais)</summary><div class="fe-files">'+
-      '<label class="fe-file" style="border-color:#3d89bd;background:#eff8ff"><strong>Resumo de Verbas consolidado · todos os tipos</strong><small>Preferencial: um único PDF contendo folha principal, extra, 13º e rescisões. Separa pelo tipo de folha do cabeçalho e pela lotação completa.</small><input data-importar="consolidado" type="file" accept=".pdf"><span id="fe-nome-consolidado" class="fe-muted">Não enviado</span></label>'+
-      '<label class="fe-file"><strong>Resumo de Verbas da folha principal</strong><small>Dados por lotação, rubricas e totais da liquidação.</small><input data-importar="principal" type="file" accept=".pdf"><span id="fe-nome-principal" class="fe-muted">Não enviado</span></label>'+
-      '<label class="fe-file"><strong>Resumo de Verbas · Folha extra do dia 10</strong><small>Incentivo da enfermagem e eventuais diferenças salariais. Informe se o incentivo já compõe o bruto do RH.</small><input data-importar="extra" type="file" accept=".pdf"><span id="fe-nome-extra" class="fe-muted">Não enviado</span></label>'+ 
-      '<label class="fe-file"><strong>Resumo do adiantamento de 50% do 13º</strong><small>Opcional, quando houver na competência.</small><input data-importar="decimo" type="file" accept=".pdf"><span id="fe-nome-decimo" class="fe-muted">Não enviado</span></label>'+
-      '<label class="fe-file"><strong>Resumo de Verbas das rescisões</strong><small>Opcional, quando houver rescisões.</small><input data-importar="rescisao" type="file" accept=".pdf"><span id="fe-nome-rescisao" class="fe-muted">Não enviado</span></label>'+
-      '<label class="fe-file"><strong>Folha nominal consolidada · identificação das servidoras</strong><small>Para identificar matrícula, servidora, rubrica 163 e INSS (201). Confirmação individual obrigatória.</small><input data-importar="nominal" type="file" accept=".pdf"><span id="fe-nome-nominal" class="fe-muted">Não enviado</span></label>'+
+    '<section class="fe-card"><h2>1 · Enviar os arquivos do RH</h2>'+
+      '<p class="fe-muted">Os seis PDFs na ordem em que o RH entrega. Enviar não processa nada: '+
+      'o sistema guarda os arquivos e só lê quando você mandar processar.</p>'+
+      '<h3 class="fe-sub">Folhas nominais</h3>'+
+      '<label class="fe-file"><strong>Folha de pagamento</strong><small>Identifica matrícula, servidora, salário-maternidade, INSS individual e pensões.</small><input data-bruto="folha" type="file" accept=".pdf"><span id="fe-nome-folha" class="fe-muted">Não enviado</span></label>'+
+      '<label class="fe-file"><strong>Folha do adiantamento de 50% do 13º</strong><small>Opcional, quando houver na competência.</small><input data-bruto="folhaDecimo" type="file" accept=".pdf"><span id="fe-nome-folhaDecimo" class="fe-muted">Não enviado</span></label>'+
+      '<label class="fe-file"><strong>Folha das rescisões</strong><small>Opcional, quando houver rescisões.</small><input data-bruto="folhaRescisao" type="file" accept=".pdf"><span id="fe-nome-folhaRescisao" class="fe-muted">Não enviado</span></label>'+
+      '<h3 class="fe-sub">Resumos de verbas</h3>'+
+      '<label class="fe-file"><strong>Resumo de verbas da folha</strong><small>Obrigatório: é dele que saem as lotações, os valores e os descontos de cada empenho.</small><input data-bruto="principal" type="file" accept=".pdf"><span id="fe-nome-principal" class="fe-muted">Não enviado</span></label>'+
+      '<label class="fe-file"><strong>Resumo de verbas do 13º</strong><small>Opcional, quando houver na competência.</small><input data-bruto="decimo" type="file" accept=".pdf"><span id="fe-nome-decimo" class="fe-muted">Não enviado</span></label>'+
+      '<label class="fe-file"><strong>Resumo de verbas das rescisões</strong><small>Opcional, quando houver rescisões.</small><input data-bruto="rescisao" type="file" accept=".pdf"><span id="fe-nome-rescisao" class="fe-muted">Não enviado</span></label>'+
+      '<div class="fe-processar">'+
+        '<label class="campo"><span>Primeiro número do empenho</span><input type="number" min="1" id="fe-inicio-2" value="'+primeiro+'"></label>'+
+        '<button class="btn" type="button" id="fe-processar">Processar dados</button>'+
+        '<span id="fe-processar-nota" class="fe-muted"></span>'+
+      '</div>'+
+      '<p id="fe-status" class="fe-muted" role="status" aria-live="polite"></p>'+
+      /* Arquivo trocado deixa o mês com dados de dois envios misturados, e aí a
+         conferência passa a mentir. Limpar é separado em dois: o mês, que é o
+         que costuma estar errado, e os cadastros reaproveitados — fichas,
+         beneficiários de pensão, ordem dos grupos e modelos de histórico —
+         que custam caro para refazer e raramente são o problema. */
+      '<details class="fe-outros fe-limpar"><summary>Limpar a competência</summary>'+
+        '<p class="fe-muted">Apaga o que foi lido e montado para '+esc(competencia)+': arquivos, '+
+        'empenhos, servidoras com maternidade, saldos, números de OP e o que já foi transcrito. '+
+        'Use quando um arquivo entrar errado — reenviar por cima deixaria os dois envios misturados.</p>'+
+        '<label class="fe-check"><input type="checkbox" id="fe-limpar-cadastros"> '+
+        'limpar também os cadastros reaproveitados entre meses: fichas e fontes por lotação, '+
+        'beneficiários das pensões, ordem dos grupos e modelos de histórico</label>'+
+        '<button class="btn btn-sec" type="button" id="fe-limpar">Apagar os dados de '+esc(competencia)+'</button>'+
+        '<span id="fe-limpar-nota" class="fe-muted"></span>'+
+      '</details>'+
+      '<details class="fe-outros"><summary>Outros formatos de arquivo</summary>'+
+      '<label class="fe-file" style="border-color:#3d89bd;background:#eff8ff"><strong>Resumo de Verbas consolidado · todos os tipos</strong><small>Um único PDF com folha principal, extra, 13º e rescisões. Separa pelo tipo do cabeçalho e pela lotação completa.</small><input data-importar="automatico" type="file" accept=".pdf"><span id="fe-nome-automatico" class="fe-muted">Não enviado</span></label>'+
+      '<label class="fe-file"><strong>Resumo de Verbas · Folha extra do dia 10</strong><small>Incentivo da enfermagem e eventuais diferenças salariais. Informe se o incentivo já compõe o bruto do RH.</small><input data-bruto="extra" type="file" accept=".pdf"><span id="fe-nome-extra" class="fe-muted">Não enviado</span></label>'+
+      '</details>'+
+    '</section>'+
     '</div></details><div id="fe-avisos"></div></section>'+
     '<section class="fe-card"><div class="fe-actions"><h2>2 · Servidoras com salário-maternidade</h2><button id="fe-nova-servidora" type="button" class="btn btn-sec">+ Adicionar registro</button></div>'+
       '<p class="fe-muted">O INSS individual confirmado é retirado do desconto do empenho principal e transferido para a retenção da OP extraorçamentária. A rubrica 229 (prorrogação) não é convertida automaticamente. Se o layout nominal não for reconhecido, preencha manualmente com base no contracheque.</p>'+
@@ -104,28 +154,67 @@ export function telaFolhaEmpenhos(el){
       '<div class="fe-actions"><button class="btn btn-sec" type="button" id="fe-buscar-minutas">Consultar minutas</button>'+
       '<label><input type="checkbox" id="fe-confirmar-bancos"> Conferi também a distribuição dos descontos por empenho</label></div><div id="fe-bancos"></div></section>'+
     '<section class="fe-card"><div class="fe-actions"><h2>5 · Empenhos gerados automaticamente</h2>'+ 
-      '<label class="campo"><span>Visualização</span><select id="fe-visao"><option value="resumo">Empenhos: ficha, fonte, bruto e líquido</option><option value="composicao">Composição dos descontos</option></select></label>'+
+      '<label class="campo"><span>Visualização</span><select id="fe-visao">'+
+      '<option value="transcrever">Transcrever: um empenho por vez, na ordem do sistema</option>'+
+      '<option value="planilha">Planilha de empenhos (igual à sua)</option>'+
+      '<option value="resumo">Detalhada: natureza, lotação e pendências</option>'+
+      '<option value="composicao">Composição dos descontos</option></select></label>'+
       '<button class="btn btn-sec" type="button" id="fe-rascunho">Baixar rascunho XLSX</button>'+
       '<button class="btn" type="button" id="fe-final" disabled>Baixar planilha conferida XLSX</button></div>'+
       '<div id="fe-kpis" class="fe-kpis"></div><div id="fe-pendencias"></div>'+ 
       '<p class="fe-muted">Uma linha por empenho. A composição mostra Caixa, Sicoob, Bradesco, pensões, INSS, IRRF e demais descontos, com rubricas originais e conferência da soma.</p>'+ 
-      '<div class="fe-scroll" id="fe-tabela"></div><div id="fe-extras"></div>'+
+      '<div id="fe-repasses"></div><div id="fe-saldos"></div><div class="fe-scroll" id="fe-tabela"></div><div id="fe-extras"></div><div id="fe-pensoes"></div>'+
       '<p class="fe-muted">Dados armazenados no navegador, separados pela conta. A planilha contém fórmulas de líquido para a Contabilidade conferir e preencher a liquidação no sistema oficial.</p>'+
     '</section></div>';
   const status=t=>{$('#fe-status').textContent=t;};
   /* O resumo da folha mensal já contém o 13º e a rescisão; os relatórios
      próprios desses tipos são o detalhamento. Descontar antes de empenhar
      evita contar o mesmo dinheiro duas vezes. */
-  const arquivosLista=()=>descontarFolhasProprias(Object.values(arquivos)).arquivos;
+  /* A numeração segue a ordem de digitação, então a ordem dos registros decide
+     o número de cada empenho. Dentro do grupo ela se deriva do vínculo; entre
+     os grupos é a sequência que a Contabilidade fixou, guardada por grupo e
+     reaproveitada nos meses seguintes. */
+  const arquivosLista=()=>descontarFolhasProprias(Object.values(arquivos)).arquivos
+    .map(a=>({...a,registros:ordenarEmpenhos(a.registros,ordemGrupos.length?ordemGrupos:ORDEM_GRUPOS_2026)}));
   const montar=()=>{
     if(!Object.values(arquivos).some(x=>x?.registros?.length))return null;
     const maternidade=consolidarMaternidade(pessoas,[arquivos.principal].filter(Boolean));
     // Completa a ação/unidade para fichas previamente salvas, sem remover edições manuais.
-    const mapaConsulta=Object.fromEntries(Object.entries(mapa).map(([chave,m])=>{
-      const ref=localizarFicha(m.ficha);
-      return [chave,{...m,secretaria:m.secretaria||ref?.unidade||'',lotacaoOrcamentaria:m.lotacaoOrcamentaria||ref?.acao||''}];
+    /* Sugere ficha, fonte e desdobramento a partir da lotação, para a
+       Contabilidade conferir e trocar conforme o saldo. O que já foi informado
+       à mão nunca é sobrescrito: a sugestão só preenche o que está em branco. */
+    const sugestoes={};
+    for(const a of arquivosLista())for(const r of (a.registros||[])){
+      const chave=a.tipo+'|'+r.lotacao;
+      if(mapa[chave]?.ficha)continue;
+      const s=sugerirFichaDaLotacao(r);
+      if(s.ficha||s.motivo)sugestoes[chave]=s;
+    }
+    const mapaConsulta=Object.fromEntries([...new Set([...Object.keys(mapa),...Object.keys(sugestoes)])].map(chave=>{
+      const m=mapa[chave]||{},sug=sugestoes[chave];
+      const ficha=m.ficha||sug?.ficha||'';
+      const ref=localizarFicha(ficha);
+      /* Herdada só conta onde havia escolha: ficha que admite mais de uma
+         fonte, ou fonte de exercício anterior (grupo 2) — essas são decisão do
+         mês. Ficha de fonte única na própria fonte não é escolha, e marcá-la
+         todo mês seria ruído. */
+      const refFonte=localizarFicha(m.ficha);
+      const escolheu=(refFonte?.fontes?.length||0)>1||String(m.fonte||'').trim().startsWith('2');
+      const fonteHerdada=!!m.fonte&&!!m.fonteDe&&m.fonteDe!==competencia&&escolheu;
+      return [chave,{...m,ficha,fonteHerdada,
+        fonte:m.fonte||sug?.fonte||'',
+        desdobramento:m.desdobramento||sug?.desdobramento||'',
+        sugerida:!m.ficha&&!!sug?.ficha,confiancaFicha:m.ficha?'':(sug?.confianca||''),
+        motivoFicha:m.ficha?'':(sug?.motivo||''),
+        secretaria:m.secretaria||ref?.unidade||'',lotacaoOrcamentaria:m.lotacaoOrcamentaria||ref?.acao||''}];
     }));
     const previsao=prepararEmpenhos(arquivosLista(),primeiro,mapaConsulta,maternidade.ajustes);
+    /* A educação toda vai no FUNDEB; o que não couber no saldo informado passa
+       para a ficha espelho em recurso próprio. O que a Contabilidade escolheu à
+       mão não é mexido: só entra no rateio a ficha que o sistema sugeriu. */
+    const rateio=ratearPorSaldo(previsao.empenhos,saldos);
+    previsao.empenhos=rateio.empenhos;
+    previsao.rateio=rateio;
     for(const emp of previsao.empenhos){
       const ref=localizarFicha(emp.ficha);
       const tipo=classificacaoPessoal(ref?.naturezas||[]);
@@ -137,23 +226,28 @@ export function telaFolhaEmpenhos(el){
   function persistir(){
     if(!uid||!ativa||carregando)return Promise.resolve();
     const compAtual=competencia;
-    const mensal=structuredClone({primeiro,arquivos,pessoas,aprovouMapa,aprovouConsignados,origemIndividual,nomeConsolidado});
+    const mensal=structuredClone({primeiro,arquivos,pessoas,servidores,saldos,numerosOP,dataLiquidacao,transcritos,processado,aprovouMapa,aprovouConsignados,origemIndividual,nomeConsolidado});
     const mapaAtual=structuredClone(mapa);
+    const cadastroPensaoAtual=structuredClone(cadastroPensao);
     filaDeSalvamento=filaDeSalvamento.catch(()=>{}).then(async()=>{
       await salvarRegistroFolha(uid,compAtual,mensal);
       await salvarRegistroFolha(uid,'mapa-lotacoes',mapaAtual);
+      await salvarRegistroFolha(uid,'pensoes-beneficiarios',cadastroPensaoAtual);
+      await salvarRegistroFolha(uid,'transcricao',{escolhasHistorico,textosHistorico,fichasOP,ordemGrupos});
     }).catch(e=>{status('Erro ao salvar localmente: '+(e.message||e));});
     return filaDeSalvamento;
   }
   async function carregar(){
     const alvo=competencia;carregando=true;status('Carregando dados de '+alvo+'…');
     try{
-      const [mensal,reusavel]=await Promise.all([carregarRegistroFolha(uid,alvo),carregarRegistroFolha(uid,'mapa-lotacoes')]);
+      const [mensal,reusavel,benef,transc]=await Promise.all([carregarRegistroFolha(uid,alvo),carregarRegistroFolha(uid,'mapa-lotacoes'),carregarRegistroFolha(uid,'pensoes-beneficiarios'),carregarRegistroFolha(uid,'transcricao')]);
       if(!ativa||alvo!==competencia)return;
-      primeiro=mensal?.primeiro||5000;arquivos=mensal?.arquivos||{};pessoas=mensal?.pessoas||[];
+      primeiro=mensal?.primeiro||5000;arquivos=mensal?.arquivos||{};pessoas=mensal?.pessoas||[];servidores=mensal?.servidores||[];saldos=mensal?.saldos||{};numerosOP=mensal?.numerosOP||{};dataLiquidacao=mensal?.dataLiquidacao||'';transcritos=mensal?.transcritos||[];processado=!!mensal?.processado;brutos={};
+    escolhasHistorico=transc?.escolhasHistorico||{};textosHistorico=transc?.textosHistorico||{};
+    fichasOP=transc?.fichasOP||{};ordemGrupos=transc?.ordemGrupos||[];atual=0;
       aprovouMapa=!!mensal?.aprovouMapa;aprovouConsignados=!!mensal?.aprovouConsignados;origemIndividual=mensal?.origemIndividual||'';nomeConsolidado=mensal?.nomeConsolidado||'';
-      mapa=reusavel||{};
-      $('#fe-inicio').value=primeiro;$('#fe-confirmar-mapa').checked=aprovouMapa;$('#fe-confirmar-bancos').checked=aprovouConsignados;
+      mapa=reusavel||{};cadastroPensao=benef||{};
+      $('#fe-confirmar-mapa').checked=aprovouMapa;$('#fe-confirmar-bancos').checked=aprovouConsignados;
       minutas=[];status('Dados deste mês carregados. Consulte as minutas para verificar os descontos.');
     }catch(e){status('Histórico local indisponível: '+(e.message||e));}
     finally{carregando=false;render();}
@@ -203,18 +297,24 @@ export function telaFolhaEmpenhos(el){
   }
   function render(){
     if(!ativa)return;
-    $('#fe-nome-consolidado').textContent=nomeConsolidado||'Não enviado';
-    for(const tipo of Object.keys(tipos)){
-      $('#fe-nome-'+tipo).textContent=arquivos[tipo]?arquivos[tipo].arquivo+' ('+arquivos[tipo].registros.length+' lotações)':'Não enviado';
-    }
-    $('#fe-nome-nominal').textContent=origemIndividual||'Não enviado';
+    /* Depois de processar, cada caixa mostra o que entrou nela. Antes disso
+       quem escreve ali é o envio, com o nome do arquivo guardado. */
+    const nomear=(id,txt)=>{const n=$('#fe-nome-'+id);if(n&&txt)n.textContent=txt;};
+    nomear('automatico',nomeConsolidado);
+    for(const tipo of Object.keys(tipos))
+      if(arquivos[tipo])nomear(tipo,arquivos[tipo].arquivo+' ('+arquivos[tipo].registros.length+' lotações)');
+    nomear('folha',origemIndividual);
     $('#fe-avisos').innerHTML=alertas.map(x=>'<p class="fe-alert">'+esc(x)+'</p>').join('');
     renderPessoas();
     const pacote=montar();
     if(!pacote){
       $('#fe-kpis').innerHTML='';$('#fe-pendencias').innerHTML='<p class="fe-alert">Envie o PDF único do Resumo de Verbas no campo destacado acima. A planilha será gerada automaticamente.</p>';
       $('#fe-bancos').innerHTML='<p class="fe-muted">Aguardando dados da folha.</p>';
-      $('#fe-tabela').innerHTML='';$('#fe-extras').innerHTML='';$('#fe-final').disabled=true;return;
+      $('#fe-tabela').innerHTML='';$('#fe-extras').innerHTML='';
+      if($('#fe-pensoes'))$('#fe-pensoes').innerHTML='';
+      if($('#fe-saldos'))$('#fe-saldos').innerHTML='';
+      if($('#fe-repasses'))$('#fe-repasses').innerHTML='';
+      $('#fe-final').disabled=true;return;
     }
     const p=pacote.previsao,possivel=finalPossivel(pacote);
     const campos=[['Empenhos previstos',String(p.empenhos.length)],['Bruto orçamentário',dinheiroFolha(p.totalBruto)],
@@ -240,8 +340,206 @@ export function telaFolhaEmpenhos(el){
       (!minutas.length?'<p class="fe-alert">Sem minutas carregadas. Consulte a competência correspondente.</p>':'')+
       '<p class="fe-muted">A igualdade do total por banco não prova que cada guia está vinculada à lotação correta.</p>';
     const registros=p.empenhos.filter(e=>filtro==='todos'||filtro==='pendentes'&&e.problemas.length||e.tipo===filtro);
-    if(visao==='resumo'){
-    $('#fe-tabela').innerHTML='<table><thead><tr><th>Empenho</th><th>Grupo</th><th>Secretaria/unidade</th><th>Vínculo</th><th>Lotação RH</th><th>Lotação orçamentária (ação)</th><th>Ficha</th><th>Natureza da despesa</th><th>Fonte</th><th>Conta</th><th class="fe-money">Bruto</th><th class="fe-money">Desconto RH</th><th class="fe-money">INSS extra</th><th class="fe-money">Líquido</th><th>Pendências</th></tr></thead><tbody>'+
+    if(visao==='transcrever'){
+    /* Um empenho por vez, na ordem em que os campos são digitados no sistema
+       da Memory. Conferir num quadro grande serve para auditar depois; para
+       digitar, o que serve é ter na frente só o campo da vez. */
+    const ops=p.extras.reduce((a,x)=>{(a[x.empenhoReferencia]??=[]).push(x);return a;},{});
+    const feitos=new Set(transcritos);
+    atual=Math.max(0,Math.min(atual,registros.length-1));
+    const r=registros[atual];
+    if(!r){$('#fe-tabela').innerHTML='';return;}
+    const meus=ops[r.empenho]||[];
+    const passos=passosDoEmpenho(r,meus,{dataLiquidacao,competencia,fichasOP,numerosOP,escolhasHistorico,textosHistorico});
+    const conf=conferirEmpenho(r,meus);
+    const pendFichas=fichasOPpendentes(p.extras,fichasOP);
+    let g='';
+    const corpo=passos.map((x,i)=>{
+      const abre=x.grupo!==g;g=x.grupo;
+      const cab=abre?'<tr class="fe-grupo"><td colspan="3">'+esc(x.grupo)+'</td></tr>':'';
+      const valor=x.valor
+        ?'<span class="fe-valor'+(x.destaque?' fe-destaque':'')+'">'+esc(x.valor)+'</span>'
+        :'<em class="fe-muted">a informar</em>';
+      const acao=x.chaveOP!=null
+        ?'<input style="width:72px" data-op="'+esc(x.chaveOP)+'" placeholder="nº" value="'+esc(numerosOP[x.chaveOP]||'')+'">'
+        :x.copiavel?'<button type="button" class="secundario" data-copiar="'+i+'">copiar</button>':'';
+      return cab+'<tr'+(x.faltando||x.informar?' class="fe-pendente"':'')+'>'+
+        '<td>'+esc(x.rotulo)+(x.nota?'<br><small class="fe-muted">'+esc(x.nota)+'</small>':'')+'</td>'+
+        '<td class="fe-money">'+valor+'</td><td>'+acao+'</td></tr>';
+    }).join('');
+    const contas=conf.linhas.map(l=>'<tr'+(l.total?' class="fe-rodape"':'')+'><td>'+esc(l.rotulo)+'</td>'+
+      '<td class="fe-money">'+(l.total?'<strong>':'')+dinheiroFolha(l.valor)+(l.total?'</strong>':'')+'</td><td></td></tr>').join('');
+    const aviso=conf.problemas.map(x=>'<p class="fe-alert">'+esc(x)+'</p>').join('')+
+      conf.pendencias.map(x=>'<p class="fe-muted">Falta preencher: '+esc(x)+'</p>').join('')+
+      (conf.bateu&&!conf.pendencias.length?'<p class="fe-ok">Bateu com a folha.</p>':'');
+    $('#fe-tabela').innerHTML=
+      '<section class="fe-card fe-transcrever">'+
+      '<div class="fe-navegar">'+
+        '<button type="button" class="secundario" data-passo="-1"'+(atual?'':' disabled')+'>&larr; anterior</button>'+
+        '<strong>'+(atual+1)+' de '+registros.length+'</strong>'+
+        '<span class="fe-muted">'+feitos.size+' já transcrito'+(feitos.size===1?'':'s')+'</span>'+
+        '<button type="button" class="secundario" data-passo="1"'+(atual<registros.length-1?'':' disabled')+'>próximo &rarr;</button>'+
+        '<label class="fe-feito"><input type="checkbox" data-feito'+(feitos.has(r.id)?' checked':'')+'> transcrito</label>'+
+      '</div>'+
+      '<h2>Empenho '+r.empenho+' · '+esc(r.secretaria||'')+' · '+esc(r.vinculo||'')+'</h2>'+
+      '<p class="fe-muted">Lotação '+esc(r.lotacao)+' · '+esc(tipos[r.tipo]||r.tipo)+'</p>'+
+      '<div class="fe-scroll"><table class="fe-passos"><tbody>'+corpo+
+        '<tr class="fe-grupo"><td colspan="3">Conferência</td></tr>'+contas+'</tbody></table></div>'+
+      aviso+'</section>'+
+      '<section class="fe-card"><h2>Vale para todos os empenhos</h2>'+
+      '<label class="campo"><span>Data da liquidação</span>'+
+        '<input id="fe-data-liq" placeholder="dd/mm/aaaa" value="'+esc(dataLiquidacao)+'"></label>'+
+      (()=>{
+        /* O modelo do histórico sai do vínculo do empenho. Quando o texto da
+           lotação não revela o vínculo — é o caso do Prefeito, cuja lotação tem
+           três níveis e o último é a ação — a Contabilidade escolhe uma vez e a
+           escolha fica guardada por lotação. */
+        const chave=modeloDoEmpenho(r,escolhasHistorico);
+        const proprio='proprio:'+r.lotacao;
+        const opcoes=MODELOS_HISTORICO.map(m=>'<option value="'+m.chave+'"'+
+            (m.chave===chave?' selected':'')+'>'+esc(m.rotulo)+'</option>').join('')+
+          '<option value="'+proprio+'"'+(chave===proprio?' selected':'')+'>Texto próprio desta lotação</option>';
+        const texto=chave?(textosHistorico[chave]||textoDoModelo(chave)):'';
+        return '<label class="campo"><span>Modelo do histórico deste empenho</span>'+
+          '<select id="fe-modelo-sel">'+(chave?'':'<option value="" selected>— escolher —</option>')+opcoes+'</select></label>'+
+          (chave?'<label class="campo"><span>Texto do modelo</span>'+
+            '<input id="fe-modelo-txt" style="width:100%" value="'+esc(texto)+'"></label>'+
+            '<p class="fe-muted">Marcas: {mes} {mes_numero} {ano} {vinculo} {secretaria} {lotacao}. '+
+            'Editar aqui vale para todos os empenhos deste vínculo.</p>':
+            '<p class="fe-alert">Este empenho está sem modelo de histórico: escolha acima.</p>');
+      })()+
+      (pendFichas.length?'<p class="fe-alert">Informe a ficha extra-orçamentária de: '+
+        pendFichas.map(esc).join(', ')+'. O sistema vinha repetindo a ficha orçamentária do empenho, que não serve para OP.</p>':'')+
+      pendFichas.map(t2=>'<label class="campo"><span>Ficha extra · '+esc(t2)+'</span>'+
+        '<input data-ficha-op="'+esc(t2)+'" placeholder="nº da ficha"></label>').join('')+
+      Object.entries(fichasOP).map(([t2,f])=>'<label class="campo"><span>Ficha extra · '+esc(t2)+'</span>'+
+        '<input data-ficha-op="'+esc(t2)+'" value="'+esc(f)+'"></label>').join('')+
+      '</section>'+listas();
+    const tabela=$('#fe-tabela');
+    tabela.querySelectorAll('[data-copiar]').forEach(b=>b.onclick=async()=>{
+      const x=passos[Number(b.dataset.copiar)];
+      try{ await navigator.clipboard.writeText(x.valor); b.textContent='copiado'; }
+      catch{ status('Não foi possível copiar: selecione o valor à mão.'); }
+    });
+    tabela.querySelectorAll('[data-passo]').forEach(b=>b.onclick=()=>{
+      atual+=Number(b.dataset.passo);render();
+    });
+    tabela.querySelector('[data-feito]').onchange=ev=>{
+      const s2=new Set(transcritos);
+      if(ev.target.checked){s2.add(r.id); if(atual<registros.length-1)atual++;}
+      else s2.delete(r.id);
+      transcritos=[...s2];persistir();render();
+    };
+    tabela.querySelectorAll('[data-op]').forEach(i=>i.onchange=()=>{
+      const v=i.value.trim();
+      if(v)numerosOP[i.dataset.op]=v; else delete numerosOP[i.dataset.op];
+      persistir();render();
+    });
+    tabela.querySelectorAll('[data-ficha-op]').forEach(i=>i.onchange=()=>{
+      const v=i.value.trim();
+      if(v)fichasOP[i.dataset.fichaOp]=v; else delete fichasOP[i.dataset.fichaOp];
+      persistir();render();
+    });
+    $('#fe-data-liq').onchange=ev=>{dataLiquidacao=ev.target.value.trim();persistir();render();};
+    $('#fe-modelo-sel').onchange=ev=>{
+      const v=ev.target.value;
+      if(v)escolhasHistorico[r.lotacao]=v; else delete escolhasHistorico[r.lotacao];
+      persistir();render();
+    };
+    const campoTexto=$('#fe-modelo-txt');
+    if(campoTexto)campoTexto.onchange=ev=>{
+      const chave=modeloDoEmpenho(r,escolhasHistorico);
+      const v=ev.target.value.trim();
+      if(!chave)return;
+      if(v&&v!==textoDoModelo(chave))textosHistorico[chave]=v; else delete textosHistorico[chave];
+      persistir();render();
+    };
+    }else if(visao==='planilha'){
+    /* Mesmo desenho da planilha da Contabilidade: os três blocos na primeira
+       coluna, o empenho orçamentário, as duas vagas de OP e o líquido no fim.
+       A coluna do desdobramento é a única que a planilha não tem — ela vai
+       no empenho e não havia onde anotar. */
+    const ops=p.extras.reduce((a,x)=>{(a[x.empenhoReferencia]??=[]).push(x);return a;},{});
+    /* Na planilha da Contabilidade o líquido da linha é o do empenho MAIS o das
+       OPs daquela linha: é o total que sai por aquele empenho. Em outubro isso
+       aparece em 24 das 113 linhas, e é o que faz a coluna somar o mesmo
+       1.708.128,24 que o arquivo do RH. */
+    const liquidoDaLinha=(r,meus)=>(r.liquido||0)+(meus||[]).reduce((n,x)=>n+(x.liquido||0),0);
+    const vaga=(lista,i)=>{
+      if(!lista||!lista.length)return ['',''];
+      // Mais de duas OPs: as excedentes somam na segunda vaga, como na planilha.
+      const q=i===0?lista.slice(0,1):lista.slice(1);
+      if(!q.length)return ['',''];
+      return [dinheiroFolha(q.reduce((n,x)=>n+(x.bruto||0),0)),
+        q.some(x=>x.inss)?dinheiroFolha(q.reduce((n,x)=>n+(x.inss||0),0)):''];
+    };
+    let blocoAtual='',grupoAtual='';
+    const corpo=registros.map(r=>{
+      const m=mapa[r.id]||mapa[r.lotacao]||{};
+      const meus=ops[r.empenho]||[];
+      const [b1,d1]=vaga(meus,0),[b2,d2]=vaga(meus,1);
+      const rotulo=blocos[r.tipo]||tipos[r.tipo]||'';
+      const primeira=rotulo!==blocoAtual;
+      blocoAtual=rotulo;
+      const grupo=grupoDaLotacao(r);
+      const grupoNovo=grupo!==grupoAtual;
+      grupoAtual=grupo;
+      const pend=r.problemas.length?' fe-pendente':'';
+      return '<tr class="fe-linha'+pend+'">'+
+        '<td class="fe-bloco">'+(primeira?'<strong>'+esc(rotulo)+'</strong>':'')+
+          (grupoNovo?'<div class="fe-ordem"><button type="button" class="secundario" data-mover="'+esc(grupo)+
+            '" data-passo="-1" title="subir este grupo">&uarr;</button>'+
+            '<button type="button" class="secundario" data-mover="'+esc(grupo)+
+            '" data-passo="1" title="descer este grupo">&darr;</button></div>':'')+'</td>'+
+        '<td><strong>'+r.empenho+'</strong></td>'+
+        '<td><input style="width:168px" data-ref="'+esc(r.id)+'" data-campo="secretaria" value="'+esc(m.secretaria||r.secretaria||'')+'"></td>'+
+        '<td><input style="width:68px" list="fe-fichas-2026" data-ref="'+esc(r.id)+'" data-campo="ficha" value="'+esc(m.ficha||'')+'"></td>'+
+        '<td><input style="width:76px" list="fe-fontes" data-ref="'+esc(r.id)+'" data-campo="fonte"'+
+          (m.fonteHerdada?' class="fe-herdada" title="fonte escolhida em '+esc(m.fonteDe||'')+': confirmar neste mês"':'')+
+          ' value="'+esc(m.fonte||'')+'"></td>'+
+        '<td><input style="width:62px" list="fe-desdobramentos" data-ref="'+esc(r.id)+'" data-campo="desdobramento" value="'+esc(m.desdobramento||r.desdobramento||'')+'"></td>'+
+        '<td><input style="width:96px" data-ref="'+esc(r.id)+'" data-campo="conta" value="'+esc(m.conta||'')+'"></td>'+
+        '<td class="fe-money">'+dinheiroFolha(r.bruto||0)+'</td>'+
+        '<td class="fe-money">'+dinheiroFolha(r.descontoAjustado??r.descontoRH??0)+'</td>'+
+        '<td class="fe-op">'+(meus.length?meus.map(x=>'<input style="width:54px" data-op="'+esc(x.id)+
+          '" title="'+esc(x.tipo)+'" placeholder="nº" value="'+esc(numerosOP[x.id]||'')+'">').join(' '):'')+'</td>'+
+        '<td class="fe-money fe-op">'+b1+'</td><td class="fe-money fe-op">'+d1+'</td>'+
+        '<td class="fe-money fe-op">'+b2+'</td><td class="fe-money fe-op">'+d2+'</td>'+
+        '<td class="fe-money"><strong>'+dinheiroFolha(liquidoDaLinha(r,meus))+'</strong></td></tr>';
+    }).join('');
+    const brutoTotal=p.empenhos.reduce((n,x)=>n+(x.bruto||0),0)+p.extras.reduce((n,x)=>n+(x.bruto||0),0);
+    const liquidoTotal=p.empenhos.reduce((n,x)=>n+(x.liquido||0),0)+p.extras.reduce((n,x)=>n+(x.liquido||0),0);
+    const doRH=p.totalLiquidoResumo??p.totalLiquidoRH??null;
+    const diferenca=doRH==null?null:liquidoTotal-doRH;
+    const rodape=[['Valor total Bruto',dinheiroFolha(brutoTotal)],
+      ['Valor Líquido',dinheiroFolha(liquidoTotal)],
+      ['Valor do arquivo do RH',doRH==null?'—':dinheiroFolha(doRH)],
+      ['Diferença?',diferenca==null?'—':dinheiroFolha(diferenca)]]
+      .map(([t,v],i)=>'<tr class="fe-rodape'+(i===3&&diferenca?' fe-pendente':'')+'">'+
+        '<td colspan="9"></td><td colspan="5">'+esc(t)+'</td><td class="fe-money"><strong>'+v+'</strong></td></tr>').join('');
+    $('#fe-tabela').innerHTML='<table class="fe-planilha"><thead>'+
+      '<tr><th colspan="3"></th><th colspan="6">Empenho orçamentário</th>'+
+      '<th colspan="5" class="fe-op">Extra-orçamentária</th><th></th></tr>'+
+      '<tr><th></th><th>Empenho</th><th>Secretaria</th><th>Ficha</th><th>Fonte de Recursos</th>'+
+      '<th>Desdobr.</th><th>Conta Bancária</th><th class="fe-money">Valor Bruto</th>'+
+      '<th class="fe-money">Desconto Liquidação</th><th class="fe-op">Nº OP</th>'+
+      '<th class="fe-money fe-op">Valor Bruto</th><th class="fe-money fe-op">Desconto Liquidação</th>'+
+      '<th class="fe-money fe-op">Valor Bruto</th><th class="fe-money fe-op">Desconto Liquidação</th>'+
+      '<th class="fe-money">Valor Líquido</th></tr></thead><tbody>'+corpo+rodape+'</tbody></table>'+listas();
+      $('#fe-tabela').querySelectorAll('[data-op]').forEach(i=>i.onchange=()=>{
+        const v=i.value.trim();
+        if(v)numerosOP[i.dataset.op]=v; else delete numerosOP[i.dataset.op];
+        persistir();
+      });
+      $('#fe-tabela').querySelectorAll('[data-mover]').forEach(b=>b.onclick=()=>{
+        /* A ordem guardada precisa conter todos os grupos antes de mexer, senão
+           mover um grupo que não está nela não faria nada. */
+        if(!ordemGrupos.length)ordemGrupos=gruposEmOrdem(registros);
+        ordemGrupos=moverGrupo(ordemGrupos,b.dataset.mover,Number(b.dataset.passo));
+        aprovouMapa=false;$('#fe-confirmar-mapa').checked=false;persistir();render();
+      });
+    }else if(visao==='resumo'){
+    $('#fe-tabela').innerHTML='<table><thead><tr><th>Empenho</th><th>Grupo</th><th>Secretaria/unidade</th><th>Vínculo</th><th>Lotação RH</th><th>Lotação orçamentária (ação)</th><th>Ficha</th><th>Natureza da despesa</th><th>Fonte</th><th>Desdobr.</th><th>Conta</th><th class="fe-money">Bruto</th><th class="fe-money">Desconto RH</th><th class="fe-money">INSS extra</th><th class="fe-money">Líquido</th><th>Pendências</th></tr></thead><tbody>'+
       registros.map(r=>{
         const m=mapa[r.id]||mapa[r.lotacao]||{};
         const ref=localizarFicha(m.ficha||r.ficha);
@@ -257,13 +555,16 @@ export function telaFolhaEmpenhos(el){
         '<td><input style="width:225px" data-ref="'+esc(r.id)+'" data-campo="lotacaoOrcamentaria" value="'+esc(m.lotacaoOrcamentaria||ref?.acao||'')+'"><small style="display:block;color:#526b80">'+esc(ref?.origem||'Edição manual')+'</small></td>'+
         '<td><input style="width:88px" list="fe-fichas-2026" data-ref="'+esc(r.id)+'" data-campo="ficha" value="'+esc(m.ficha||'')+'"></td>'+
         '<td style="min-width:225px"><strong>'+esc(classe.titulo)+'</strong>'+(classe.codigo?'<small style="display:block;color:#526b80">'+esc(classe.codigo)+'</small>':'')+'</td>'+
-        '<td><input style="width:132px" data-ref="'+esc(r.id)+'" data-campo="fonte" value="'+esc(m.fonte||'')+'"></td>'+
+        '<td><input style="width:132px" list="fe-fontes" data-ref="'+esc(r.id)+'" data-campo="fonte"'+
+          (m.fonteHerdada?' class="fe-herdada" title="fonte escolhida em '+esc(m.fonteDe||'')+': confirmar neste mês"':'')+
+          ' value="'+esc(m.fonte||'')+'"></td>'+
+        '<td><input style="width:72px" list="fe-desdobramentos" data-ref="'+esc(r.id)+'" data-campo="desdobramento" value="'+esc(m.desdobramento||r.desdobramento||'')+'"></td>'+
         '<td><input data-ref="'+esc(r.id)+'" data-campo="conta" value="'+esc(m.conta||'')+'"></td>'+
         '<td class="fe-money">'+dinheiroFolha(r.bruto||0)+(r.tipo==='extra'&&r.incentivo?'<small style="display:block;color:#506d82">Incentivo: '+dinheiroFolha(r.incentivo)+'</small>':'')+'</td><td class="fe-money">'+dinheiroFolha(r.descontoRH||0)+'</td>'+
         '<td class="fe-money">'+dinheiroFolha(r.maisInssExtra)+'</td><td class="fe-money"><strong>'+dinheiroFolha(r.liquido||0)+'</strong></td>'+
         '<td class="fe-status">'+esc([...r.problemas,avisoFicha,avisoFonte,avisoNatureza].filter(Boolean).join('; ')||'Pronto para conferir')+'</td></tr>';
       }).join('')+'</tbody></table>'+
-      (Number(competencia.slice(0,4))===2026?'<datalist id="fe-fichas-2026">'+FICHAS_PESSOAL_2026.map(f=>'<option value="'+esc(f.ficha)+'" label="'+esc(f.acao)+'"></option>').join('')+'</datalist>':'');
+      listas();
     }else{
       const cabecalhos=['Empenho','Secretaria / vínculo','Lotação','Bruto','Caixa','Sicoob','Bradesco','Pensão',
         'INSS original','Imposto de Renda','Outros','Soma das rubricas','Desconto do RH','Diferença',
@@ -294,7 +595,13 @@ export function telaFolhaEmpenhos(el){
     $('#fe-tabela').querySelectorAll('[data-ref]').forEach(input=>input.onchange=()=>{
       const k=input.dataset.ref,campo=input.dataset.campo;
       if(campo==='ficha')preencherPelaFicha(k,input.value);
-      else mapa[k]={...(mapa[k]||{}),[campo]:input.value.trim()};
+      else mapa[k]={...(mapa[k]||{}),[campo]:input.value.trim(),
+        /* A fonte é decisão do MÊS: depende de onde o dinheiro entrou, e um mês
+           pode sair por recurso de exercício anterior sem o seguinte sair. A
+           ficha é estável e se reaproveita; a fonte fica estampada com a
+           competência em que foi escolhida, para o mês seguinte não herdá-la
+           calada. */
+        ...(campo==='fonte'?{fonteDe:competencia}:{})};
       aprovouMapa=false;$('#fe-confirmar-mapa').checked=false;persistir();render();
     });
     const situacoes=p.previsao?.empenhos||p.empenhos;
@@ -314,20 +621,231 @@ export function telaFolhaEmpenhos(el){
       p.extras.map(x=>'<tr><td>'+esc(x.tipo)+'</td><td>'+x.empenhoReferencia+'</td><td>'+esc(x.lotacao)+'</td>'+
         '<td>'+dinheiroFolha(x.bruto)+'</td><td>'+dinheiroFolha(x.inss)+'</td><td>'+dinheiroFolha(x.liquido)+'</td>'+
         '<td>'+esc(x.problemas.join('; ')||'A conferir')+'</td></tr>').join('')+'</tbody></table></div></details>';
+    renderRepasses(p);
+    renderSaldos(p);
+    renderPensoes(p);
     $('#fe-extras').querySelectorAll('[data-extra-bruto]').forEach(c=>c.onchange=()=>{
       const id=c.dataset.extraBruto;
       mapa[id]={...(mapa[id]||{}),incentivoNoBruto:c.value};
       aprovouMapa=false;$('#fe-confirmar-mapa').checked=false;persistir();render();
     });
   }
-  el.querySelectorAll('[data-importar]').forEach(input=>input.onchange=async()=>{
-    const f=input.files?.[0],tipo=input.dataset.importar;
+  /* Saldo por fonte. A educação toda vai no FUNDEB; informado o saldo, o
+     sistema move para a ficha espelho em recurso próprio o que não couber.
+     Sem saldo informado nada é movido: faltar informação não é o mesmo que
+     faltar dinheiro. O saldo é comparado com o bruto do empenho, porque o
+     líquido vai para o servidor e as retenções para terceiros, mas tudo sai
+     da mesma conta. */
+  /* Quanto vai para cada destino e por qual ficha extra-orçamentária. As
+     fichas são fixas todo mês; é por elas que a retenção sai do passivo quando
+     o repasse é feito. A pensão sai detalhada porque é uma OP com uma
+     liquidação por beneficiário. */
+  function renderRepasses(p){
+    const alvo=$('#fe-repasses');
+    if(!alvo)return;
+    const r=pagamentosConsignados(p.previsao.empenhos);
+    if(!r.destinos.length){alvo.innerHTML='';return;}
+    /* Uma OP por fonte: a retenção sai da fonte em que a despesa foi
+       empenhada, então o destino aparece aberto por fonte e cada linha dessas é
+       uma ordem de pagamento. A soma do destino é que tem de bater. */
+    const linha=d=>'<tr><td><strong>'+esc(d.fichaExtra||'—')+'</strong></td><td>'+esc(d.nome)+'</td>'+
+      '<td class="fe-money"><strong>'+dinheiroFolha(d.valor)+'</strong></td><td>'+esc(d.forma)+'</td></tr>'+
+      d.porFonte.map(f=>'<tr class="fe-historico'+(f.fonte?'':' fe-pendente')+'"><td></td>'+
+        '<td>fonte '+(f.fonte?esc(f.fonte):'<strong>a informar</strong>')+'</td>'+
+        '<td class="fe-money">'+dinheiroFolha(f.valor)+'</td>'+
+        '<td class="fe-muted">'+f.empenhos.length+' empenho'+(f.empenhos.length===1?'':'s')+'</td></tr>').join('')+
+      (d.detalhar?d.rubricas.map(x=>'<tr class="fe-historico"><td></td><td>'+esc(x.codigo)+' — '+esc(x.descricao)+
+        '</td><td class="fe-money">'+dinheiroFolha(x.valor)+'</td>'+
+        '<td class="fe-muted">'+x.empenhos.length+' empenho'+(x.empenhos.length===1?'':'s')+'</td></tr>').join(''):'');
+    /* A rubrica não conta beneficiários: a mesma rubrica em dois servidores são
+       duas liquidações. Quem sabe disso é o quadro de pensões, que lê a folha
+       nominal — então o número das liquidações sai de lá, não daqui. */
+    const outros=r.outros.length?'<p class="fe-muted">Fora do repasse a terceiro: '+
+      r.outros.map(x=>esc(x.codigo)+' '+esc(x.descricao)+' · '+dinheiroFolha(x.valor)).join('; ')+'.</p>':'';
+    alvo.innerHTML='<section class="fe-card"><h2>Repasses do mês · '+dinheiroFolha(r.total)+
+      ' · '+r.ops+' ordem'+(r.ops===1?'':'ns')+' de pagamento</h2>'+
+      '<p class="fe-muted">Uma OP por fonte de recursos: a retenção sai da fonte em que a despesa foi empenhada.</p>'+
+      (r.semFonte.length?'<p class="fe-alert">'+dinheiroFolha(r.totalSemFonte)+
+        ' em '+r.semFonte.length+' linha'+(r.semFonte.length===1?'':'s')+
+        ' sem fonte informada: sem ela não há como emitir a OP.</p>':'')+
+      '<div class="fe-scroll"><table><thead><tr><th>Ficha extra</th><th>Destino</th>'+
+      '<th class="fe-money">Valor</th><th>Como se paga</th></tr></thead><tbody>'+
+      r.destinos.map(linha).join('')+'</tbody></table></div>'+outros+'</section>';
+  }
+  /* Listas de autocompletar, compartilhadas pelas visões. Os três
+     desdobramentos de pessoal da educação ficam aqui para não digitar errado:
+     1071 é o magistério dos 70%, 1073 o tempo integral e 0000 os 30% e os
+     demais servidores. */
+  function listas(){
+    return '<datalist id="fe-fontes">'+fontesParaEscolher()
+        .map(f=>'<option value="'+esc(f.codigo)+'" label="'+esc(f.rotulo)+'"></option>').join('')+'</datalist>'+
+      '<datalist id="fe-desdobramentos">'+
+      [['1071','Remuneração de profissional da educação — 70%'],
+       ['1073','Educação em tempo integral'],
+       ['0000','Demais servidores e os 30%']]
+        .map(([c,t])=>'<option value="'+c+'" label="'+esc(t)+'"></option>').join('')+'</datalist>'+
+      (Number(competencia.slice(0,4))===2026?'<datalist id="fe-fichas-2026">'+FICHAS_PESSOAL_2026
+        .map(f=>'<option value="'+esc(f.ficha)+'" label="'+esc(f.acao)+'"></option>').join('')+'</datalist>':'');
+  }
+  function renderSaldos(p){
+    const alvo=$('#fe-saldos');
+    if(!alvo)return;
+    const rateio=p.previsao?.rateio;
+    if(!rateio?.consumo?.length){alvo.innerHTML='';return;}
+    const linha=c=>{
+      const marca=ehFundeb(c.fonte)?' <strong>FUNDEB</strong>':
+        mesmaFonte(c.fonte,FONTE_EDUCACAO_PROPRIA)?' <span class="fe-muted">educação, pactuado 25%</span>':
+        mesmaFonte(c.fonte,FONTE_SAUDE_PROPRIA)?' <span class="fe-muted">saúde, pactuado 15%</span>':'';
+      const falta=c.saldo!=null&&c.total>c.saldo?c.total-c.saldo:0;
+      return '<tr><td>'+(esc(c.fonte)||'<span class="fe-muted">a informar</span>')+marca+'</td>'+
+        '<td class="fe-money">'+dinheiroFolha(c.total)+'</td>'+
+        '<td><input style="width:120px" data-saldo="'+esc(c.fonte)+'" placeholder="saldo da conta" '+
+          'value="'+(c.saldo!=null?esc(dinheiroFolha(c.saldo).replace('R$ ','')):'')+'"></td>'+
+        '<td>'+(falta?'<span class="fe-alert">falta '+dinheiroFolha(falta)+'</span>':
+          c.saldo!=null?'<span class="fe-ok">cabe</span>':'<span class="fe-muted">—</span>')+'</td></tr>';
+    };
+    const movidos=rateio.movidos.length?'<details><summary>'+rateio.movidos.length+
+      ' empenho'+(rateio.movidos.length===1?'':'s')+' movid'+(rateio.movidos.length===1?'o':'os')+
+      ' do FUNDEB para recurso próprio ('+dinheiroFolha(rateio.movidos.reduce((n,m)=>n+m.bruto,0))+
+      ')</summary><div class="fe-scroll"><table><thead><tr><th>Empenho</th><th>Lotação</th>'+
+      '<th>Bruto</th><th>Ficha</th><th>Ação</th></tr></thead><tbody>'+
+      rateio.movidos.map(m=>'<tr><td>'+m.empenho+'</td><td>'+esc(m.lotacao)+'</td>'+
+        '<td class="fe-money">'+dinheiroFolha(m.bruto)+'</td>'+
+        '<td>'+esc(m.de.ficha)+' &rarr; <strong>'+esc(m.para.ficha)+'</strong></td>'+
+        '<td>'+esc(m.acao)+'</td></tr>').join('')+'</tbody></table></div></details>':'';
+    alvo.innerHTML='<section class="fe-card"><h2>Saldo das contas por fonte</h2>'+
+      '<p class="fe-muted">Informe o saldo e o sistema confere se a educação cabe no FUNDEB. '+
+      'O que não couber vai para a ficha espelho do Fundo de Educação, em recurso próprio. '+
+      'Enquanto o saldo não for informado, nada é movido.</p>'+
+      '<div class="fe-scroll"><table><thead><tr><th>Fonte</th><th>Empenhado (bruto)</th>'+
+      '<th>Saldo da conta</th><th>Situação</th></tr></thead><tbody>'+
+      rateio.consumo.map(linha).join('')+'</tbody></table></div>'+
+      rateio.avisos.map(a=>'<p class="fe-alert">'+esc(a)+'</p>').join('')+movidos+'</section>';
+    alvo.querySelectorAll('[data-saldo]').forEach(i=>i.onchange=()=>{
+      const fonte=i.dataset.saldo,bruto=i.value.trim();
+      if(!bruto)delete saldos[fonte];
+      else{
+        try{saldos[fonte]=centavosFolha(bruto.includes(',')?bruto:bruto+',00');}
+        catch(err){status('Saldo inválido para a fonte '+fonte+': '+(err.message||err));return;}
+      }
+      aprovouMapa=false;$('#fe-confirmar-mapa').checked=false;persistir();render();
+    });
+  }
+  /* Pensão alimentícia: uma OP só, com uma liquidação por pensão. O histórico
+     de cada liquidação precisa do beneficiário, que não vem na folha nem no
+     resumo — a folha mostra o servidor que sofre o desconto. Então fica em
+     cadastro por matrícula e rubrica, reaproveitado nos meses seguintes. */
+  function renderPensoes(p){
+    const alvo=$('#fe-pensoes');
+    if(!alvo)return;
+    const r=pensoesParaOP(p.empenhos,servidores,cadastroPensao);
+    if(!r.totalEmpenhado&&!r.op.quantidade){alvo.innerHTML='';return;}
+    const linhas=r.op.liquidacoes.map((l,i)=>'<tr><td>'+esc(l.lotacao)+'</td><td>'+(l.empenho??'—')+'</td>'+
+      '<td>'+esc(l.matricula)+'</td><td>'+esc(l.servidor)+'</td><td>'+esc(l.rubrica)+'</td>'+
+      '<td class="num">'+dinheiroFolha(l.valor)+'</td>'+
+      '<td><input style="width:190px" data-pensao="'+i+'" data-campo="beneficiario" '+
+        'placeholder="quem recebe" value="'+esc(l.beneficiario)+'"></td>'+
+      '<td><input style="width:150px" data-pensao="'+i+'" data-campo="processo" '+
+        'placeholder="processo (opcional)" value="'+esc(l.processo)+'"></td></tr>'+
+      '<tr class="fe-historico"><td colspan="8"><span class="fe-muted">Histórico: </span>'+esc(l.historico)+'</td></tr>').join('');
+    alvo.innerHTML='<section class="fe-card"><h2>Pensão alimentícia · 1 OP, '+r.op.quantidade+
+      ' liquidaç'+(r.op.quantidade===1?'ão':'ões')+' · '+dinheiroFolha(r.op.total)+'</h2>'+
+      '<p class="fe-muted">Uma ordem de pagamento extraorçamentária, com uma liquidação por pensão. '+
+      'O beneficiário entra no histórico da liquidação e fica guardado por matrícula e rubrica para os próximos meses.</p>'+
+      (r.pendentes.length?'<p class="fe-alert">'+r.pendentes.length+' liquidaç'+(r.pendentes.length===1?'ão':'ões')+
+        ' sem beneficiário informado.</p>':'')+
+      r.avisos.map(a=>'<p class="fe-alert">'+esc(a)+'</p>').join('')+
+      (r.op.quantidade?'<div class="fe-scroll"><table><thead><tr><th>Lotação</th><th>Empenho</th>'+
+        '<th>Matrícula</th><th>Servidor</th><th>Rubrica</th><th>Valor</th><th>Beneficiário</th><th>Processo</th>'+
+        '</tr></thead><tbody>'+linhas+'</tbody></table></div>':'')+'</section>';
+    alvo.querySelectorAll('[data-pensao]').forEach(i=>i.onchange=()=>{
+      const l=r.op.liquidacoes[Number(i.dataset.pensao)];
+      if(!l)return;
+      const k=chaveCadastro(l.matricula,l.rubrica);
+      cadastroPensao[k]={...(cadastroPensao[k]||{}),[i.dataset.campo]:i.value.trim()};
+      persistir();render();
+    });
+  }
+  /* Enviar só guarda. Quem lê é o botão Processar dados. */
+  el.querySelectorAll('[data-bruto]').forEach(input=>input.onchange=async()=>{
+    const f=input.files?.[0],tipo=input.dataset.bruto;
     if(!f)return;
     if(!/\.pdf$/i.test(f.name)||f.size>90*1024*1024){toast('Informe PDF de até 90 MB.','erro');return;}
     status('Lendo '+f.name+'…');input.disabled=true;
     try{
       const linhas=await extrairLinhasDaFolha(await f.arrayBuffer());
-      if(tipo==='automatico'||tipo==='consolidado'){
+      if(!linhas.length)throw Error('Nenhum texto reconhecido no PDF.');
+      brutos[tipo]={nome:f.name,linhas};
+      const alvo=$('#fe-nome-'+tipo);
+      if(alvo)alvo.textContent=f.name+' · '+linhas.length+' linhas';
+      status('Guardado '+f.name+'. Envie os demais e clique em Processar dados.');
+      atualizarProcessar();
+  $('#fe-limpar').onclick=async()=>{
+    const tambem=$('#fe-limpar-cadastros').checked;
+    const nota=$('#fe-limpar-nota');
+    const b=$('#fe-limpar');
+    /* Duas etapas em vez de um aviso do navegador: o segundo clique é a
+       confirmação, e some sozinho se a pessoa desistir. */
+    if(b.dataset.confirmar!=='sim'){
+      b.dataset.confirmar='sim';
+      b.textContent='Confirmar: apagar '+competencia+(tambem?' e os cadastros':'');
+      nota.textContent='clique de novo para apagar, ou saia desta caixa para desistir';
+      setTimeout(()=>{ if(b.dataset.confirmar==='sim'){
+        delete b.dataset.confirmar;
+        b.textContent='Apagar os dados de '+competencia;
+        nota.textContent='';
+      }},8000);
+      return;
+    }
+    delete b.dataset.confirmar;
+    b.disabled=true;nota.textContent='apagando…';
+    try{
+      const uid=estado.usuario?.uid;
+      if(!uid)throw Error('Sessão sem conta identificada.');
+      await apagarRegistroFolha(uid,competencia);
+      if(tambem)for(const chave of ['mapa-lotacoes','pensoes-beneficiarios','transcricao'])
+        await apagarRegistroFolha(uid,chave);
+      /* Tudo que é do mês volta ao estado de competência nova, inclusive o
+         número inicial: o registro foi apagado, então memória e armazenamento
+         têm de dizer a mesma coisa depois de recarregar a página. */
+      brutos={};arquivos={};pessoas=[];servidores=[];saldos={};numerosOP={};
+      transcritos=[];dataLiquidacao='';processado=false;alertas=[];minutas=[];
+      origemIndividual='';nomeConsolidado='';atual=0;primeiro=5000;
+      aprovouMapa=false;aprovouConsignados=false;
+      if(tambem){mapa={};cadastroPensao={};escolhasHistorico={};textosHistorico={};
+        fichasOP={};ordemGrupos=[];}
+      toast('Competência '+competencia+' apagada.','ok');
+      status('Competência limpa. Envie os arquivos de novo.');
+      render();
+    }catch(e){
+      toast('Não apagado: '+(e.message||e),'erro');
+      nota.textContent='não apagado: '+(e.message||e);
+    }finally{b.disabled=false;b.textContent='Apagar os dados de '+competencia;}
+  };
+    }catch(e){toast('Falha em '+f.name+': '+(e.message||e),'erro');status('Arquivo não guardado: '+e.message);}
+    finally{input.disabled=false;input.value='';}
+  });
+  function atualizarProcessar(){
+    const b=$('#fe-processar'),nota=$('#fe-processar-nota');
+    if(!b)return;
+    const temResumo=!!brutos.principal;
+    b.disabled=!temResumo;
+    const enviados=Object.keys(brutos).length;
+    nota.textContent=temResumo
+      ? enviados+' arquivo'+(enviados===1?'':'s')+' pronto'+(enviados===1?'':'s')+' para processar'
+      : 'o resumo de verbas da folha é obrigatório';
+  }
+  el.querySelectorAll('[data-importar]').forEach(input=>input.onchange=async()=>{
+    const f=input.files?.[0],tipo=input.dataset.importar;
+    if(!f)return;
+    // Só o resumo consolidado entra por aqui; os demais são guardados crus e
+    // lidos no Processar dados.
+    if(tipo!=='automatico'&&tipo!=='consolidado')return;
+    if(!/\.pdf$/i.test(f.name)||f.size>90*1024*1024){toast('Informe PDF de até 90 MB.','erro');return;}
+    status('Lendo '+f.name+'…');input.disabled=true;
+    try{
+      const linhas=await extrairLinhasDaFolha(await f.arrayBuffer());
+      {
         const analisado=analisarResumoConsolidado(linhas,{nome:f.name});
         if(!analisado.quantidade)throw Error('Nenhum Resumo de Verbas legível neste PDF. A folha nominal isolada não traz os totais orçamentários por lotação; envie o PDF de Resumo de Verbas.');
         const comp=analisado.arquivos.find(a=>a.competencia)?.competencia;
@@ -351,7 +869,10 @@ export function telaFolhaEmpenhos(el){
         if(tipo==='automatico'&&linhas.some(x=>/\b\d{5,8}\s*\/\s*\d+\s+.+/.test(x.texto||''))){
           // O resumo diz quais lotações existem de verdade; sem ele a leitura
           // teria de adivinhar se um código de 3 níveis é lotação ou ação.
-          const identificadas=sugerirMaternidadesDaFolha(linhas,lotacoesDoResumo([arquivos.principal]));
+          const conhecidas=lotacoesDoResumo([arquivos.principal]);
+          servidores=servidoresComRepasse(varrerServidores(linhas,conhecidas).servidores,
+            codigosDeDesconto(Object.values(arquivos)),categoriaRubricaDesconto);
+          const identificadas=sugerirMaternidadesDaFolha(linhas,conhecidas);
           if(identificadas.achados.length){
             pessoas=identificadas.achados;
             origemIndividual=f.name;
@@ -361,36 +882,73 @@ export function telaFolhaEmpenhos(el){
         aprovouMapa=false;aprovouConsignados=false;
         $('#fe-confirmar-mapa').checked=false;$('#fe-confirmar-bancos').checked=false;
         status('Folha gerada a partir de '+f.name+': '+analisado.quantidade+' empenhos por lotação, mais adiantamentos identificados. Ordem original preservada. Informe ficha e fonte.');
-      } else if(tipo==='nominal'){
-        const candidatos=sugerirMaternidadesDaFolha(linhas,lotacoesDoResumo([arquivos.principal]));
-        const matriculasImportadas=new Set(candidatos.achados.map(c=>c.matricula));
-        // Reimportação corrige registros antigos que ficaram vinculados a "002.004".
-        // Preserva registros manuais e registros de outras matrículas.
-        pessoas=pessoas.filter(p=>!matriculasImportadas.has(p.matricula) ||
-          p.origem==='Preenchimento manual');
-        const chaves=new Set(pessoas.map(p=>p.matricula+'|'+p.lotacao));
-        for(const c of candidatos.achados){
-          const chave=c.matricula+'|'+c.lotacao;
-          if(chaves.has(chave))continue;
-          chaves.add(chave);
-          pessoas.push(c); // Exige nova confirmação na lotação correta.
-        }
-        origemIndividual=f.name;
-        alertas=alertas.filter(x=>!/^Matrícula .*lotação .*sem rubrica 163/.test(x));
-        alertas.push(...candidatos.avisos);
-        status(candidatos.achados.length+' servidora(s) com maternidade identificada(s) por matrícula e lotação completa. Confira os valores e marque Conferi.');
-      } else {
-        const a=analisarResumoVerbas(linhas,{tipo,nome:f.name});
-        if(a.competencia&&a.competencia!==competencia)throw Error('Competência do PDF ('+a.competencia+') difere da selecionada ('+competencia+').');
-        if(!a.registros.length)throw Error('Nenhuma lotação com dados reconhecidos.');
-        arquivos[tipo]=a;aprovouMapa=false;aprovouConsignados=false;
-        $('#fe-confirmar-mapa').checked=false;$('#fe-confirmar-bancos').checked=false;
-        status('Importado '+f.name+' · '+a.registros.length+' lotações. Revise alertas e fichas.');
       }
       await persistir();render();
     }catch(e){toast('Falha em '+f.name+': '+(e.message||e),'erro');status('Arquivo não importado: '+e.message);}
     finally{input.disabled=false;input.value='';}
   });
+  /* Processar: lê tudo de uma vez, com todos os arquivos em mãos. É aqui que a
+     ordem deixa de importar — as lotações saem do resumo antes de a folha
+     nominal ser varrida, qualquer que tenha sido a ordem do envio. */
+  $('#fe-processar').onclick=async()=>{
+    if(!brutos.principal){toast('Envie o resumo de verbas da folha.','erro');return;}
+    const b=$('#fe-processar');b.disabled=true;
+    status('Processando…');
+    try{
+      const novos={};
+      for(const [tipo,chave] of [['principal','principal'],['decimo','decimo'],
+        ['rescisao','rescisao'],['extra','extra']]){
+        if(!brutos[tipo])continue;
+        const a=analisarResumoVerbas(brutos[tipo].linhas,{tipo:chave,nome:brutos[tipo].nome});
+        if(a.competencia&&a.competencia!==competencia)
+          throw Error('O resumo '+brutos[tipo].nome+' é de '+a.competencia+' e o controle aberto é '+competencia+'.');
+        if(!a.registros.length)throw Error('Nenhuma lotação reconhecida em '+brutos[tipo].nome+'.');
+        novos[chave]=a;
+      }
+      arquivos=novos;
+      alertas=[];
+      // Agora as lotações são conhecidas: a folha nominal pode ser varrida.
+      const conhecidas=lotacoesDoResumo([arquivos.principal]);
+      const codigos=codigosDeDesconto(Object.values(arquivos));
+      if(brutos.folha){
+        servidores=servidoresComRepasse(varrerServidores(brutos.folha.linhas,conhecidas).servidores,
+          codigos,categoriaRubricaDesconto);
+        const achados=sugerirMaternidadesDaFolha(brutos.folha.linhas,conhecidas);
+        pessoas=achados.achados;
+        origemIndividual=brutos.folha.nome;
+        alertas.push(...achados.avisos);
+      }
+      /* As folhas do 13º e da rescisão são o detalhamento do que já está na
+         mensal, como os resumos: não se somam, servem para conferir. Matrícula
+         que aparece num desses e não na mensal é sinal de arquivo trocado. */
+      for(const [tipo,rotulo] of [['folhaDecimo','13º'],['folhaRescisao','rescisão']]){
+        if(!brutos[tipo]||!brutos.folha)continue;
+        const naMensal=new Set(servidores.map(x=>x.matricula));
+        const daqui=varrerServidores(brutos[tipo].linhas,conhecidas).servidores;
+        const fora=daqui.filter(x=>x.matricula&&!naMensal.has(x.matricula)&&
+          (x.rubricas||[]).some(r=>codigos.has(String(r.codigo))));
+        if(fora.length)alertas.push(fora.length+' matrícula(s) da folha de '+rotulo+
+          ' com desconto que não aparecem na folha de pagamento: '+
+          fora.slice(0,5).map(x=>x.matricula).join(', ')+
+          (fora.length>5?'…':'')+'. Confira se os arquivos são da mesma competência.');
+      }
+      processado=true;aprovouMapa=false;aprovouConsignados=false;
+      const q=Object.values(arquivos).reduce((n,a)=>n+a.registros.length,0);
+      status('Processado: '+q+' lotações, '+(pessoas.length||0)+' servidora(s) com maternidade. '+
+        'Confira ficha e fonte.');
+      await persistir();render();
+    }catch(e){
+      toast('Não processado: '+(e.message||e),'erro');
+      status('Não processado: '+(e.message||e));
+      b.disabled=false;
+    }
+  };
+  $('#fe-inicio-2').onchange=e=>{
+    const v=Number(e.target.value);
+    if(!Number.isSafeInteger(v)||v<1){toast('Informe número inicial válido.','erro');e.target.value=primeiro;return;}
+    primeiro=v;persistir();render();
+  };
+  atualizarProcessar();
   $('#fe-nova-servidora').onclick=()=>{
     pessoas.push({nome:'',matricula:'',lotacao:'',beneficio:0,inss:0,confirmado:false,origem:'Preenchimento manual'});
     persistir();render();
@@ -399,18 +957,13 @@ export function telaFolhaEmpenhos(el){
     if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(e.target.value))return;
     competencia=e.target.value;carregar();
   };
-  $('#fe-inicio').onchange=e=>{
-    const v=Number(e.target.value);
-    if(!Number.isSafeInteger(v)||v<1){toast('Informe número inicial válido.','erro');e.target.value=primeiro;return;}
-    primeiro=v;persistir();render();
-  };
   $('#fe-filtro').onchange=e=>{filtro=e.target.value;render();};
   $('#fe-visao').onchange=e=>{visao=e.target.value;render();};
   $('#fe-confirmar-mapa').onchange=e=>{aprovouMapa=e.target.checked;persistir();render();};
   $('#fe-confirmar-bancos').onchange=e=>{aprovouConsignados=e.target.checked;persistir();render();};
   $('#fe-baixar-mapa').onclick=()=>{
-    const linhas=[['Tipo','Lotacao','Ficha','Fonte','Conta','Secretaria','Vinculo']];
-    for(const r of montar()?.previsao.empenhos||[])linhas.push([r.tipo,r.lotacao,r.ficha,r.fonte,r.conta,r.secretaria,r.vinculo]);
+    const linhas=[['Tipo','Lotacao','Ficha','Fonte','Desdobramento','Conta','Secretaria','Vinculo']];
+    for(const r of montar()?.previsao.empenhos||[])linhas.push([r.tipo,r.lotacao,r.ficha,r.fonte,r.desdobramento,r.conta,r.secretaria,r.vinculo]);
     baixar('modelo-ficha-fonte-'+competencia+'.csv',new Blob([csv(linhas)],{type:'text/csv;charset=utf-8'}));
   };
   $('#fe-ler-mapa').onchange=async e=>{
