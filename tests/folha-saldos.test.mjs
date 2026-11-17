@@ -31,7 +31,10 @@ t('reconhece as fontes do FUNDEB', () => {
   assert.ok(ehFundeb('1.542.000.0000'));
   assert.ok(!ehFundeb(FONTE_EDUCACAO_PROPRIA));
   assert.ok(!ehFundeb(''));
-  assert.deepEqual(FONTES_FUNDEB, ['1540', '1542'], 'código curto, como vai no empenho');
+  assert.deepEqual(FONTES_FUNDEB, ['1540', '1542', '2540', '2542'],
+    'o grupo 2 é a mesma fonte, de exercícios anteriores');
+  assert.ok(ehFundeb('2540'), 'FUNDEB de exercício anterior também é FUNDEB');
+  assert.ok(!ehFundeb('2546'), 'a 546 não é FUNDEB');
 });
 
 /* Cortar zeros à direita confundiria 1500 com 150; os quatro primeiros

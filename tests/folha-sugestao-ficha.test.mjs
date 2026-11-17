@@ -13,7 +13,7 @@
 import assert from 'node:assert/strict';
 import { sugerirFichaDaLotacao, elementoDoVinculo, EDUCACAO_2026,
   FICHAS_FIXAS_2026, DESDOBRAMENTO_PADRAO, fontesParaEscolher,
-  NOMES_FONTE } from '../assets/js/folha-orcamento-2026.js';
+  NOMES_FONTE, nomeDaFonte, FONTES_EXERCICIOS_ANTERIORES } from '../assets/js/folha-orcamento-2026.js';
 
 let ok = 0; const falhas = [];
 const t = (nome, fn) => { try { fn(); ok++; } catch (e) { falhas.push(nome + ': ' + e.message); } };
@@ -223,6 +223,27 @@ t('a lista de fontes cobre as do orçamento, com nome', () => {
   assert.deepEqual(codigos, [...codigos].sort(), 'em ordem de código');
   assert.equal(new Set(codigos).size, codigos.length, 'sem repetição');
   assert.match(NOMES_FONTE['1621'], /Estadual/);
+});
+
+/* O primeiro dígito da fonte é o grupo: 1 é o exercício corrente e 2 são
+   exercícios anteriores, com o resto do código igual. A Contabilidade usa as do
+   grupo 2 — em agosto houve consignado na 2500 e na 2546. */
+t('fonte de exercícios anteriores herda o nome da corrente', () => {
+  assert.equal(nomeDaFonte('2500'), 'Recursos não vinculados de impostos — exercícios anteriores');
+  assert.equal(nomeDaFonte('2540'), 'Transferências do FUNDEB — impostos — exercícios anteriores');
+  assert.equal(nomeDaFonte('1500'), 'Recursos não vinculados de impostos');
+});
+
+// A 546 não existe na LOA 2026: o nome dela não se inventa.
+t('fonte fora da LOA não ganha nome inventado', () => {
+  assert.equal(nomeDaFonte('2546'), 'Exercícios anteriores');
+  assert.equal(nomeDaFonte('1999'), '');
+  assert.equal(nomeDaFonte(''), '');
+});
+
+t('as fontes de exercícios anteriores entram na lista', () => {
+  const codigos = fontesParaEscolher().map(f => f.codigo);
+  for (const c of FONTES_EXERCICIOS_ANTERIORES) assert.ok(codigos.includes(c), c);
 });
 
 t('as fichas fixas trazem a natureza conferida na LOA', () => {

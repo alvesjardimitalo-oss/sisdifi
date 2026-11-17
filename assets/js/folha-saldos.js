@@ -14,8 +14,10 @@ import { dinheiroFolha } from './folha-empenhos.js';
 
 /* Fontes escritas no código curto de quatro dígitos, como a Contabilidade as
    digita no empenho. A LOA imprime a máscara cheia ("1.540.000.0000"), e a
-   comparação abaixo reconhece as duas formas. */
-export const FONTES_FUNDEB = ['1540', '1542'];
+   comparação abaixo reconhece as duas formas.
+   O FUNDEB entra também no grupo 2, de exercícios anteriores: o primeiro
+   dígito é o grupo da fonte e o resto do código é o mesmo. */
+export const FONTES_FUNDEB = ['1540', '1542', '2540', '2542'];
 /* Recurso próprio vinculado ao pactuado da LOA: 1001 é o mínimo da educação
    (25%) e 1002 o da saúde (15%). A fonte 1500 é o não vinculado, e é o que a
    LOA publica nas fichas dessas duas áreas — a vinculação aparece no empenho. */

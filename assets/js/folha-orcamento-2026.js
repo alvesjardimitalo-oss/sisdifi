@@ -283,6 +283,21 @@ export const NOMES_FONTE={
  '1621':'Transferência Fundo a Fundo SUS — Governo Estadual',
  '1660':'Fundo Nacional de Assistência Social'
 };
+/* O primeiro dígito da fonte é o grupo: 1 é recurso do exercício corrente e 2
+   é de exercícios anteriores, com o resto do código igual. A Contabilidade usa
+   as do grupo 2 — em agosto houve consignado na 2500 e na 2546. A 546 não
+   existe na LOA 2026, então o nome dela não se inventa. */
+export function nomeDaFonte(codigo=''){
+ const c=codigoCurto(codigo);
+ if(NOMES_FONTE[c])return NOMES_FONTE[c];
+ if(c[0]==='2'){
+  const corrente=NOMES_FONTE['1'+c.slice(1)];
+  return corrente?corrente+' — exercícios anteriores':'Exercícios anteriores';
+ }
+ return '';
+}
+/* Fontes de exercícios anteriores que a Contabilidade já usou. */
+export const FONTES_EXERCICIOS_ANTERIORES=['2500','2540','2542','2546'];
 
 /**
  * Fontes do catálogo em código curto, para autocompletar o campo do empenho.
@@ -303,5 +318,7 @@ export function fontesParaEscolher(){
  }
  // A 1500 segue disponível: há despesa de educação e saúde fora do pactuado.
  vistas.add(FONTE_NAO_VINCULADA);
- return [...vistas].sort().map(codigo=>({codigo,rotulo:NOMES_FONTE[codigo]||''}));
+ // E as de exercícios anteriores, que não estão na LOA do ano mas se usam.
+ for(const c of FONTES_EXERCICIOS_ANTERIORES)vistas.add(c);
+ return [...vistas].sort().map(codigo=>({codigo,rotulo:nomeDaFonte(codigo)}));
 }
