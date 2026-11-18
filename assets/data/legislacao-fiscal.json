@@ -3,7 +3,7 @@
   "municipio": "Prefeitura Municipal de Frei Inocêncio",
   "codigoIBGE": "3126901",
   "versaoPolitica": "2026-11-11.1",
-  "ultimaExecucao": "2026-11-17T19:11:41+00:00",
+  "ultimaExecucao": "2026-11-18T18:51:22+00:00",
   "explicacao": "Monitor automático das publicações oficiais. Mudança de conteúdo não é mudança de alíquota. Parâmetros tributários exigem validação da Contabilidade/ADM.",
   "fontes": [
     {
@@ -13,11 +13,11 @@
       "url": "https://freiinocencio.mg.gov.br/legislacoes",
       "estado": "mudanca_detectada",
       "hashReferencia": "cd7ac76b972d26c7c81ddc07dce5cbd6baccb829d72db1a6c6ed80dcacf9c766",
-      "hashObservado": "21538143fe9a7e535ab9fb6dd7496e2b23afcc75bd386205c8557cfcaefa0df1",
-      "ultimaConsulta": "2026-11-17T19:11:41+00:00",
+      "hashObservado": "71b66eca9abbcdbd679ef975fa11098299c6bc10ad144a41112c2203fefd8c27",
+      "ultimaConsulta": "2026-11-18T18:51:22+00:00",
       "consultaIntermediada": true,
       "referenciaCapturadaEm": "2026-11-11T14:38:47+00:00",
-      "mudancaDetectadaEm": "2026-11-17T19:11:41+00:00"
+      "mudancaDetectadaEm": "2026-11-18T18:51:22+00:00"
     },
     {
       "id": "lei_966_2023",
@@ -26,11 +26,11 @@
       "url": "https://freiinocencio.mg.gov.br/arquivo/67d484b2ddc9d.pdf",
       "estado": "mudanca_detectada",
       "hashReferencia": "02e7010d5e3086c845e14d30d2fcdff3a87ed735efc13c05aa774c6c1630f7ab",
-      "hashObservado": "2e87c8d8780d5efe94e3ffec278c440d65b89e02f46e514b48c37876f8752c5a",
-      "ultimaConsulta": "2026-11-17T19:11:41+00:00",
+      "hashObservado": "e21d22e28f3df415c2c55255be9478190d6ccbec2850a0214079ee3ab0e01e98",
+      "ultimaConsulta": "2026-11-18T18:51:22+00:00",
       "consultaIntermediada": true,
       "referenciaCapturadaEm": "2026-11-11T14:38:47+00:00",
-      "mudancaDetectadaEm": "2026-11-17T19:11:41+00:00"
+      "mudancaDetectadaEm": "2026-11-18T18:51:22+00:00"
     },
     {
       "id": "municipal_publicacoes",
@@ -39,11 +39,11 @@
       "url": "https://camarafreiinocencio.mg.gov.br/legislacoes",
       "estado": "mudanca_detectada",
       "hashReferencia": "9caa5f15e1bdb091e5c4ec2cec91ce53bff259661755bb8a5e07bc5efba019d3",
-      "hashObservado": "d2de361f0bfcfc582736d45e4d809347ea5709fdf3c0babfa413aab39ece5a96",
-      "ultimaConsulta": "2026-11-17T19:11:41+00:00",
+      "hashObservado": "d9595e4f6a95f43379e1de65c1d022553a141fca49d7fbeebdcf060385d5323a",
+      "ultimaConsulta": "2026-11-18T18:51:22+00:00",
       "consultaIntermediada": true,
       "referenciaCapturadaEm": "2026-11-11T14:38:47+00:00",
-      "mudancaDetectadaEm": "2026-11-17T19:11:41+00:00"
+      "mudancaDetectadaEm": "2026-11-18T18:51:22+00:00"
     },
     {
       "id": "receita_normas",
@@ -53,7 +53,7 @@
       "estado": "mudanca_detectada",
       "hashReferencia": "b4f3ab2d0410857b779e224ddcd66fef149a0783253e22993d11b103ac4e5f37",
       "hashObservado": "2468f5f99d226938e0055daea835346110c7ce5d002371e6d2993c379d36fdde",
-      "ultimaConsulta": "2026-11-17T19:11:41+00:00",
+      "ultimaConsulta": "2026-11-18T18:51:22+00:00",
       "referenciaCapturadaEm": "2026-11-11T14:32:50+00:00",
       "consultaIntermediada": false,
       "mudancaDetectadaEm": "2026-11-16T20:29:10+00:00"
@@ -66,7 +66,7 @@
       "estado": "mudanca_detectada",
       "hashReferencia": "012a14f4844f6b3e66a6fc485dc54931e110cb6f6d6b49d8b1c9ecf81f67aef3",
       "hashObservado": "1841a29d1382b808c0cc9812f61181529b0fb3c95a44ed7dd6dafc4da51d0adc",
-      "ultimaConsulta": "2026-11-17T19:11:41+00:00",
+      "ultimaConsulta": "2026-11-18T18:51:22+00:00",
       "referenciaCapturadaEm": "2026-11-11T14:32:50+00:00",
       "consultaIntermediada": false,
       "mudancaDetectadaEm": "2026-11-17T19:11:41+00:00"
@@ -79,7 +79,7 @@
       "estado": "mudanca_detectada",
       "hashReferencia": "aebca686da08a5d2d17c07c15d5c5893ccafefbcb13e88fbd40b237fbca1861e",
       "hashObservado": "0df1ce1f83bcfc12afbeb043d1fbf2705e657be3a76524d540958acc52d2654c",
-      "ultimaConsulta": "2026-11-17T19:11:41+00:00",
+      "ultimaConsulta": "2026-11-18T18:51:22+00:00",
       "referenciaCapturadaEm": "2026-11-11T14:32:50+00:00",
       "consultaIntermediada": false,
       "mudancaDetectadaEm": "2026-11-16T20:29:10+00:00"
@@ -89,7 +89,6 @@
   "novosAlertas": [
     "Código Tributário Municipal (Lei 883/2017)",
     "Lei Municipal 966/2023 — base do ISS",
-    "Publicações legislativas do Município",
-    "Marcos regulatórios da Reforma Tributária"
+    "Publicações legislativas do Município"
   ]
 }
