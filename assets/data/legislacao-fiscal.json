@@ -3,7 +3,7 @@
   "municipio": "Prefeitura Municipal de Frei Inocêncio",
   "codigoIBGE": "3126901",
   "versaoPolitica": "2026-11-11.1",
-  "ultimaExecucao": "2026-11-20T18:36:58+00:00",
+  "ultimaExecucao": "2026-11-21T17:32:01+00:00",
   "explicacao": "Monitor automático das publicações oficiais. Mudança de conteúdo não é mudança de alíquota. Parâmetros tributários exigem validação da Contabilidade/ADM.",
   "fontes": [
     {
@@ -14,10 +14,11 @@
       "estado": "mudanca_detectada",
       "hashReferencia": "cd7ac76b972d26c7c81ddc07dce5cbd6baccb829d72db1a6c6ed80dcacf9c766",
       "hashObservado": "5a80758e73a9e8c75611437c6231c3ef22c40afd4064872639809ce4ee20399c",
-      "ultimaConsulta": "2026-11-20T18:36:58+00:00",
+      "ultimaConsulta": "2026-11-21T17:32:01+00:00",
       "consultaIntermediada": true,
       "referenciaCapturadaEm": "2026-11-11T14:38:47+00:00",
-      "mudancaDetectadaEm": "2026-11-20T18:36:58+00:00"
+      "mudancaDetectadaEm": "2026-11-20T18:36:58+00:00",
+      "ultimoErro": "HTTP Error 401: Unauthorized"
     },
     {
       "id": "lei_966_2023",
@@ -27,10 +28,11 @@
       "estado": "mudanca_detectada",
       "hashReferencia": "02e7010d5e3086c845e14d30d2fcdff3a87ed735efc13c05aa774c6c1630f7ab",
       "hashObservado": "0fed11b7167ef9d583d20172185791eb0772f7479d8769a1962a0211f541bf87",
-      "ultimaConsulta": "2026-11-20T18:36:58+00:00",
+      "ultimaConsulta": "2026-11-21T17:32:01+00:00",
       "consultaIntermediada": true,
       "referenciaCapturadaEm": "2026-11-11T14:38:47+00:00",
-      "mudancaDetectadaEm": "2026-11-20T18:36:58+00:00"
+      "mudancaDetectadaEm": "2026-11-20T18:36:58+00:00",
+      "ultimoErro": "HTTP Error 401: Unauthorized"
     },
     {
       "id": "municipal_publicacoes",
@@ -40,10 +42,11 @@
       "estado": "mudanca_detectada",
       "hashReferencia": "9caa5f15e1bdb091e5c4ec2cec91ce53bff259661755bb8a5e07bc5efba019d3",
       "hashObservado": "f70067e4fe180adfe9a74f47ee78cb0a192eb4ad8f1781e9d072a3bf1d7a911c",
-      "ultimaConsulta": "2026-11-20T18:36:58+00:00",
+      "ultimaConsulta": "2026-11-21T17:32:01+00:00",
       "consultaIntermediada": true,
       "referenciaCapturadaEm": "2026-11-11T14:38:47+00:00",
-      "mudancaDetectadaEm": "2026-11-20T18:36:58+00:00"
+      "mudancaDetectadaEm": "2026-11-20T18:36:58+00:00",
+      "ultimoErro": "HTTP Error 401: Unauthorized"
     },
     {
       "id": "receita_normas",
@@ -53,7 +56,7 @@
       "estado": "mudanca_detectada",
       "hashReferencia": "b4f3ab2d0410857b779e224ddcd66fef149a0783253e22993d11b103ac4e5f37",
       "hashObservado": "2468f5f99d226938e0055daea835346110c7ce5d002371e6d2993c379d36fdde",
-      "ultimaConsulta": "2026-11-20T18:36:58+00:00",
+      "ultimaConsulta": "2026-11-21T17:32:01+00:00",
       "referenciaCapturadaEm": "2026-11-11T14:32:50+00:00",
       "consultaIntermediada": false,
       "mudancaDetectadaEm": "2026-11-16T20:29:10+00:00"
@@ -66,7 +69,7 @@
       "estado": "mudanca_detectada",
       "hashReferencia": "012a14f4844f6b3e66a6fc485dc54931e110cb6f6d6b49d8b1c9ecf81f67aef3",
       "hashObservado": "1841a29d1382b808c0cc9812f61181529b0fb3c95a44ed7dd6dafc4da51d0adc",
-      "ultimaConsulta": "2026-11-20T18:36:58+00:00",
+      "ultimaConsulta": "2026-11-21T17:32:01+00:00",
       "referenciaCapturadaEm": "2026-11-11T14:32:50+00:00",
       "consultaIntermediada": false,
       "mudancaDetectadaEm": "2026-11-17T19:11:41+00:00"
@@ -79,16 +82,12 @@
       "estado": "mudanca_detectada",
       "hashReferencia": "aebca686da08a5d2d17c07c15d5c5893ccafefbcb13e88fbd40b237fbca1861e",
       "hashObservado": "0df1ce1f83bcfc12afbeb043d1fbf2705e657be3a76524d540958acc52d2654c",
-      "ultimaConsulta": "2026-11-20T18:36:58+00:00",
+      "ultimaConsulta": "2026-11-21T17:32:01+00:00",
       "referenciaCapturadaEm": "2026-11-11T14:32:50+00:00",
       "consultaIntermediada": false,
       "mudancaDetectadaEm": "2026-11-16T20:29:10+00:00"
     }
   ],
   "aplicacaoAutomaticaDeAliquotas": false,
-  "novosAlertas": [
-    "Código Tributário Municipal (Lei 883/2017)",
-    "Lei Municipal 966/2023 — base do ISS",
-    "Publicações legislativas do Município"
-  ]
+  "novosAlertas": []
 }
