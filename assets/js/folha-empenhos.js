@@ -384,7 +384,11 @@ export function analisarResumoConsolidado(linhas,{nome=''}={}){
     tipos:Object.fromEntries(arquivos.map(a=>[a.tipo,a.registros.length]))};
 }
 
-export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
+/* A ordem dentro da folha mensal (e da extra) é a da Contabilidade quando
+   opcoes.ordem é informado (id → posição); lotação sem posição vai para o fim
+   do grupo, na ordem do RH, com aviso. 13º e rescisões seguem o RH. */
+export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={},opcoes={}){
+  const ordemContabil=opcoes.ordem||null;
   if(!Number.isSafeInteger(Number(primeiro))||Number(primeiro)<1||Number(primeiro)>999999999)
     throw Error('Informe o número inteiro do primeiro empenho.');
   // A ordem de impressão do RH reproduz a sequência histórica do modelo
@@ -398,6 +402,10 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
   const ordenadas=todas.sort((a,b)=>{
     const ga=ordem.indexOf(a.tipo),gb=ordem.indexOf(b.tipo);
     if(ga!==gb)return ga-gb;
+    if(ordemContabil&&(a.tipo==='principal'||a.tipo==='extra')){
+      const pa=ordemContabil[a.tipo+'|'+a.lotacao]??Infinity,pb=ordemContabil[b.tipo+'|'+b.lotacao]??Infinity;
+      if(pa!==pb)return pa<pb?-1:1;
+    }
     return (a.paginaInicio||0)-(b.paginaInicio||0);
   });
   const empenhos=ordenadas.map((r,i)=>{
@@ -468,7 +476,9 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={}){
       familia,maternidade,natalidade,extrasNoEmpenho,liquidoRH,beneficiosOutros:r.valores.enfermagem||0,
       bancos:r.bancos,inssOriginal:r.inss,composicao:r.composicao,
       rubricasDesconto:r.rubricasDesconto,diferencaComposicao:r.diferencaComposicao,
-      composicaoTotal:r.composicaoTotal,arquivo:r.fonteArquivo,pagina:r.paginaInicio,problemas
+      composicaoTotal:r.composicaoTotal,arquivo:r.fonteArquivo,pagina:r.paginaInicio,problemas,
+      avisos:ordemContabil&&(r.tipo==='principal'||r.tipo==='extra')&&ordemContabil[r.tipo+'|'+r.lotacao]==null
+        ?['Lotação nova, fora da ordem da Contabilidade: foi para o fim da folha. Confira a posição (coluna Ordem do mapa CSV).']:[]
     };
   });
   const extras=empenhos.flatMap(r=>{

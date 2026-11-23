@@ -9,9 +9,10 @@
 import {estado,pode} from '../estado.js';
 import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificacaoPessoal,FICHAS_PESSOAL_2026} from '../folha-orcamento-2026.js';
 import {esc,toast} from '../ui.js';
-import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha,tipoDeFolhaCabecalho} from '../folha-empenhos.js?v=3.23.0.3e8e59b8';
+import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha,tipoDeFolhaCabecalho} from '../folha-empenhos.js?v=3.23.0.0ad64327';
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
+import {ordemDasLotacoes} from '../folha-ordem.js?v=3.23.0.4b01d732';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js?v=3.23.0.418e5047';
 import {carregarRegistroFolha,salvarRegistroFolha} from '../folha-empenhos-store.js';
 import {carregarMes,salvarMes} from '../consignacoes-mensal.js?v=3.13.0.357fc820';
@@ -144,7 +145,7 @@ export function telaFolhaEmpenhos(el){
         '<div id="fe-pessoas"></div></div>'+
       '<div class="fe-continuar"><button type="button" class="btn" data-ir="numero">Continuar</button></div>')+
     passo('numero',2,'Número do primeiro empenho',
-      '<p class="fe-muted">A numeração segue a ordem do RH: folha mensal, folha extra, adiantamento do 13º e rescisões.</p>'+
+      '<p class="fe-muted">Digite o primeiro número: os empenhos são numerados a partir dele, na ordem da planilha da Contabilidade — folha mensal por secretaria (Gabinete, Administração, Cultura, Fazenda… Ação Social), depois folha extra, adiantamento do 13º e rescisões.</p>'+
       '<div class="fe-grid"><label class="campo"><span>Primeiro número do empenho</span><input type="number" min="1" id="fe-inicio" placeholder="Ex.: 5000"></label></div>'+
       '<div id="fe-numeracao"></div>'+
       '<div class="fe-continuar"><button type="button" class="btn btn-sec" data-ir="arquivos">Voltar</button><button type="button" class="btn" data-ir="saldos">Continuar</button></div>')+
@@ -187,7 +188,7 @@ export function telaFolhaEmpenhos(el){
       const ref=localizarFicha(m.ficha),c=contaPorId(m.contaId);
       return [chave,{...m,secretaria:m.secretaria||ref?.unidade||'',lotacaoOrcamentaria:m.lotacaoOrcamentaria||ref?.acao||'',conta:c?rotuloConta(c):''}];
     }));
-    const previsao=prepararEmpenhos(arquivosLista(),primeiro||1,mapaConsulta,maternidade.ajustes);
+    const previsao=prepararEmpenhos(arquivosLista(),primeiro||1,mapaConsulta,maternidade.ajustes,{ordem:ordemDasLotacoes(mapa)});
     for(const emp of previsao.empenhos){
       const ref=localizarFicha(emp.ficha);
       const tipo=classificacaoPessoal(ref?.naturezas||[]);
@@ -395,7 +396,7 @@ export function telaFolhaEmpenhos(el){
             '<td class="fe-money '+(apos<0?'fe-neg':'')+'">'+(apos==null?'—':dinheiroFolha(apos))+'</td>'+
             '<td class="fe-money">'+dinheiroFolha(r.descontoRH||0)+'</td>'+
             '<td class="fe-money">'+dinheiroFolha(r.maisInssExtra)+'</td><td class="fe-money"><strong>'+dinheiroFolha(r.liquido||0)+'</strong></td>'+
-            '<td class="fe-status">'+esc([...r.problemas,avisoFicha,avisoFonte,avisoNatureza,avisoConta].filter(Boolean).join('; ')||'Pronto para conferir')+'</td></tr>';
+            '<td class="fe-status">'+esc([...r.problemas,...(r.avisos||[]),avisoFicha,avisoFonte,avisoNatureza,avisoConta].filter(Boolean).join('; ')||'Pronto para conferir')+'</td></tr>';
         }).join('')+'</tbody></table>'+
         (Number(competencia.slice(0,4))===2026?'<datalist id="fe-fichas-2026">'+FICHAS_PESSOAL_2026.map(f=>'<option value="'+esc(f.ficha)+'" label="'+esc(f.acao)+'"></option>').join('')+'</datalist>':'');
     }else{
@@ -606,8 +607,9 @@ export function telaFolhaEmpenhos(el){
   $('#fe-visao').onchange=e=>{visao=e.target.value;render();};
   $('#fe-confirmar-mapa').onchange=e=>{aprovouMapa=e.target.checked;persistir();render();};
   $('#fe-baixar-mapa').onclick=()=>{
-    const linhas=[['Tipo','Lotacao','Ficha','Fonte','Conta','Secretaria','Vinculo']];
-    for(const r of montar()?.previsao.empenhos||[])linhas.push([r.tipo,r.lotacao,r.ficha,r.fonte,r.conta,r.secretaria,r.vinculo]);
+    const linhas=[['Tipo','Lotacao','Ficha','Fonte','Conta','Secretaria','Vinculo','Ordem']];
+    const ordem=ordemDasLotacoes(mapa);
+    for(const r of montar()?.previsao.empenhos||[])linhas.push([r.tipo,r.lotacao,r.ficha,r.fonte,r.conta,r.secretaria,r.vinculo,ordem[r.id]??'']);
     baixar('modelo-ficha-fonte-'+competencia+'.csv',new Blob([csv(linhas)],{type:'text/csv;charset=utf-8'}));
   };
   $('#fe-ler-mapa').onchange=async e=>{
@@ -631,6 +633,8 @@ export function telaFolhaEmpenhos(el){
           contaId:conta?conta.id:(mapa[id]?.contaId||''),
           secretaria:ind('secretaria')<0?'':String(r[ind('secretaria')]||'').trim(),
           vinculo:ind('vinculo')<0?'':String(r[ind('vinculo')]||'').trim()};
+        // Coluna Ordem: posição do empenho na folha, guardada para os próximos meses.
+        if(ind('ordem')>=0){const o=String(r[ind('ordem')]||'').trim();if(o)mapa[id].ordem=Number(o.replace(',','.'));else delete mapa[id].ordem;}
         preencherPelaFicha(id,mapa[id].ficha);
         n++;
       }
