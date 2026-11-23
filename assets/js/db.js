@@ -225,6 +225,12 @@ export async function atualizar(colecao, id, dados) {
   await updateDoc(doc(fs, colecao, id), { ...dados, atualizado_em: serverTimestamp(), atualizado_por: autor() });
 }
 export const excluir = (colecao, id) => deleteDoc(doc(fs, colecao, id));
+/** Substitui o documento inteiro (sem mesclar com o que havia), com carimbo de autoria. */
+export async function substituir(colecao, id, dados) {
+  await setDoc(doc(fs, colecao, id), { ...dados, atualizado_em: serverTimestamp(), atualizado_por: autor() });
+}
+/** Marca um campo para ser apagado numa gravação com salvar() (mesclagem). */
+export const campoApagado = () => deleteField();
 /** Exclui o servidor por completo: cadastro, área privada (CPF/Pix) e índice do CPF. */
 export async function excluirServidor(id, cpf) {
   const b = writeBatch(fs);

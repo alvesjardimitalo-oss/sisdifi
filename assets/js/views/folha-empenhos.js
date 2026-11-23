@@ -1,5 +1,7 @@
 // SISDIFI — Folha de pagamentos: relação de empenhos em etapas.
-// Exclusivo de Contabilidade/ADM. Não grava dados de folha no Firebase.
+// Exclusivo de Contabilidade/ADM. Compartilhada no Firebase entre os usuários da Contabilidade:
+// quem abre a mesma competência vê, na hora, o que o outro preenche. O PDF nunca sai do navegador,
+// só os valores lidos dele.
 //
 // 1 · Arquivos do RH (folha mensal, 13º e rescisão)
 // 2 · Número do primeiro empenho
@@ -14,7 +16,7 @@ import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
 import {ordemDasLotacoes} from '../folha-ordem.js?v=3.23.0.4b01d732';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js?v=3.23.0.418e5047';
-import {carregarRegistroFolha,salvarRegistroFolha} from '../folha-empenhos-store.js';
+import {ouvir,ouvirDoc,salvar,substituir,excluir,campoApagado} from '../db.js';
 import {carregarMes,salvarMes} from '../consignacoes-mensal.js?v=3.13.0.357fc820';
 import {saldosDasContas,consignadosPorFonte,etapasDaFolha,avisosDaConta,contaParaFonte,rotuloConta,novaContaId,
   normalizarFonte,assinaturaDaFolha,previstoParaConsignacoes} from '../folha-fluxo.js?v=3.23.0.3b56a92a';
@@ -69,9 +71,8 @@ export function telaFolhaEmpenhos(el){
   if(!pode.contabil())return {titulo:'Acesso restrito'};
   const uid=estado.sessao?.uid;
   let competencia=new Date().getFullYear()+'-'+String(new Date().getMonth()+1).padStart(2,'0');
-  let primeiro=null,fontesRH={},legado=null,pessoas=[],mapa={},contas=[],saldos={},aprovouMapa=false,confirmacao=null;
+  let primeiro=null,fontesRH={},legado=null,pessoas=[],base={mes:{},mapa:{},contas:{},arquivos:{}},escutas=[],renderPendente=false,mapa={},contas=[],saldos={},aprovouMapa=false,confirmacao=null;
   let minutas=[],alertas=[],origemIndividual='',filtro='todos',visao='resumo',carregando=false,ativa=true,etapa='arquivos';
-  let filaDeSalvamento=Promise.resolve();
   const $=sel=>el.querySelector(sel);
   const arquivosAtuais=()=>legado||arquivosDoRH(fontesRH);
   const localizarFicha=numero=>consultarFichaOrcamento(numero,Number(competencia.slice(0,4)),estado.fichas||[],estado.secretarias||[]);
@@ -176,7 +177,7 @@ export function telaFolhaEmpenhos(el){
       '<details class="fe-sub" id="fe-depois"><summary>Depois do lançamento: conferir com as minutas dos bancos</summary>'+
         '<p class="fe-muted">A minuta de arrecadação só sai depois que a folha é lançada no sistema contábil. Importe-a em Consignações por mês e compare aqui. Esta conferência não impede a planilha conferida.</p>'+
         '<div class="fe-actions"><button class="btn btn-sec" type="button" id="fe-buscar-minutas">Consultar minutas</button></div><div id="fe-bancos"></div></details>')+
-    '<p class="fe-muted">Dados armazenados no navegador, separados pela conta. A planilha contém fórmulas de líquido para a Contabilidade conferir e preencher a liquidação no sistema oficial.</p>'+
+    '<p class="fe-muted" id="fe-compartilhado">Folha compartilhada entre os usuários da Contabilidade: cada lotação, conta e saldo é gravado separadamente, então duas pessoas podem preencher ao mesmo tempo sem apagar o trabalho uma da outra. Os PDFs não saem do navegador; só os valores lidos deles.</p>'+
     '</div>';
   const status=t=>{$('#fe-status').textContent=t;};
   const arquivosLista=()=>descontarFolhasProprias(Object.values(arquivosAtuais())).arquivos;
@@ -209,39 +210,91 @@ export function telaFolhaEmpenhos(el){
   };
   const assinaturaAtual=pacote=>pacote?assinaturaDaFolha(pacote.previsao.empenhos,contas,saldos):'';
   const confirmadaValida=pacote=>!!(confirmacao&&pacote&&confirmacao.assinatura===assinaturaAtual(pacote));
+  /* ---- Compartilhamento (Firebase) ----
+     `base` guarda o que veio do servidor. persistir() grava só o que mudou em
+     relação a ela, campo a campo: duas pessoas preenchendo lotações diferentes,
+     ou saldos de contas diferentes, nunca apagam o trabalho uma da outra. */
+  const META=new Set(['id','atualizado_em','atualizado_por','criado_em','criado_por']);
+  const limpo=v=>JSON.parse(JSON.stringify(v??null));
+  const igual=(a,b)=>JSON.stringify(a??null)===JSON.stringify(b??null);
+  const semMeta=o=>Object.fromEntries(Object.entries(o||{}).filter(([k])=>!META.has(k)));
+  const CAMPOS_MES=['primeiro','pessoas','aprovouMapa','origemIndividual','confirmacao','alertas','previstoFolha'];
+  let previstoFolha=null;
+  const valoresMes=()=>({primeiro,pessoas,aprovouMapa,origemIndividual,confirmacao,alertas,previstoFolha});
   function persistir(){
     if(!uid||!ativa||carregando)return Promise.resolve();
-    const compAtual=competencia;
-    const mensal=structuredClone({versao:2,primeiro,fontesRH,arquivos:legado||undefined,pessoas,aprovouMapa,origemIndividual,saldos,confirmacao,etapa});
-    const mapaAtual=structuredClone(mapa),contasAtuais=structuredClone(contas);
-    filaDeSalvamento=filaDeSalvamento.catch(()=>{}).then(async()=>{
-      await salvarRegistroFolha(uid,compAtual,mensal);
-      await salvarRegistroFolha(uid,'mapa-lotacoes',mapaAtual);
-      await salvarRegistroFolha(uid,'contas-folha',contasAtuais);
-    }).catch(e=>{status('Erro ao salvar localmente: '+(e.message||e));});
-    return filaDeSalvamento;
+    const comp=competencia,ops=[],atual=valoresMes(),mes={};
+    for(const k of CAMPOS_MES){const v=limpo(atual[k]);if(!igual(v,base.mes[k])){mes[k]=v;base.mes[k]=v;}}
+    const saldoBase=base.mes.saldos||{},sal={};
+    for(const id of new Set([...Object.keys(saldos),...Object.keys(saldoBase)]))
+      if(saldos[id]!==saldoBase[id])sal[id]=saldos[id]==null?campoApagado():saldos[id];
+    if(Object.keys(sal).length){mes.saldos=sal;base.mes.saldos={...saldos};}
+    if(Object.keys(mes).length)ops.push(salvar('folha_meses',comp,mes));
+    for(const [id,m] of Object.entries(mapa)){
+      const b=base.mapa[id]||{},d={};
+      for(const k of new Set([...Object.keys(m),...Object.keys(b)])){
+        if(META.has(k)||k.startsWith('_'))continue;
+        if(!igual(m[k],b[k]))d[k]=m[k]===undefined?campoApagado():limpo(m[k]);
+      }
+      if(Object.keys(d).length){ops.push(salvar('folha_mapa',id,d));base.mapa[id]=structuredClone(m);}
+    }
+    const contasPorId=Object.fromEntries(contas.map(c=>[c.id,c]));
+    for(const id of new Set([...Object.keys(contasPorId),...Object.keys(base.contas)])){
+      const c=contasPorId[id];
+      if(!c){ops.push(excluir('folha_contas',id));delete base.contas[id];continue;}
+      const dados=limpo(semMeta(c));
+      if(!igual(dados,semMeta(base.contas[id]))){ops.push(salvar('folha_contas',id,dados));base.contas[id]=structuredClone(c);}
+    }
+    const caminho='folha_meses/'+comp+'/arquivos';
+    for(const ch of new Set([...Object.keys(fontesRH),...Object.keys(base.arquivos)])){
+      if(!fontesRH[ch]){ops.push(excluir(caminho,ch));delete base.arquivos[ch];}
+      else if(fontesRH[ch]!==base.arquivos[ch]){ops.push(substituir(caminho,ch,limpo(fontesRH[ch])));base.arquivos[ch]=fontesRH[ch];}
+    }
+    if(!ops.length)return Promise.resolve();
+    return Promise.all(ops).catch(e=>{status('Não foi possível salvar no sistema: '+(e.message||e)+'. Verifique a conexão e tente de novo.');});
   }
-  async function carregar(){
-    const alvo=competencia;carregando=true;status('Carregando dados de '+alvo+'…');
-    try{
-      const [mensal,reusavel,contasSalvas]=await Promise.all([carregarRegistroFolha(uid,alvo),carregarRegistroFolha(uid,'mapa-lotacoes'),carregarRegistroFolha(uid,'contas-folha')]);
-      if(!ativa||alvo!==competencia)return;
-      primeiro=mensal?.primeiro||null;fontesRH=mensal?.fontesRH||{};pessoas=mensal?.pessoas||[];
-      // Registro de antes das etapas: só os grupos já lidos, sem os PDFs separados.
-      legado=!mensal?.fontesRH&&mensal?.arquivos&&Object.keys(mensal.arquivos).length?mensal.arquivos:null;
-      aprovouMapa=!!mensal?.aprovouMapa;origemIndividual=mensal?.origemIndividual||'';
-      saldos=mensal?.saldos||{};confirmacao=mensal?.confirmacao||null;
-      mapa=reusavel||{};
-      // Contas antigas eram texto livre por lotação; agora são cadastradas uma vez.
-      contas=Array.isArray(contasSalvas)?contasSalvas:[];
-      alertas=[];minutas=[];
-      etapa=mensal?.etapa||(legado||fontesRH.mensal?'fichas':'arquivos');
-      status(legado?'Dados importados antes da nova versão. Reenvie os PDFs do RH na etapa 1 para atualizar os valores.':
-        mensal?'Dados deste mês carregados.':'Nenhum dado nesta competência. Comece pelos arquivos do RH.');
-    }catch(e){status('Histórico local indisponível: '+(e.message||e));}
-    finally{carregando=false;render();}
+  // Atualização vinda do outro usuário: não redesenha embaixo de quem está digitando.
+  function renderRemoto(){
+    const f=document.activeElement;
+    if(f&&el.contains(f)&&/^(INPUT|SELECT|TEXTAREA)$/.test(f.tagName)&&f.type!=='file'&&f.type!=='checkbox'){renderPendente=true;return;}
+    render();
   }
-  function irPara(id){etapa=id;persistir();render();el.querySelector('[data-passo="'+id+'"]')?.scrollIntoView({behavior:'smooth',block:'start'});}
+  el.addEventListener('focusout',()=>setTimeout(()=>{if(renderPendente){renderPendente=false;renderRemoto();}},0));
+  const quem=x=>x?.atualizado_por?.nome?String(x.atualizado_por.nome).split(/[ @]/)[0]:'';
+  const quando=x=>{try{return x?.atualizado_em?.toDate?x.atualizado_em.toDate().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';}catch(e){return '';}};
+  let ultimaAlteracao=null;
+  const marcar=x=>{if(x?.atualizado_em?.toMillis&&(!ultimaAlteracao||x.atualizado_em.toMillis()>ultimaAlteracao.atualizado_em.toMillis()))ultimaAlteracao=x;};
+  function carregar(){
+    for(const parar of escutas)try{parar();}catch(e){}
+    escutas=[];base={mes:{},mapa:{},contas:{},arquivos:{}};ultimaAlteracao=null;
+    const alvo=competencia;carregando=true;status('Carregando '+alvo+'…');
+    primeiro=null;fontesRH={};legado=null;pessoas=[];aprovouMapa=false;origemIndividual='';saldos={};confirmacao=null;alertas=[];minutas=[];previstoFolha=null;
+    let prontos=0;const pronto=()=>{if(++prontos===4){carregando=false;
+      if(!fontesRH.mensal&&etapa!=='arquivos')etapa='arquivos';
+      status(fontesRH.mensal?'Folha compartilhada: o que você e os outros usuários da Contabilidade preencherem aparece aqui na hora.':'Nenhum arquivo nesta competência. Comece pelos arquivos do RH.');}
+      render();};
+    const erro=e=>{status('Não foi possível abrir a folha compartilhada: '+(e?.message||e)+'. Confira se as regras do Firestore foram publicadas e se o seu usuário é da Contabilidade.');carregando=false;render();};
+    const primeira=f=>{let v=false;return x=>{f(x);if(!v){v=true;pronto();}else renderRemoto();};};
+    escutas.push(ouvirDoc('folha_meses',alvo,primeira(d=>{
+      if(alvo!==competencia)return;
+      const m=semMeta(d);base.mes=limpo(m);marcar(d);
+      primeiro=m.primeiro??null;pessoas=m.pessoas||[];aprovouMapa=!!m.aprovouMapa;origemIndividual=m.origemIndividual||'';
+      saldos={...(m.saldos||{})};confirmacao=m.confirmacao||null;alertas=m.alertas||[];previstoFolha=m.previstoFolha||null;
+    }),erro));
+    escutas.push(ouvir('folha_meses/'+alvo+'/arquivos',primeira(docs=>{
+      if(alvo!==competencia)return;
+      const novo={};for(const d of docs){novo[d.id]=semMeta(d);marcar(d);}
+      base.arquivos={...novo};fontesRH=novo;
+    }),erro));
+    escutas.push(ouvir('folha_mapa',primeira(docs=>{
+      mapa={};base.mapa={};
+      for(const d of docs){mapa[d.id]={...semMeta(d),_quem:quem(d),_quando:quando(d)};base.mapa[d.id]=structuredClone(mapa[d.id]);}
+    }),erro));
+    escutas.push(ouvir('folha_contas',primeira(docs=>{
+      contas=docs.map(d=>({...semMeta(d),id:d.id})).sort((a,b)=>a.id.localeCompare(b.id,'pt-BR',{numeric:true}));base.contas=Object.fromEntries(contas.map(c=>[c.id,structuredClone(c)]));
+    }),erro));
+  }
+  function irPara(id){etapa=id;render();el.querySelector('[data-passo="'+id+'"]')?.scrollIntoView({behavior:'smooth',block:'start'});}
   function renderPessoas(){
     const principal=arquivosAtuais().principal;
     const r=principal?.registros?.filter(x=>x.valores.maternidade)||[];
@@ -388,7 +441,7 @@ export function telaFolhaEmpenhos(el){
             '<td><input style="width:115px" data-ref="'+esc(r.id)+'" data-campo="vinculo" value="'+esc(m.vinculo||r.vinculo||'')+'"></td>'+
             '<td><strong>'+esc(r.lotacao)+'</strong></td>'+
             '<td><input style="width:225px" data-ref="'+esc(r.id)+'" data-campo="lotacaoOrcamentaria" value="'+esc(m.lotacaoOrcamentaria||ref?.acao||'')+'"><small style="display:block;color:#526b80">'+esc(ref?.origem||'Edição manual')+'</small></td>'+
-            '<td><input style="width:88px" list="fe-fichas-2026" data-ref="'+esc(r.id)+'" data-campo="ficha" value="'+esc(m.ficha||'')+'"></td>'+
+            '<td><input style="width:88px" list="fe-fichas-2026" data-ref="'+esc(r.id)+'" data-campo="ficha" value="'+esc(m.ficha||'')+'">'+(m._quem?'<small style="display:block;color:#526b80" title="Última alteração">'+esc(m._quem)+(m._quando?' · '+esc(m._quando):'')+'</small>':'')+'</td>'+
             '<td style="min-width:225px"><strong>'+esc(classe.titulo)+'</strong>'+(classe.codigo?'<small style="display:block;color:#526b80">'+esc(classe.codigo)+'</small>':'')+'</td>'+
             '<td><input style="width:132px" data-ref="'+esc(r.id)+'" data-campo="fonte" value="'+esc(m.fonte||'')+'"></td>'+
             '<td><select style="width:190px" data-ref="'+esc(r.id)+'" data-campo="contaId">'+opcoesConta(r.contaId)+'</select></td>'+
@@ -473,7 +526,7 @@ export function telaFolhaEmpenhos(el){
     const lista=sit.etapas.map(x=>'<li>'+(x.pronta?'✓ ':'✗ ')+'<strong>'+esc(x.titulo)+'</strong>'+
       (x.pronta?'':'<ul class="fe-pend">'+x.pendencias.map(p=>'<li>'+esc(p)+'</li>').join('')+'</ul>')+'</li>').join('');
     $('#fe-checklist').innerHTML='<ul style="list-style:none;padding:0;margin:0 0 12px">'+lista+'</ul>'+
-      (confirmada?'<p class="fe-ok"><strong>Folha confirmada</strong> em '+esc(new Date(confirmacao.em).toLocaleString('pt-BR'))+'. Os consignados e pensões por fonte foram enviados para <a href="#/consignacoes" id="fe-ir-consig">Consignações por mês</a>.</p>':
+      (confirmada?'<p class="fe-ok"><strong>Folha confirmada</strong>'+(confirmacao.por?' por '+esc(confirmacao.por):'')+' em '+esc(new Date(confirmacao.em).toLocaleString('pt-BR'))+'. Os consignados e pensões por fonte foram enviados para <a href="#/consignacoes" id="fe-ir-consig">Consignações por mês</a>.</p>':
         confirmacao?'<p class="fe-alert">A folha mudou depois da confirmação de '+esc(new Date(confirmacao.em).toLocaleString('pt-BR'))+'. Confirme de novo para atualizar os consignados.</p>':
         sit.podeConfirmar?'<p class="fe-ok">Tudo pronto. Ao confirmar, os descontos de consignados e pensões por fonte vão para Consignações por mês.</p>':'');
     $('#fe-confirmar-folha').disabled=!sit.podeConfirmar||confirmada;
@@ -501,6 +554,7 @@ export function telaFolhaEmpenhos(el){
     $('#fe-confirmar-mapa').checked=aprovouMapa;
     renderConfirmar(pacote,sit);
     renderPassos(sit,pacote);
+    if(ultimaAlteracao)$('#fe-compartilhado').title='Última alteração: '+quem(ultimaAlteracao)+' · '+quando(ultimaAlteracao);
     $('#fe-filtro').value=filtro;$('#fe-visao').value=visao;
   }
   async function lerPDF(f){
@@ -526,7 +580,7 @@ export function telaFolhaEmpenhos(el){
     return candidatos.achados.length;
   }
   el.querySelectorAll('[data-importar]').forEach(input=>input.onchange=async()=>{
-    const f=input.files?.[0],tipo=input.dataset.importar;
+    const f=input.files?.[0],tipo=input.dataset.importar,compAntes=competencia;
     if(!f)return;
     status('Lendo '+f.name+'…');input.disabled=true;
     try{
@@ -536,12 +590,12 @@ export function telaFolhaEmpenhos(el){
         if(!analisado.quantidade)throw Error(ehFolhaNominal(linhas)?'Este PDF é a Folha de pagamento (nominal), não o Resumo de Verbas. O nome do arquivo do RH pode estar trocado: envie-o no campo "Folha de pagamento".':
           'Nenhum Resumo de Verbas legível neste PDF. A folha nominal isolada não traz os totais por lotação; envie o Resumo de Verbas.');
         const comp=analisado.arquivos.find(a=>a.competencia)?.competencia;
-        if(tipo==='automatico'){fontesRH={};legado=null;pessoas=[];origemIndividual='';}
-        if(tipo==='principal'&&legado){legado=null;}
+        if(tipo==='automatico'){fontesRH={};pessoas=[];origemIndividual='';}
         conferirCompetencia(comp);
         if(tipo==='principal'&&!analisado.arquivos.some(a=>a.tipo==='principal'))
           throw Error('Este PDF não parece ser a folha mensal (o cabeçalho indica '+analisado.arquivos.map(a=>tipos[a.tipo]).join(', ')+'). Envie-o no campo correspondente.');
-        fontesRH={...fontesRH,mensal:{nome:f.name,arquivos:analisado.arquivos,simples:analisarResumoVerbas(linhas,{tipo:'principal',nome:f.name})}};
+        const separou=analisado.arquivos.some(a=>a.tipo==='principal'&&a.registros.some(r=>r.adiantamentoSeparado));
+        fontesRH={...fontesRH,mensal:{nome:f.name,arquivos:analisado.arquivos,...(separou?{simples:analisarResumoVerbas(linhas,{tipo:'principal',nome:f.name})}:{})}};
         if(tipo==='automatico'){delete fontesRH.decimo;delete fontesRH.rescisao;delete fontesRH.extra;}
         alertas=[...analisado.avisos];
         // A folha nominal pode vir no mesmo PDF.
@@ -563,7 +617,9 @@ export function telaFolhaEmpenhos(el){
         status('Importado '+f.name+' · '+a.registros.length+' lotações de '+tipos[tipo]+'.');
       }
       aprovouMapa=false;
-      await persistir();render();
+      await persistir();
+      // A competência veio do PDF: passa a acompanhar a folha compartilhada desse mês.
+      if(competencia!==compAntes)carregar();else render();
     }catch(e){toast('Falha em '+f.name+': '+(e.message||e),'erro');status('Arquivo não importado: '+e.message);}
     finally{input.disabled=false;input.value='';}
   });
@@ -584,7 +640,7 @@ export function telaFolhaEmpenhos(el){
   el.querySelectorAll('.fe-passo>summary').forEach(s=>s.onclick=e=>{
     e.preventDefault();
     const id=s.parentElement.dataset.passo;
-    etapa=etapa===id?'':id;persistir();render();
+    etapa=etapa===id?'':id;render();
   });
   $('#fe-nova-servidora').onclick=()=>{
     pessoas.push({nome:'',matricula:'',lotacao:'',beneficio:0,inss:0,confirmado:false,origem:'Preenchimento manual'});
@@ -653,7 +709,7 @@ export function telaFolhaEmpenhos(el){
       const mes=await carregarMes(uid,competencia);
       // Os totais do RH viram o "valor esperado" de cada banco na conferência das minutas.
       await salvarMes(uid,competencia,{...mes,previstoFolha:previsto,esperados:{...(mes.esperados||{}),...previsto.totais}});
-      confirmacao={em,assinatura};
+      confirmacao={em,assinatura,por:estado.sessao?.nome||estado.sessao?.email||''};previstoFolha=previsto;
       await persistir();render();
       toast('Folha confirmada. Consignados e pensões enviados para Consignações por mês.');
     }catch(e){toast('Não foi possível confirmar: '+(e.message||e),'erro');render();}
@@ -680,5 +736,5 @@ export function telaFolhaEmpenhos(el){
   $('#fe-rascunho').onclick=()=>exportar(false);
   $('#fe-final').onclick=()=>exportar(true);
   carregar();
-  return {titulo:'Folha de pagamentos',limpar:()=>{ativa=false;}};
+  return {titulo:'Folha de pagamentos',limpar:()=>{ativa=false;for(const parar of escutas)try{parar();}catch(e){}}};
 }

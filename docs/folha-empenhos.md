@@ -69,8 +69,18 @@ O sistema permite importar **um único PDF com resumos da folha principal, folha
 
 A rubrica 163 (salário-maternidade) é extraída da coluna de proventos, e a 201 (INSS) da coluna de descontos, **mesmo quando ambas estão marcadas com a letra P no RH**. O cruzamento entre folha nominal e Resumo de Verbas usa a lotação completa e a matrícula da servidora, e exige conferência do usuário antes de redistribuir o INSS para a OP extraorçamentária. O caso de teste utiliza exatamente R$ 1.782,37 de salário-maternidade e R$ 136,09 de INSS.
 
-## Segurança e limites
-PDFs não são enviados ao GitHub/Firebase pelo módulo. As extrações e mapeamentos ficam no IndexedDB do navegador, segmentados pelo UID da conta, **não criptografados em repouso pelo módulo**. Utilize dispositivo institucional e evite computadores compartilhados. A planilha exportada contém dados financeiros e deve permanecer em local autorizado.
+## Compartilhamento, segurança e limites
+A folha é **compartilhada entre os usuários da Contabilidade** (perfis `admin` e `operador`) no Firestore:
+- `folha_meses/{competência}`: primeiro empenho, saldos das contas, servidoras da maternidade, confirmação e o previsto de consignados;
+- `folha_meses/{competência}/arquivos/{mensal|decimo|rescisao|extra}`: os valores lidos dos resumos do RH (o PDF nunca sai do navegador);
+- `folha_mapa/{tipo|lotação}`: ficha, fonte, conta e ordem de cada lotação (vale para todos os meses);
+- `folha_contas/{id}`: contas bancárias cadastradas.
+
+Quem abre a mesma competência vê na hora o que o outro preenche. Cada alteração grava **só o campo que mudou** (uma lotação, um saldo, uma conta), então duas pessoas trabalhando ao mesmo tempo não apagam o trabalho uma da outra; se as duas mudarem o mesmo campo, vale a última. A tela não redesenha embaixo de quem está digitando: a atualização do outro aparece quando o campo perde o foco. Cada lotação mostra quem a alterou por último.
+
+**Publicar as regras:** as coleções acima precisam das regras novas de `firestore.rules` (Console Firebase → Firestore → Regras → Publicar). Sem isso a tela avisa que não conseguiu abrir a folha compartilhada.
+
+Os dados que antes ficavam só no navegador (IndexedDB) não são levados automaticamente: reenvie os PDFs do RH e, se quiser, importe o mapa CSV de fichas.
 
 **Não emite empenhos, OPs nem liquidações oficiais.** O resultado depende da conferência humana, especialmente onde os resumos do RH apresentarem campos ilegíveis, divergências e benefícios especiais.
 
