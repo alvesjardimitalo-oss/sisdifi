@@ -8,6 +8,9 @@ on:
       - 'tests/folha-maternidade.test.mjs'
       - 'tests/folha-extras-resumo.test.mjs'
       - 'tests/folha-tres-resumos.test.mjs'
+      - 'tests/folha-fluxo.test.mjs'
+      - 'assets/js/folha-fluxo.js'
+      - 'assets/js/folha-ordem.js'
       - 'assets/js/folha-empenhos-pdf.js'
       - 'assets/js/folha-empenhos-store.js'
       - 'assets/js/folha-empenhos-xlsx.js'
@@ -24,6 +27,9 @@ on:
       - 'tests/folha-maternidade.test.mjs'
       - 'tests/folha-extras-resumo.test.mjs'
       - 'tests/folha-tres-resumos.test.mjs'
+      - 'tests/folha-fluxo.test.mjs'
+      - 'assets/js/folha-fluxo.js'
+      - 'assets/js/folha-ordem.js'
       - 'assets/js/folha-empenhos-pdf.js'
       - 'assets/js/folha-empenhos-store.js'
       - 'assets/js/folha-empenhos-xlsx.js'
@@ -52,6 +58,7 @@ jobs:
       - run: node tests/folha-maternidade.test.mjs
       - run: node tests/folha-extras-resumo.test.mjs
       - run: node tests/folha-tres-resumos.test.mjs
+      - run: node tests/folha-fluxo.test.mjs
       - name: Conferir planilha XLSX e fórmulas OpenXML
         run: |
           python3 - <<'PY'
@@ -65,7 +72,7 @@ jobs:
               nomes=z.namelist()
               assert 'xl/workbook.xml' in nomes
               folhas=[x for x in nomes if x.startswith('xl/worksheets/sheet') and x.endswith('.xml')]
-              assert len(folhas)==6,folhas
+              assert len(folhas)==8,folhas
               base=z.read('xl/workbook.xml').decode()
               assert 'Modelo Contabilidade' in base and 'Empenhos' in base and 'Composição' in base and 'OPs Extras' in base
               modelo=z.read('xl/worksheets/sheet1.xml').decode()
@@ -77,5 +84,6 @@ jobs:
               ET.fromstring(folha)
               ET.fromstring(modelo)
               ET.fromstring(z.read('xl/worksheets/sheet3.xml'))
-          print('Planilha XLSX íntegra, 6 abas e fórmulas corretas.')
+          assert 'Consignados por fonte' in base and 'Saldos das contas' in base
+          print('Planilha XLSX íntegra, 8 abas e fórmulas corretas.')
           PY
