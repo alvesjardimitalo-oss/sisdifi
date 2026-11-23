@@ -1,7 +1,7 @@
 import { esc } from '../ui.js';
 import { pode, estado } from '../estado.js';
 import { DESTINOS, extrairMinuta, agruparMinuta } from '../minuta-pdf.js';
-import { compararPrevistoComMinutas } from '../folha-fluxo.js?v=0.3b56a92a.3b56a92a.3b56a92a';
+import { compararPrevistoComMinutas } from '../folha-fluxo.js?v=3.23.0.3b56a92a';
 import { MESES, rotuloCompetencia, valorEsperado, vincularFolha, conferenciaMensal, carregarMes, salvarMes, agruparOPsPorBancoFonte, reconhecerCodigoCaixaExistente, classificarArquivo, avisosPendentes } from '../consignacoes-mensal.js?v=3.13.0.357fc820';
 const moeda = c => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 export function telaConsignacoes(el) {
