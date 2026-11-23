@@ -49,7 +49,7 @@ function folhaXML(tabela){
   tabela.map((linha,i)=>'<row r="'+(i+1)+'">'+linha.map((v,j)=>celula(v,j,i+1,i===0)).join('')+'</row>').join('')+
   '</sheetData><autoFilter ref="A1:'+letra(cab.length-1)+tabela.length+'"/></worksheet>';
 }
-export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',conciliacao=[],aprovouMapa=false}={}){
+export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',conciliacao=[],aprovouMapa=false,consignados=null,contas=[]}={}){
   // Primeira aba espelha as 14 colunas da última planilha municipal de junho,
   // sem copiar fichas/fontes de competências anteriores e sem inventar nº de OP.
   const modelo=[['Grupo de folha','Empenho','Secretaria','Ficha','Fonte de Recursos','Conta Bancária',
@@ -139,7 +139,7 @@ export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',co
     ['4. Salário-família gera indicação de OP extra pelo valor do resumo.'],
     ['5. Salário-maternidade exige folha individual, matrícula, rubrica 163 e INSS 201 com conferência humana.'],
     ['6. O INSS confirmado da maternidade é removido do desconto da folha principal e retido na OP extra.'],
-    ['7. Descontos de bancos e pensões são comparados com minutas por TOTAL; o vínculo de cada guia com empenho precisa revisão.'],
+    ['7. Descontos de bancos e pensões vêm do RH; a aba Consignados por fonte agrupa por banco e fonte do empenho. A minuta é conferida depois do lançamento.'],
     ['8. Caso o RH apresente compensações externas não analisadas, não presumir total líquido final.'],
     ['9. A aba Composição discrimina rubrica, código, categoria e página do PDF do RH para cada desconto.'],
     ['10. Divergência entre soma das rubricas e desconto RH BLOQUEIA a exportação da relação conferida.'],
@@ -148,7 +148,19 @@ export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',co
     ['13. Outros brutos/descontos da planilha original só podem ser informados após comprovação, sem criação automática de valores.'],
     ['14. O líquido do Modelo Contabilidade inclui OPs extras; no Empenhos, o líquido representa somente a parte orçamentária ajustada.'],
     ['15. Este Excel é memória de apoio, não emite empenho, liquidação ou OP no sistema contábil.']];
-  const nomes=['Modelo Contabilidade','Empenhos','Composição','OPs Extras','Conferência','Orientações'],dados=[modelo,emp,composicoes,extra,conf,notas];
+  // Consignados e pensões por banco e fonte do empenho: uma linha por OP extraorçamentária.
+  const consig=[['Banco / desconto','Fonte de recurso','Quantidade de empenhos','Valor da OP R$','Empenhos (nº · lotação · valor)']];
+  for(const g of consignados?.itens||[])consig.push([g.destino,g.fonteCompleta,g.empenhos.length,{centavos:g.total},
+    g.empenhos.map(e=>e.empenho+' · '+e.lotacao+' · '+(e.valor/100).toFixed(2).replace('.',',')).join(' | ')]);
+  for(const p of consignados?.pendentes||[])consig.push([p.destino,'SEM FONTE — PENDENTE',1,{centavos:p.valor},p.empenho+' · '+p.lotacao]);
+  if(consignados)for(const [d,v] of Object.entries(consignados.totais))consig.push(['TOTAL '+d,'','',{centavos:v},'']);
+  const saldos=[['Conta','Banco / agência / conta','Fonte de recurso','Saldo R$','Bruto dos empenhos R$','Saldo depois R$','Empenhos']];
+  for(const c of contas){
+    const n=saldos.length+1;
+    saldos.push([c.nome||'',c.numero||'',c.fonte||'',c.saldo==null?'':{centavos:c.saldo},{centavos:c.utilizado||0},
+      c.saldo==null?'SALDO NÃO INFORMADO':{formula:'D'+n+'-E'+n,moeda:true,cache:c.saldo-(c.utilizado||0)},(c.empenhos||[]).join(', ')]);
+  }
+  const nomes=['Modelo Contabilidade','Empenhos','Composição','OPs Extras','Consignados por fonte','Saldos das contas','Conferência','Orientações'],dados=[modelo,emp,composicoes,extra,consig,saldos,conf,notas];
   const header='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
   const workbook=header+'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'+
     nomes.map((n,i)=>'<sheet name="'+xml(n)+'" sheetId="'+(i+1)+'" r:id="rId'+(i+1)+'"/>').join('')+'</sheets><calcPr fullCalcOnLoad="1"/></workbook>';

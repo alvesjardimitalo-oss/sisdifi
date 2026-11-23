@@ -274,7 +274,8 @@ export function descontarFolhasProprias(arquivos=[]){
   const proprios=lista.filter(a=>a!==mensal&&(a.tipo==='decimo'||a.tipo==='rescisao'));
   if(!mensal||!proprios.length)return {arquivos:lista,avisos:[],descontados:0};
   const avisos=[];
-  const restantes=new Map(mensal.registros.map(r=>[r.lotacao,{...r,valores:{...r.valores}}]));
+  const restantes=new Map(mensal.registros.map(r=>[r.lotacao,{...r,valores:{...r.valores},
+    composicao:{...(r.composicao||{})},bancos:{...(r.bancos||{})}}]));
   let descontados=0;
   for(const a of proprios){
     for(const r of a.registros){
@@ -288,6 +289,13 @@ export function descontarFolhasProprias(arquivos=[]){
         const v=r.valores?.[k];
         if(Number.isSafeInteger(v)&&v!==0)alvo.valores[k]=(alvo.valores[k]||0)-v;
       }
+      /* Os descontos por banco/pensão também estão dentro do mensal: o empréstimo
+         quitado na rescisão já aparece na rescisão. Sem tirar daqui, o consignado
+         seria contado duas vezes no total por banco e na OP por fonte. */
+      for(const k of CATEGORIAS_DESCONTOS){
+        const v=r.composicao?.[k];
+        if(Number.isSafeInteger(v)&&v!==0)alvo.composicao[k]=(alvo.composicao[k]||0)-v;
+      }
       descontados++;
     }
   }
@@ -298,6 +306,15 @@ export function descontarFolhasProprias(arquivos=[]){
       avisos.push('Lotação '+r.lotacao+': descontar o 13º e a rescisão deixou '+negativos.join(', ')+
         ' negativo. Confira se os arquivos são da mesma competência.');
     }
+    const negativosDesconto=CATEGORIAS_DESCONTOS.filter(k=>(r.composicao[k]||0)<0);
+    if(negativosDesconto.length)avisos.push('Lotação '+r.lotacao+': descontar o 13º e a rescisão deixou '+
+      negativosDesconto.join(', ')+' negativo nos descontos. Confira se os arquivos são da mesma competência.');
+    r.composicaoTotal=CATEGORIAS_DESCONTOS.reduce((s,k)=>s+(r.composicao[k]||0),0);
+    const desc=r.valores.desconto??r.valores.totalDescontos;
+    r.diferencaComposicao=desc==null?null:desc-r.composicaoTotal;
+    r.inss=r.composicao.INSS||0;
+    r.bancos={Caixa:r.composicao.Caixa||0,Sicoob:r.composicao.Sicoob||0,
+      Bradesco:r.composicao.Bradesco||0,Pensao:r.composicao.Pensao||0};
     // Lotação que era só 13º ou só rescisão não sobra folha nenhuma.
     if(!r.valores.bruto&&!r.valores.desconto){continue;}
     r.extras=somaExtras(r.valores);

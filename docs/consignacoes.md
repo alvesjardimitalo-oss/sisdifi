@@ -35,3 +35,7 @@ O botão **Imprimir OP** utiliza agora o brasão local `assets/img/brasao.png` (
 
 ## Correção da pré-visualização da memória OP (A4)
 A página da memória de cálculo agora abre centralizada no monitor com proporção A4 (210 × 297 mm), margens internas, fundo de pré-visualização e largura máxima fixa, evitando o documento esticado por toda a janela e a tipografia minúscula. Em impressão, as dimensões são A4 real, a barra de ações é ocultada e o fundo passa a branco. A tabela usa fonte legível, guias e valores organizados; permite imprimir novamente ou salvar em PDF pela barra de ações da prévia. A imagem do brasão continua sendo o arquivo local oficial `assets/img/brasao.png`. O CNPJ não validado foi retirado do cabeçalho. Os valores e as fontes de recurso não são modificados.
+
+
+## Previsto pela folha (antes da minuta)
+Quando a folha é confirmada em **Folha de pagamentos**, o painel **Previsto pela folha** aparece no topo desta tela, na competência da folha: uma linha por banco/desconto e fonte de recurso do empenho, com a quantidade de empenhos e o valor descontado pelo RH. Os totais por banco são gravados como valor esperado. Cada linha permite **Copiar dados** e **Imprimir OP** (memória de cálculo com os empenhos, marcada como "valores da folha confirmada, antes da minuta"). Quando as minutas forem importadas, as colunas Minuta e Diferença comparam folha e arrecadação por banco **e fonte**. O previsto é preservado ao importar ou retirar minutas.

@@ -338,8 +338,11 @@ assert.match(texto,/Composição/);
 assert.match(texto,/Imposto de renda|IRRF/);
 const view=readFileSync(new URL('../assets/js/views/folha-empenhos.js',import.meta.url),'utf8');
 assert.match(view,/pode\.contabil\(\)/);
-assert.match(view,/data-importar="principal"/);
-assert.match(view,/data-importar="nominal"/);
+// Cada arquivo do RH tem seu campo: slot(chave, título, ajuda, tipo de importação).
+assert.match(view,/slot\('principal',[^\n]*'principal'\)/);
+assert.match(view,/slot\('nominal',[^\n]*'nominal'\)/);
+assert.match(view,/slot\('decimo',[^\n]*'decimo'\)/);
+assert.match(view,/slot\('rescisao',[^\n]*'rescisao'\)/);
 assert.match(view,/fe-final/);
 assert.match(view,/fe-visao/);
 assert.match(view,/Rubricas de origem/);
@@ -390,7 +393,7 @@ assert.equal(empenhosMistos.totalDescontoRH,824194+98807);
 assert.equal(empenhosMistos.empenhos[0].liquido,875806);
 assert.ok(!empenhosMistos.empenhos[0].problemas.some(v=>/conta bancária/.test(v)));
 const uiNovo=readFileSync(new URL('../assets/js/views/folha-empenhos.js',import.meta.url),'utf8');
-assert.match(uiNovo,/data-importar="automatico"/);
+assert.match(uiNovo,/slot\('automatico',[^\n]*'automatico'\)/);
 assert.match(uiNovo,/Preencha ficha e fonte de recursos/);
 
 console.log('Folha: resumo, INSS individual, família, matrícula, ordenação, consignações e XLSX: OK.');
