@@ -12,7 +12,7 @@ import {esc,toast} from '../ui.js';
 import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha,tipoDeFolhaCabecalho} from '../folha-empenhos.js?v=0.3e8e59b8.3e8e59b8.3e8e59b8';
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
-import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js?v=0.496081b5.496081b5.496081b5';
+import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js?v=0.496081b5.496081b5.418e5047';
 import {carregarRegistroFolha,salvarRegistroFolha} from '../folha-empenhos-store.js';
 import {carregarMes,salvarMes} from '../consignacoes-mensal.js?v=3.13.0.357fc820';
 import {saldosDasContas,consignadosPorFonte,etapasDaFolha,avisosDaConta,contaParaFonte,rotuloConta,novaContaId,
@@ -44,6 +44,10 @@ function parseCSV(texto) {
    desses tipos chegam, eles mandam e são descontados do mensal (descontarFolhasProprias).
    Se o mensal foi lido com o 13º separado pela rubrica 150 (cabeçalho misto),
    usa-se a leitura sem separar, para não tirar o mesmo 13º duas vezes. */
+// O RH já entregou os arquivos com os nomes trocados: identifica pelo conteúdo.
+const cabecalho=linhas=>linhas.slice(0,12).map(l=>String(l.texto||l)).join(' ');
+const ehFolhaNominal=linhas=>/F\s?O\s?L\s?H\s?A\s+D\s?E\s+P\s?A\s?G\s?A\s?M\s?E\s?N\s?T\s?O/.test(cabecalho(linhas));
+const ehResumo=linhas=>/RESUMO\s+DE\s+VERBAS/.test(cabecalho(linhas));
 function arquivosDoRH(f){
   const out={};
   if(!f)return out;
@@ -528,7 +532,8 @@ export function telaFolhaEmpenhos(el){
       const linhas=await lerPDF(f);
       if(tipo==='principal'||tipo==='automatico'){
         const analisado=analisarResumoConsolidado(linhas,{nome:f.name});
-        if(!analisado.quantidade)throw Error('Nenhum Resumo de Verbas legível neste PDF. A folha nominal isolada não traz os totais por lotação; envie o Resumo de Verbas.');
+        if(!analisado.quantidade)throw Error(ehFolhaNominal(linhas)?'Este PDF é a Folha de pagamento (nominal), não o Resumo de Verbas. O nome do arquivo do RH pode estar trocado: envie-o no campo "Folha de pagamento".':
+          'Nenhum Resumo de Verbas legível neste PDF. A folha nominal isolada não traz os totais por lotação; envie o Resumo de Verbas.');
         const comp=analisado.arquivos.find(a=>a.competencia)?.competencia;
         if(tipo==='automatico'){fontesRH={};legado=null;pessoas=[];origemIndividual='';}
         if(tipo==='principal'&&legado){legado=null;}
@@ -542,10 +547,12 @@ export function telaFolhaEmpenhos(el){
         if(linhas.some(x=>/\b\d{5,8}\s*\/\s*\d+\s+.+/.test(x.texto||'')))lerMaternidades(linhas,f.name);
         status('Folha mensal lida: '+(arquivosAtuais().principal?.registros.length||0)+' lotações. Agora envie a Folha de pagamento e, se houver, o 13º e as rescisões.');
       }else if(tipo==='nominal'){
+        if(ehResumo(linhas))throw Error('Este PDF é o Resumo de Verbas, não a Folha de pagamento. O nome do arquivo do RH pode estar trocado: envie-o no campo "Resumo de Verbas".');
         if(!arquivosAtuais().principal)throw Error('Envie primeiro o Resumo de Verbas da folha mensal.');
         const n=lerMaternidades(linhas,f.name);
         status(n+' servidora(s) com maternidade identificada(s) por matrícula e lotação. Confira os valores e marque Conferi.');
       }else{
+        if(ehFolhaNominal(linhas)&&!ehResumo(linhas))throw Error('Este PDF é a Folha de pagamento (nominal) de '+tipos[tipo]+'. Aqui vai o Resumo de Verbas: o nome do arquivo do RH pode estar trocado.');
         const cab=linhas.map(l=>tipoDeFolhaCabecalho(l.texto||l)).find(Boolean);
         if(cab&&cab!==tipo)throw Error('O cabeçalho deste PDF indica '+tipos[cab]+', não '+tipos[tipo]+'. Confira o campo escolhido.');
         const a=analisarResumoVerbas(linhas,{tipo,nome:f.name});

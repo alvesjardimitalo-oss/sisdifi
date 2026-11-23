@@ -60,7 +60,7 @@ export function gerarPlanilhaFolha(previsao,{competencia='',status='RASCUNHO',co
   let grupoAnterior='';
   for(const r of previsao.empenhos){
     const linha=modelo.length+1;
-    const opBruto=(r.familia||0)+(r.maternidade||0);
+    const opBruto=(r.familia||0)+(r.maternidade||0)+(r.natalidade||0);
     const opInss=r.maisInssExtra||0;
     const cacheLiquido=(r.bruto||0)-(r.descontoAjustado||0)+opBruto-opInss;
     modelo.push([r.tipo!==grupoAnterior?nomeGrupo[r.tipo]:'',
