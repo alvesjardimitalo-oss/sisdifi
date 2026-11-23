@@ -2,6 +2,19 @@
 
 Módulo contábil SISDIFI: `#/folha-empenhos` (menu "Folha de pagamentos", exclusivo ADM e Contabilidade).
 
+## Fluxo em etapas (v3.23)
+A tela é um passo a passo. Cada etapa mostra o que falta; a barra do topo indica as concluídas.
+
+1. **Arquivos do RH.** Envie o *Resumo de Verbas* e a *Folha de pagamento* (nominal) do mês; depois o Resumo de Verbas do **13º** e o das **rescisões**, quando houver. O resumo mensal já contém o 13º e as rescisões: o SISDIFI desconta esses valores do mensal (bruto, descontos **e consignados por banco**) e gera empenhos separados. A folha nominal identifica as servidoras com salário-maternidade. Em "Outros casos" ficam a folha extra do dia 10 e o PDF único com todos os resumos.
+2. **Número do primeiro empenho.** O sistema pergunta o número e mostra a faixa de cada grupo (mensal, extra, 13º, rescisões).
+3. **Saldo das contas bancárias.** Cadastre as contas que pagam a folha (nome, banco/agência/conta, fonte de recurso) e o saldo da competência. As contas ficam guardadas para os meses seguintes; o saldo é informado todo mês. Saldo em branco é "não informado", diferente de zero.
+4. **Ficha, fonte e conta de cada empenho.** Ao informar a ficha, a LOA preenche secretaria, ação, natureza e fonte; a conta é sugerida quando só uma conta tem aquela fonte. O **bruto** de cada empenho é descontado do saldo da conta, na ordem dos empenhos, e a tabela mostra o saldo depois de cada um. Conta com saldo insuficiente, empenho sem conta ou fonte do empenho diferente da fonte da conta ficam como pendência.
+5. **Confirmar a folha.** Só libera com as etapas anteriores concluídas. Ao confirmar, o SISDIFI agrupa os descontos de **Caixa, Sicoob, Bradesco e pensão alimentícia por banco e fonte de recurso do empenho** (uma linha = uma OP extraorçamentária) e grava em **Consignações por mês** da mesma competência: o previsto por fonte e os totais por banco como valor esperado. A planilha conferida fica disponível. Qualquer mudança depois da confirmação (valor, ficha, fonte, conta ou saldo) exige confirmar de novo.
+
+A minuta de arrecadação dos bancos só sai **depois** que a folha é lançada no sistema contábil, por isso ela **não bloqueia** mais a planilha conferida. A conferência com as minutas fica em "Depois do lançamento" e, por fonte, em Consignações por mês.
+
+Dados de antes desta versão aparecem como "importação antiga": reenvie os PDFs do RH na etapa 1 para atualizar os valores.
+
 ## Fluxo de um único PDF (v3.17.0)
 1. Abra **Folha de pagamentos** e escolha um único PDF no campo azul **Escolha um único arquivo do RH (PDF)**. O arquivo ideal é o **Resumo de Verbas consolidado**: a folha nominal isolada não contém os totais orçamentários por lotação.
 2. A competência é identificada pelo cabeçalho do próprio resumo quando não há lançamentos previamente carregados no mês atual; se existirem dados de outra competência, a importação é bloqueada para não misturá-los.
@@ -38,7 +51,9 @@ Produzir memória de lançamento com **uma linha por empenho/lotação**, sugeri
 - Somente o INSS individual confirmado é realocado do desconto da folha principal para a OP extraorçamentária do salário-maternidade. O total retido no conjunto das operações não é duplicado.
 
 ## Planilha XLSX
-A exportação em rascunho está disponível após importar qualquer Resumo de Verbas válido; a versão "conferida" exige mapeamento verificado, salário-maternidade conciliado, composição de descontos sem diferenças e minutas bancárias/pensões conferidas.
+A exportação em rascunho está disponível após importar qualquer Resumo de Verbas válido; a versão "conferida" exige a folha confirmada na etapa 5 (mapeamento verificado, salário-maternidade conciliado, composição de descontos sem diferenças, conta e saldo suficientes). As minutas bancárias são conferidas depois do lançamento.
+
+Abas novas: **Consignados por fonte** (uma linha por banco e fonte, com os empenhos que compõem a OP) e **Saldos das contas** (saldo, bruto dos empenhos e saldo depois).
 
 Abas do Excel:
 1. **Empenhos:** uma linha por empenho, colunas individualizadas Caixa, Sicoob, Bradesco, pensões, INSS, IRRF e Outros; bruto, soma automática das rubricas, diferença com RH, INSS maternidade, desconto ajustado e líquido. Fórmulas e valores de cache para abertura correta no Excel.

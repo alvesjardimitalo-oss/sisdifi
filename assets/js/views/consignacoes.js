@@ -1,12 +1,16 @@
 import { esc } from '../ui.js';
 import { pode, estado } from '../estado.js';
 import { DESTINOS, extrairMinuta, agruparMinuta } from '../minuta-pdf.js';
+import { compararPrevistoComMinutas } from '../folha-fluxo.js?v=0.3b56a92a.3b56a92a.3b56a92a';
 import { MESES, rotuloCompetencia, valorEsperado, vincularFolha, conferenciaMensal, carregarMes, salvarMes, agruparOPsPorBancoFonte, reconhecerCodigoCaixaExistente, classificarArquivo, avisosPendentes } from '../consignacoes-mensal.js?v=3.13.0.357fc820';
 const moeda = c => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 export function telaConsignacoes(el) {
   if (!pode.contabil()) return { titulo: 'Acesso restrito' };
   const uid=estado.sessao.uid, hoje=new Date();
   let competencia=`${estado.exercicio || hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}`;
+  // Vindo da folha confirmada, abre direto a competência dela.
+  try { const veio=sessionStorage.getItem('sisdifi-consignacoes-competencia'); if(/^\d{4}-(0[1-9]|1[0-2])$/.test(veio||'')) competencia=veio; sessionStorage.removeItem('sisdifi-consignacoes-competencia'); } catch(e) {}
+  let previstoFolha=null;
   let arquivos=[],esperados={},revisao=0,ocupado=true,ativo=true,erroCarga=false,modoOP=true;
   const urls=new Set();
   el.innerHTML=`<style>
@@ -43,6 +47,7 @@ export function telaConsignacoes(el) {
   <details class="mi-card" id="mi-conferencia-expandida"><summary><strong>Conferência mensal e diferenças entre bancos</strong> · Clique para abrir os valores esperados e os alertas</summary><div id="mi-bancos" class="mi-bancos"></div><div id="mi-conferencia"></div></details>
   <div class="mi-card"><label class="campo"><span>Adicionar minutas à competência da folha selecionada (PDF, até 15 MB por arquivo)</span><input id="mi-pdf" type="file" accept="application/pdf,.pdf" multiple disabled></label><p class="dica">O banco é identificado pelo conteúdo do PDF, inclusive código de receita 21 para Caixa nas minutas de Frei Inocêncio. A competência é a da folha, mesmo quando o pagamento ou a arrecadação ocorre no mês seguinte. As datas do PDF são preservadas e não definem a competência. PDFs sem texto precisam de OCR. O número mantém o tipo indicado na minuta: guia ou empenho.</p></div>
   <div id="mi-arquivos"></div>
+  <div id="mi-previsto" class="mi-card mi-op-painel"></div>
   <div id="mi-op-painel" class="mi-card mi-op-painel">
     <div class="mi-op-topo"><div><h2>OP extraorçamentária por banco e fonte</h2><p>Uma OP para cada banco/desconto e fonte de recurso. Valores extraídos das guias da competência selecionada.</p></div></div>
     <div class="mi-op-modos" aria-label="Modo de visualização">
@@ -63,6 +68,7 @@ export function telaConsignacoes(el) {
   const $=s=>el.querySelector(s);
   // O painel de OP fica no topo; o detalhamento original e a importação permanecem acessíveis.
   $('#mi-status').insertAdjacentElement('afterend',$('#mi-op-painel'));
+  $('#mi-status').insertAdjacentElement('afterend',$('#mi-previsto'));
   $('#mi-mes').value=competencia.slice(5);$('#mi-ano').value=competencia.slice(0,4);
   const todos=()=>arquivos.flatMap(a=>a.resultado.registros.map(r=>({...r,arquivo:a.nome})));
   const filtrados=()=>todos().filter(r=>(!$('#mi-destino').value||(r.destino||'Não classificado')===$('#mi-destino').value)&&(!$('#mi-fonte').value||r.fonteCompleta===$('#mi-fonte').value)&&String(r.numero||'').toLowerCase().includes($('#mi-busca').value.trim().toLowerCase()));
@@ -74,6 +80,7 @@ export function telaConsignacoes(el) {
     $('#mi-csv').disabled=$('#mi-print').disabled=valor||!filtrados().length||!$('#mi-revisado').checked;
     $('#mi-op-imprimir-todos').disabled=valor||!$('#mi-revisado').checked||!agruparOPsPorBancoFonte(arquivos).itens.some(g=>!$('#mi-op-banco').value||g.destino===$('#mi-op-banco').value);
     el.querySelectorAll('[data-op-imprimir]').forEach(b=>b.disabled=valor||!$('#mi-revisado').checked);
+    el.querySelectorAll('[data-prev-imprimir]').forEach(b=>b.disabled=valor||!$('#mi-revisado').checked);
   }
   function tabela(grupos) {
     return grupos.map(g=>`<section class="mi-card"><h3>${esc(g.destino)} · Fonte ${esc(g.fonte)}</h3><div class="mi-tabela"><table><thead><tr><th>Tipo / Número</th><th>Data da arrecadação</th><th>Fonte completa</th><th>Arquivo / página</th><th class="mi-valor">Valor</th></tr></thead><tbody>${g.registros.map(r=>`<tr><td>${esc(r.tipo)} ${esc(r.numero)}</td><td>${esc(r.data)}</td><td>${esc(r.fonteCompleta)}<small>${esc(r.fonteNome)}</small></td><td>${esc(r.arquivo)} · p. ${r.pagina}</td><td class="mi-valor">${moeda(r.centavos)}</td></tr>`).join('')}</tbody><tfoot><tr><th colspan="4">Total da fonte ${esc(g.fonte)}</th><th class="mi-valor">${moeda(g.total)}</th></tr></tfoot></table></div></section>`).join('');
@@ -110,7 +117,8 @@ export function telaConsignacoes(el) {
     const quantidade = grupos.reduce((n,x)=>n+x.guias,0);
     const bancos = [...new Set(grupos.map(x=>x.destino))];
     const nomeBanco = individual ? g.destino : (bancos.length===1?bancos[0]:'Vários bancos');
-    const situacao = c.conferido ? 'Valores mensais conciliados com os totais esperados' : 'Conferência mensal pendente / incompleta';
+    const pelaFolha = grupos.some(x=>x.origem==='folha');
+    const situacao = pelaFolha ? 'Valores da folha confirmada no SISDIFI, antes da minuta de arrecadação' : c.conferido ? 'Valores mensais conciliados com os totais esperados' : 'Conferência mensal pendente / incompleta';
     const css = [
       // A impressão física usa folha A4 verdadeira; a visualização na tela simula a folha.
       '@page{size:A4 portrait;margin:0}',
@@ -197,12 +205,12 @@ export function telaConsignacoes(el) {
       '<div class="titulo"><h1>'+titulo+'</h1><p>'+esc(subtitulo)+'</p></div>'+
       '<div class="resumo"><div class="item"><small>COMPETÊNCIA DA FOLHA</small><strong>'+esc(rotuloCompetencia(competencia))+
       '</strong></div><div class="item"><small>BANCO / DESCONTO</small><strong>'+esc(nomeBanco)+
-      '</strong></div><div class="item"><small>GUIAS</small><strong>'+quantidade+
+      '</strong></div><div class="item"><small>'+(pelaFolha?'EMPENHOS':'GUIAS')+'</small><strong>'+quantidade+
       '</strong></div><div class="item total"><small>TOTAL DA MEMÓRIA</small><strong>'+moeda(total)+'</strong></div></div>'+
       corpo+'<div class="quadro-total"><span>TOTAL PARA EMISSÃO '+(individual?'DA OP':'DAS OPS')+'</span><strong>'+moeda(total)+'</strong></div>'+
       '<div class="situacao"><strong>Situação da conferência:</strong> '+esc(situacao)+
       '. Este impresso apresenta a memória de cálculo; não substitui a OP do sistema contábil.</div>'+
-      '<p class="nota">Documento de apoio à emissão de ordem de pagamento extraorçamentária. Valores apurados das minutas de arrecadação da competência informada. Conferir banco, fonte de recurso, valores e documentos originais antes da emissão.</p>'+
+      '<p class="nota">Documento de apoio à emissão de ordem de pagamento extraorçamentária. '+(pelaFolha?'Valores descontados pelo RH na folha confirmada, por banco e fonte do empenho; conferir com a minuta de arrecadação quando ela for emitida.':'Valores apurados das minutas de arrecadação da competência informada.')+' Conferir banco, fonte de recurso, valores e documentos originais antes da emissão.</p>'+
       '<div class="assinaturas"><span>Responsável pela conferência</span><span>Setor de Contabilidade</span><span>Autorização</span></div>'+
       '<footer class="rodape"><span>Prefeitura Municipal de Frei Inocêncio · SISDIFI</span><span>Memória emitida em '+esc(emissao)+'</span></footer></main>'+
       '</body></html>';
@@ -275,8 +283,36 @@ export function telaConsignacoes(el) {
     });
   }
 
+  // Grupos do previsto no formato da memória de OP (registros = empenhos da folha).
+  const gruposDaFolha=()=>(previstoFolha?.itens||[]).map(g=>({destino:g.destino,fonte:g.fonte,fonteCompleta:g.fonteCompleta,fonteNome:'',origem:'folha',
+    total:g.total,guias:g.empenhos.length,registros:g.empenhos.map(e=>({tipo:'Empenho',numero:e.empenho,data:'—',arquivo:'Lotação '+e.lotacao,centavos:e.valor}))}));
+  function renderPrevisto() {
+    const caixa=$('#mi-previsto');
+    if(!previstoFolha){caixa.innerHTML='<div class="mi-op-topo"><div><h2>Previsto pela folha</h2><p>Nenhuma folha confirmada nesta competência. Confirme a folha em <a href="#/folha-empenhos">Folha de pagamentos</a> para trazer os descontos de consignados e pensões por fonte, antes da minuta.</p></div></div>';return;}
+    const linhas=compararPrevistoComMinutas(previstoFolha,agruparOPsPorBancoFonte(arquivos).itens);
+    const temMinuta=arquivos.length>0, grupos=gruposDaFolha();
+    caixa.innerHTML='<div class="mi-op-topo"><div><h2>Previsto pela folha · '+esc(rotuloCompetencia(competencia))+'</h2><p>Descontos do RH na folha confirmada em '+esc(new Date(previstoFolha.confirmadaEm).toLocaleString('pt-BR'))+
+      ' (empenhos '+esc(previstoFolha.primeiro)+' a '+esc(previstoFolha.ultimo)+'). Uma linha por banco e fonte do empenho. Os totais por banco já estão como valor esperado.</p></div><strong class="mi-op-resumo">'+moeda(previstoFolha.total)+'</strong></div>'+
+      '<div class="mi-tabela"><table class="mi-op-tabela"><thead><tr><th>Banco / desconto</th><th>Fonte de recurso</th><th>Empenhos</th><th style="text-align:right">Folha (RH)</th><th style="text-align:right">Minuta</th><th style="text-align:right">Diferença</th><th style="text-align:right">Ações</th></tr></thead><tbody>'+
+      linhas.map(l=>{const i=grupos.findIndex(g=>g.destino===l.destino&&g.fonteCompleta===l.fonteCompleta);
+        return '<tr><td><strong>'+esc(l.destino)+'</strong></td><td>'+esc(l.fonteCompleta)+'</td><td>'+l.empenhos+'</td><td class="mi-op-montante">'+moeda(l.folha)+'</td>'+
+        '<td class="mi-valor">'+(temMinuta?moeda(l.minuta):'Aguardando')+'</td><td class="mi-valor '+(temMinuta&&l.diferenca!==0?'mi-diferenca':temMinuta?'mi-ok':'')+'">'+(temMinuta?(l.diferenca===0?'Sem diferença':moeda(l.diferenca)):'—')+'</td>'+
+        '<td class="mi-op-botoes">'+(i>=0?'<button type="button" class="btn btn-sec" data-prev-copiar="'+i+'">Copiar dados</button><button type="button" class="btn" data-prev-imprimir="'+i+'" '+(!$('#mi-revisado').checked||ocupado?'disabled':'')+'>Imprimir OP</button>':'')+'</td></tr>';}).join('')+
+      '</tbody></table></div>'+
+      ((previstoFolha.pendentes||[]).length?'<p class="mi-op-aviso">'+previstoFolha.pendentes.length+' desconto(s) da folha sem fonte de recurso no empenho; não entram nas OPs.</p>':'')+
+      (temMinuta?'':'<p class="dica">A minuta de arrecadação sai depois do lançamento da folha. Quando chegar, importe-a abaixo: a coluna Minuta e a diferença aparecem aqui.</p>')+
+      '<p class="dica">Para imprimir, marque a confirmação de revisão no painel de OP abaixo.</p>';
+    caixa.querySelectorAll('[data-prev-imprimir]').forEach(b=>b.onclick=()=>{const g=grupos[Number(b.dataset.prevImprimir)];if(g&&!ocupado)imprimirMemoriaOP([g],true);});
+    caixa.querySelectorAll('[data-prev-copiar]').forEach(b=>b.onclick=async()=>{
+      const g=grupos[Number(b.dataset.prevCopiar)];if(!g)return;
+      const t='OP extraorçamentária - '+g.destino+' - Fonte '+g.fonteCompleta+'\nCompetência da folha: '+rotuloCompetencia(competencia)+'\nValor: '+moeda(g.total)+
+        '\nHistórico sugerido: Recolhimento de consignações da folha de '+rotuloCompetencia(competencia)+', referente a '+g.destino+', fonte '+g.fonteCompleta+', conforme folha de pagamento (empenhos '+g.registros.map(r=>r.numero).join(', ')+').';
+      try{await navigator.clipboard.writeText(t);status('Dados da OP copiados: '+g.destino+' · fonte '+g.fonte);}catch(e){status('Não foi possível copiar automaticamente. Use a impressão da memória.');}
+    });
+  }
   function render() {
     const c=conferenciaMensal(arquivos,esperados), rs=filtrados();
+    renderPrevisto();
     $('#mi-competencia').textContent=rotuloCompetencia(competencia);
     renderOPs(c);
     $('#mi-bancos').innerHTML=c.blocos.map((b,i)=>`<div class="mi-card"><h3>${esc(b.destino)}</h3><small>${b.arquivos?`${b.arquivos} arquivo(s) · ${b.registros.length} lançamentos`:'Arquivo pendente'}</small><p class="mi-total">${moeda(b.total)}</p><label class="campo"><span>Valor esperado · ${esc(b.destino)}</span><input data-esperado="${i}" inputmode="decimal" placeholder="Ex.: 10.000,00" value="${b.esperado===null?'':(b.esperado/100).toFixed(2).replace('.',',')}"></label><button class="btn btn-sec" data-salvar="${i}">Salvar valor</button><p class="${b.diferenca===0?'mi-ok':'mi-diferenca'}">${b.diferenca===null?'Informe o valor para comparar':b.diferenca===0?'Sem diferença de valor':b.diferenca>0?'Sobra '+moeda(b.diferenca):'Falta '+moeda(-b.diferenca)}</p><button class="btn btn-sec" data-ver="${i}">Ver lançamentos</button></div>`).join('');
@@ -323,14 +359,14 @@ export function telaConsignacoes(el) {
     if(!ativo||erroCarga)throw Error('Reabra a tela para carregar o histórico.');
     travar(true);
     try {
-      const proxima=await salvarMes(uid,competencia,{arquivos:novos,esperados:novosEsperados,revisao});
+      const proxima=await salvarMes(uid,competencia,{arquivos:novos,esperados:novosEsperados,revisao,...(previstoFolha?{previstoFolha}:{})});
       if(!ativo)return;
       revisao=proxima;arquivos=novos;esperados=novosEsperados;status('Salvo neste navegador · '+rotuloCompetencia(competencia));
     } finally {if(ativo){ocupado=false;atualizar();}}
   }
   async function carregar() {
-    travar(true);erroCarga=false;arquivos=[];esperados={};revisao=0;atualizar();status('Carregando '+rotuloCompetencia(competencia)+'…');
-    try {const d=await carregarMes(uid,competencia);if(!ativo)return;arquivos=d.arquivos;esperados=d.esperados;revisao=d.revisao;
+    travar(true);erroCarga=false;arquivos=[];esperados={};revisao=0;previstoFolha=null;atualizar();status('Carregando '+rotuloCompetencia(competencia)+'…');
+    try {const d=await carregarMes(uid,competencia);if(!ativo)return;arquivos=d.arquivos;esperados=d.esperados;revisao=d.revisao;previstoFolha=d.previstoFolha||null;
       const processados=arquivos.map(reconhecerCodigoCaixaExistente);
       const reconhecidos=processados.reduce((s,x)=>s+x.alterados,0);
       if(reconhecidos){await gravar(processados.map(x=>x.arquivo),esperados);status(reconhecidos+' guia(s) com código 21 reconhecida(s) automaticamente como Caixa.');}
