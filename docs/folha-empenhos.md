@@ -6,7 +6,7 @@ Módulo contábil SISDIFI: `#/folha-empenhos` (menu "Folha de pagamentos", exclu
 A tela é um passo a passo. Cada etapa mostra o que falta; a barra do topo indica as concluídas.
 
 1. **Arquivos do RH.** Envie o *Resumo de Verbas* e a *Folha de pagamento* (nominal) do mês; depois o Resumo de Verbas do **13º** e o das **rescisões**, quando houver. O resumo mensal já contém o 13º e as rescisões: o SISDIFI desconta esses valores do mensal (bruto, descontos **e consignados por banco**) e gera empenhos separados. A folha nominal identifica as servidoras com salário-maternidade. Em "Outros casos" ficam a folha extra do dia 10 e o PDF único com todos os resumos.
-2. **Número do primeiro empenho.** O sistema pergunta o número e mostra a faixa de cada grupo (mensal, extra, 13º, rescisões).
+2. **Número do primeiro empenho.** O sistema pergunta o número e numera a partir dele, mostrando a faixa de cada grupo. A folha mensal segue a **ordem da planilha da Contabilidade** (`assets/js/folha-ordem.js`, tirada da aba OUTUBRO/2026 da "Nova Folha 2026"), não a do Resumo de Verbas; 13º e rescisões seguem o RH, como na planilha. Lotação nova vai para o fim da folha mensal com aviso; a coluna **Ordem** do mapa CSV muda a posição e fica guardada para os meses seguintes.
 3. **Saldo das contas bancárias.** Cadastre as contas que pagam a folha (nome, banco/agência/conta, fonte de recurso) e o saldo da competência. As contas ficam guardadas para os meses seguintes; o saldo é informado todo mês. Saldo em branco é "não informado", diferente de zero.
 4. **Ficha, fonte e conta de cada empenho.** Ao informar a ficha, a LOA preenche secretaria, ação, natureza e fonte; a conta é sugerida quando só uma conta tem aquela fonte. O **bruto** de cada empenho é descontado do saldo da conta, na ordem dos empenhos, e a tabela mostra o saldo depois de cada um. Conta com saldo insuficiente, empenho sem conta ou fonte do empenho diferente da fonte da conta ficam como pendência.
 5. **Confirmar a folha.** Só libera com as etapas anteriores concluídas. Ao confirmar, o SISDIFI agrupa os descontos de **Caixa, Sicoob, Bradesco e pensão alimentícia por banco e fonte de recurso do empenho** (uma linha = uma OP extraorçamentária) e grava em **Consignações por mês** da mesma competência: o previsto por fonte e os totais por banco como valor esperado. A planilha conferida fica disponível. Qualquer mudança depois da confirmação (valor, ficha, fonte, conta ou saldo) exige confirmar de novo.
@@ -69,8 +69,18 @@ O sistema permite importar **um único PDF com resumos da folha principal, folha
 
 A rubrica 163 (salário-maternidade) é extraída da coluna de proventos, e a 201 (INSS) da coluna de descontos, **mesmo quando ambas estão marcadas com a letra P no RH**. O cruzamento entre folha nominal e Resumo de Verbas usa a lotação completa e a matrícula da servidora, e exige conferência do usuário antes de redistribuir o INSS para a OP extraorçamentária. O caso de teste utiliza exatamente R$ 1.782,37 de salário-maternidade e R$ 136,09 de INSS.
 
-## Segurança e limites
-PDFs não são enviados ao GitHub/Firebase pelo módulo. As extrações e mapeamentos ficam no IndexedDB do navegador, segmentados pelo UID da conta, **não criptografados em repouso pelo módulo**. Utilize dispositivo institucional e evite computadores compartilhados. A planilha exportada contém dados financeiros e deve permanecer em local autorizado.
+## Compartilhamento, segurança e limites
+A folha é **compartilhada entre os usuários da Contabilidade** (perfis `admin` e `operador`) no Firestore:
+- `folha_meses/{competência}`: primeiro empenho, saldos das contas, servidoras da maternidade, confirmação e o previsto de consignados;
+- `folha_meses/{competência}/arquivos/{mensal|decimo|rescisao|extra}`: os valores lidos dos resumos do RH (o PDF nunca sai do navegador);
+- `folha_mapa/{tipo|lotação}`: ficha, fonte, conta e ordem de cada lotação (vale para todos os meses);
+- `folha_contas/{id}`: contas bancárias cadastradas.
+
+Quem abre a mesma competência vê na hora o que o outro preenche. Cada alteração grava **só o campo que mudou** (uma lotação, um saldo, uma conta), então duas pessoas trabalhando ao mesmo tempo não apagam o trabalho uma da outra; se as duas mudarem o mesmo campo, vale a última. A tela não redesenha embaixo de quem está digitando: a atualização do outro aparece quando o campo perde o foco. Cada lotação mostra quem a alterou por último.
+
+**Publicar as regras:** as coleções acima precisam das regras novas de `firestore.rules` (Console Firebase → Firestore → Regras → Publicar). Sem isso a tela avisa que não conseguiu abrir a folha compartilhada.
+
+Os dados que antes ficavam só no navegador (IndexedDB) não são levados automaticamente: reenvie os PDFs do RH e, se quiser, importe o mapa CSV de fichas.
 
 **Não emite empenhos, OPs nem liquidações oficiais.** O resultado depende da conferência humana, especialmente onde os resumos do RH apresentarem campos ilegíveis, divergências e benefícios especiais.
 

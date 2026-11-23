@@ -1,7 +1,8 @@
 import { esc } from '../ui.js';
 import { pode, estado } from '../estado.js';
 import { DESTINOS, extrairMinuta, agruparMinuta } from '../minuta-pdf.js';
-import { compararPrevistoComMinutas } from '../folha-fluxo.js?v=0.3b56a92a.3b56a92a.3b56a92a';
+import { lerDoc } from '../db.js';
+import { compararPrevistoComMinutas } from '../folha-fluxo.js?v=3.23.0.3b56a92a';
 import { MESES, rotuloCompetencia, valorEsperado, vincularFolha, conferenciaMensal, carregarMes, salvarMes, agruparOPsPorBancoFonte, reconhecerCodigoCaixaExistente, classificarArquivo, avisosPendentes } from '../consignacoes-mensal.js?v=3.13.0.357fc820';
 const moeda = c => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 export function telaConsignacoes(el) {
@@ -370,7 +371,9 @@ export function telaConsignacoes(el) {
       const processados=arquivos.map(reconhecerCodigoCaixaExistente);
       const reconhecidos=processados.reduce((s,x)=>s+x.alterados,0);
       if(reconhecidos){await gravar(processados.map(x=>x.arquivo),esperados);status(reconhecidos+' guia(s) com código 21 reconhecida(s) automaticamente como Caixa.');}
-      else status('Histórico local carregado.');}
+      else status('Histórico local carregado.');
+      // O previsto da folha confirmada fica no sistema compartilhado: aparece para toda a Contabilidade.
+      try{const folha=await lerDoc('folha_meses',competencia);if(ativo&&folha?.previstoFolha){previstoFolha=folha.previstoFolha;}}catch(e){}}
     catch(e){erroCarga=true;status('Não foi possível abrir o histórico local. '+e.message);}
     finally{if(ativo){ocupado=false;atualizar();}}
   }

@@ -232,6 +232,23 @@ service cloud.firestore {
       allow read, write: if operador();
     }
 
+    // Folha de pagamentos — compartilhada pela Contabilidade (admin e operador).
+    // Um documento por competência; os resumos do RH já lidos ficam na subcoleção
+    // arquivos (só os valores extraídos, nunca o PDF). Ficha/fonte/conta por lotação
+    // e as contas bancárias valem para todos os meses.
+    match /folha_meses/{competencia} {
+      allow read, write: if operador();
+      match /arquivos/{tipo} {
+        allow read, write: if operador();
+      }
+    }
+    match /folha_mapa/{id} {
+      allow read, write: if operador();
+    }
+    match /folha_contas/{id} {
+      allow read, write: if operador();
+    }
+
     // Numeração: quem solicita só avança o contador de 1 em 1 (dentro da transação de criação).
     match /contadores/{id} {
       allow read: if ativo();

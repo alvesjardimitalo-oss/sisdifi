@@ -146,5 +146,25 @@ t('empréstimo quitado na rescisão sai do consignado da folha mensal', () => {
   assert.equal(c.totais['Caixa Econômica Federal'], 90000, 'soma igual ao mensal original, sem dobrar');
 });
 
+// --- ordem da Contabilidade ---
+import { ORDEM_FOLHA_MENSAL, ordemDasLotacoes } from '../assets/js/folha-ordem.js';
+t('a folha mensal segue a ordem da planilha da Contabilidade, não a do RH', () => {
+  const mk = (lot, pag, tipo = 'principal') => ({ lotacao: lot, paginaInicio: pag, valores: { bruto: 100, desconto: 0, liquido: 100 },
+    composicao: {}, bancos: {}, classificacaoDescontosIdentificada: true, diferencaComposicao: 0, rubricas: [] });
+  // No RH: Cultura (002.008) vem depois da Fazenda (002.003); na planilha, antes.
+  const arq = [{ tipo: 'principal', registros: [mk('002.003.212.00004', 1), mk('002.008.297.00003', 2), mk('002.099.999.00001', 3)] },
+    { tipo: 'rescisao', registros: [mk('002.016.001', 4), mk('002.002.205.00001', 5)] }];
+  const e = prepararEmpenhos(arq, 4912, {}, {}, { ordem: ordemDasLotacoes({}) }).empenhos;
+  assert.deepEqual(e.map(x => x.lotacao), ['002.008.297.00003', '002.003.212.00004', '002.099.999.00001', '002.016.001', '002.002.205.00001']);
+  assert.deepEqual(e.map(x => x.empenho), [4912, 4913, 4914, 4915, 4916], 'numerado a partir do número digitado');
+  assert.ok(e[2].avisos[0].includes('Lotação nova'), 'lotação fora da lista vai para o fim com aviso');
+  assert.ok(!e[2].problemas.some(p => /ordem/i.test(p)), 'o aviso não bloqueia a confirmação');
+  // A coluna Ordem do mapa manda sobre a padrão
+  const m = prepararEmpenhos(arq, 1, { 'principal|002.099.999.00001': { ordem: 0 } }, {}, { ordem: ordemDasLotacoes({ 'principal|002.099.999.00001': { ordem: 0 } }) }).empenhos;
+  assert.equal(m[0].lotacao, '002.099.999.00001');
+  assert.equal(ORDEM_FOLHA_MENSAL.length, 92);
+  assert.equal(new Set(ORDEM_FOLHA_MENSAL).size, 92);
+});
+
 if (falhas.length) { console.error(falhas.join('\n')); process.exit(1); }
 console.log(`folha-fluxo: ${ok} ok, 0 falhas`);
