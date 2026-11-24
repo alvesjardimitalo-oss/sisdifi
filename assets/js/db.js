@@ -331,6 +331,23 @@ export async function gravarEmLote(operacoes, progresso) {
   return falhas;
 }
 
+// A revisão fiscal e seu registro devem ser confirmados na mesma transação.
+export async function salvarConfiguracaoFiscal(dados, campos, acao, detalhe) {
+  const ref = doc(fs, 'config', 'fiscal');
+  const log = doc(collection(fs, 'logs'));
+  return runTransaction(fs, async tx => {
+    const atual = (await tx.get(ref)).data() || {};
+    const carimbo = { atualizado_em: serverTimestamp(), atualizado_por: autor() };
+    tx.set(ref, { ...dados, ...carimbo }, { mergeFields: [...campos, ...Object.keys(carimbo)] });
+    const registro = { ...detalhe };
+    if (acao === 'fiscal.aliquotas') {
+      registro.antes = { issPadrao: atual.issPadrao ?? null, issPorCodigo: atual.issPorCodigo || {} };
+      registro.depois = dados;
+    }
+    tx.set(log, { acao, detalhe: registro, uid: sessao.uid, nome: sessao.nome || sessao.email, em: serverTimestamp() });
+  });
+}
+
 export async function registrarLog(acao, detalhe = {}) {
   if (!sessao) return;
   try {
