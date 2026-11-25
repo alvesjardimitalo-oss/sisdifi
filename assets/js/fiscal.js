@@ -14,7 +14,7 @@ export const MUNICIPIO = { nome: 'Frei Inocêncio', uf: 'MG', ibge: '3126901' };
 
 /** ISSQN das notas emitidas no município. */
 export const ISS = {
-  aliquota: 5,             // só para código fora da lista do Anexo II (a alíquota vem de lá)
+  aliquota: 5,             // alíquota de Frei Inocêncio para os serviços prestados no Município (informada pela Contabilidade)
   retemOrgao: true,        // o Município, como tomador, retém o ISS das notas emitidas no município
   minimoSimples: 2,        // LC 123/2006: alíquota do ISS no Simples fica entre 2% e 5%
   maximoSimples: 5
@@ -47,6 +47,11 @@ export function aliquotaIss(codigo, parametros = null, emissao = '') {
       return { aliquota: Number(tabela[chave]), excecao: chave, fonte: 'cadastro', anexo, subitem: sub, vetado };
     }
   }
+  /* Alíquota única: a Contabilidade informou que a legislação municipal vigente
+     aplica 5% a todos os serviços prestados em Frei Inocêncio. A tabela por
+     subitem do Anexo II (3% ou 5%) só vale se o administrador ligar
+     "issPorSubitem" em "Alíquotas do ISS". */
+  if (parametros?.issPorSubitem !== true) return { aliquota: padrao, excecao: null, fonte: 'unica', anexo, subitem: sub, vetado };
   if (anexo) return { aliquota: anexo, excecao: null, fonte: 'lei', anexo, subitem: sub, vetado, anterior: !!lei.anterior, ate: lei.ate };
   return { aliquota: padrao, excecao: null, fonte: 'padrao', anexo, subitem: sub, vetado };
 }
@@ -559,6 +564,14 @@ export function faltaParaDiagnostico(doc = {}) {
   if (servico && !String(doc.codigoServico || '').trim()) {
     falta.push({ campo: 'codigoServico', rotulo: 'Código de tributação', porque: 'define a alíquota do ISS e a natureza do IRRF' });
   }
+  /* Lida só a chave (leitor ou câmera), a nota não traz as retenções: o
+     código de barras identifica o documento, não os valores. Pergunta o que
+     está impresso, uma coisa de cada vez, para o comparativo ter com o que comparar. */
+  if (doc.origem === 'leitura') {
+    if (servico && doc.issRetidoNota == null) falta.push({ campo: 'issRetidoNota', rotulo: 'A nota diz que o ISS foi retido?', porque: 'campo "Retenção do ISSQN" da nota' });
+    if (servico && doc.issAliquota == null) falta.push({ campo: 'issAliquota', rotulo: 'Alíquota do ISS impressa na nota (%)', porque: 'campo "Alíquota aplicada"; use 0 se a nota não informar' });
+    if (doc.irrfDestacado == null) falta.push({ campo: 'irrfDestacado', rotulo: 'IRRF retido impresso na nota (R$)', porque: 'use 0 se a nota não destacar o IRRF' });
+  }
   return falta;
 }
 
@@ -795,6 +808,7 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
         iss.motivo = `Não optante, serviço prestado em ${MUNICIPIO.nome}: ISS de ${pct(ISS_ALIQ)}${
           issMun.fonte === 'cadastro' ? ` (alíquota cadastrada para o código ${issMun.excecao})`
           : issMun.fonte === 'lei' ? ` (subitem ${issMun.subitem} do ${ANEXO_II_CURTO})`
+          : issMun.fonte === 'unica' ? ' (alíquota do Município para os serviços prestados aqui)'
           : ''} retido pelo Município (tomador)`;
         if (issMun.vetado) {
           add('alerta', `O subitem ${issMun.vetado} foi vetado no Anexo II`, `Não há alíquota na lei para esse código, e a nota pode estar com o código errado. Confirme o serviço com o fornecedor e com o setor de Tributos antes de liquidar; por ora o cálculo usa ${pct(ISS_ALIQ)}.`, FUNDAMENTO_ANEXO_II);
@@ -946,7 +960,7 @@ export function fundamentosAplicados({ nat, simples, mei, ir, iss, inss, localIs
   if (iss.aplica && !mei) {
     if (simples) add('federal', 'LC 123/2006, art. 21, § 4º', 'ISS do Simples pela alíquota informada na nota');
     else if (dedTerceiros > 0) add('municipal', 'Lei 966/2023 (art. 102, § 15, da Lei 883/2017)', 'Dedução de valores pagos a terceiros e alíquota mínima');
-    else add('municipal', issMun?.fonte === 'lei' ? ANEXO_II_CURTO : issMun?.fonte === 'cadastro' ? 'Alíquota cadastrada pela administração (config/fiscal)' : 'Lei 883/2017 (alíquota padrão)', `ISS de ${pct(iss.aliquota)}`);
+    else add('municipal', issMun?.fonte === 'unica' ? 'Lei 883/2017 e alterações (alíquota do Município)' : issMun?.fonte === 'lei' ? ANEXO_II_CURTO : issMun?.fonte === 'cadastro' ? 'Alíquota cadastrada pela administração (config/fiscal)' : 'Lei 883/2017 (alíquota padrão)', `ISS de ${pct(iss.aliquota)}`);
     add('municipal', 'Lei 883/2017, art. 98, XI', 'Município responsável pela retenção do ISS');
   }
   if (inss?.aplica) add('federal', INSS.fundamento, inss.reter ? `INSS de ${pct(inss.aliquota)} retido` : inss.decidido ? 'INSS não retido (motivo registrado)' : 'Retenção do INSS a definir');

@@ -1,9 +1,13 @@
 // Testes da conferência fiscal: node tests/fiscal.test.mjs
 import assert from 'node:assert/strict';
-import { hojeBrasilia, verificarNatureza, itensDoCnae, aliquotaIss, mensagemFornecedor, descreverTributacao, lerCodigo, cnpjValido, lerXML, conferir, irNoTexto, consultarCnpj, normalizarCadastro, sugerirNatureza, optanteNaData } from '../assets/js/fiscal.js';
+import { hojeBrasilia, verificarNatureza, itensDoCnae, aliquotaIss, mensagemFornecedor, descreverTributacao, lerCodigo, cnpjValido, lerXML, conferir as conferirMotor, irNoTexto, consultarCnpj, normalizarCadastro, sugerirNatureza, optanteNaData } from '../assets/js/fiscal.js';
 let falhas = 0;
 const r2t = v => Math.round((v + Number.EPSILON) * 100) / 100;
 const ok = (cond, msg) => { if (!cond) { falhas++; console.log('FALHA:', msg); } };
+// A maior parte destes casos foi escrita para a tabela por subitem do Anexo II
+// (3% ou 5%). O padrão do sistema agora é a alíquota única de 5%; aqui a tabela
+// fica ligada, e a alíquota única tem testes próprios no fim do arquivo.
+const conferir = (args = {}) => conferirMotor({ ...args, parametros: { issPorSubitem: true, ...(args.parametros || {}) } });
 const tem = (r, trecho) => r.problemas.some(p => p.titulo.includes(trecho));
 
 // --- CNPJ (inclui alfanumérico) ---
@@ -160,9 +164,10 @@ ok(r.ir.valor === 108 && tem(r, 'sem a parcela de serviços pessoais'), 'coopera
 r = conferir({ doc: { valor: 12000, emissao: '2026-10-01', servico: true, codigoServico: '16.01.01' }, cadastro: coop, naturezaId: 'transporte_passageiros', hoje: '2026-11-03' });
 ok(r.situacao === 'erro' && tem(r, 'COOPERATIVA'), 'cooperativa com natureza errada');
 // alíquota de ISS por código
-ok(aliquotaIss('16.01.01').aliquota === 3, 'ISS do subitem 16.01 é 3% no Município');
+ok(aliquotaIss('16.01.01').aliquota === 5, 'alíquota única: 16.01 é 5% no Município');
+ok(aliquotaIss('16.01.01', { issPorSubitem: true }).aliquota === 3, 'com a tabela ligada, 16.01 é 3%');
 ok(aliquotaIss('16.01.01', { issPadrao: 5, issPorCodigo: { '16.01': 2.5 } }).aliquota === 2.5, 'exceção por subitem');
-ok(aliquotaIss('16.02.01', { issPadrao: 5, issPorCodigo: { '16.01': 2.5 } }).aliquota === 3, 'outro subitem segue a tabela, não a exceção do 16.01');
+ok(aliquotaIss('16.02.01', { issPorSubitem: true, issPadrao: 5, issPorCodigo: { '16.01': 2.5 } }).aliquota === 3, 'outro subitem segue a tabela, não a exceção do 16.01');
 ok(aliquotaIss('88.88.01', { issPadrao: 5 }).aliquota === 5, 'código fora da lista usa o padrão');
 ok(aliquotaIss('16.01.01', { issPorCodigo: { '16': 3, '16.01.01': 2 } }).aliquota === 2, 'mais específico vence');
 
@@ -203,13 +208,16 @@ ok(r.verificacao.linhas.length >= 2 && tem(r, 'não corresponde à descrição')
   // logo depois de ler a chave: só identificação, nenhum valor
   const daChave = { origem: 'leitura', modelo: 'nfse', servico: true, cnpj: '10781677000168',
                     emissao: '2026-11-01', emissaoPresumida: true };
-  assert.deepEqual(campos(daChave), ['valor', 'emissao', 'codigoServico'],
-    'chave sozinha deixa valor, data e código em aberto');
+  assert.deepEqual(campos(daChave), ['valor', 'emissao', 'codigoServico', 'issRetidoNota', 'issAliquota', 'irrfDestacado'],
+    'chave sozinha deixa valor, data, código e as retenções impressas em aberto');
+  const respondida = { issRetidoNota: true, issAliquota: 5, irrfDestacado: 0 };
+  assert.deepEqual(campos({ ...daChave, valor: 1000, codigoServico: '16.01.01', emissaoPresumida: false, issRetidoNota: false, issAliquota: 0, irrfDestacado: 0 }), [],
+    '"não retido", alíquota 0 e IRRF 0 são respostas, não campos vazios');
 
   // a data presumida continua pendente mesmo preenchida: a chave só dá o mês
-  assert.ok(campos({ ...daChave, valor: 1000, codigoServico: '16.01.01' }).includes('emissao'),
+  assert.ok(campos({ ...daChave, ...respondida, valor: 1000, codigoServico: '16.01.01' }).includes('emissao'),
     'data vinda da chave precisa de confirmação do dia');
-  assert.deepEqual(campos({ ...daChave, valor: 1000, codigoServico: '16.01.01', emissaoPresumida: false }), [],
+  assert.deepEqual(campos({ ...daChave, ...respondida, valor: 1000, codigoServico: '16.01.01', emissaoPresumida: false }), [],
     'confirmando o dia, nada mais falta');
 
   // nota de produto não tem código de tributação de serviço
@@ -470,6 +478,19 @@ ok(r.verificacao.linhas.length >= 2 && tem(r, 'não corresponde à descrição')
   ok(!tem(semD, 'admite dedução') && semD.iss.valor === r2t(10000 * semD.iss.aliquota / 100), '"sem dedução" usa o valor cheio, sem alerta');
   ok(hojeBrasilia(Date.UTC(2026, 10, 26, 2, 0)) === '2026-11-25', 'hoje pelo horário de Brasília');
   console.log('ok  dedução de terceiros aplicada e data de Brasília');
+}
+
+// ---------- alíquota única de 5% (padrão) e perguntas após ler a chave ----------
+{
+  const docU = { origem: 'leitura', modelo: 'nfse', servico: true, valor: 1000, emissao: '2026-11-10', codigoServico: '17.05.00',
+    municipioEmissor: '3126901', incidencia: '3126901', localPrestacao: '3126901', regimeNota: 'normal', issAliquota: 5, issRetidoNota: true, irrfDestacado: 48 };
+  const ru = conferirMotor({ doc: docU, naturezaId: 'mao_de_obra', hoje: '2026-11-25' });
+  ok(ru.iss.aliquota === 5 && ru.iss.valor === 50, 'alíquota única: mão de obra (17.05) retém 5%, não 3%');
+  ok(!tem(ru, 'Alíquota de ISS na nota'), 'nota com 5% não é apontada como divergente');
+  ok(ru.fundamentos.some(f => f.norma.includes('alíquota do Município')), 'base legal cita a alíquota do Município');
+  const r3 = conferirMotor({ doc: { ...docU, issAliquota: 3 }, naturezaId: 'mao_de_obra', hoje: '2026-11-25' });
+  ok(tem(r3, 'Alíquota de ISS na nota'), 'nota com 3% é apontada: o Município cobra 5%');
+  console.log('ok  alíquota única de 5%');
 }
 
 console.log(falhas ? `${falhas} falha(s)` : 'fiscal: todos os testes passaram');
