@@ -735,3 +735,109 @@ progress { width: 260px; vertical-align: middle; }
 /* retenção que a nota declara e a conferência não calcula */
 .fiscal-nao-calculado td { opacity: .85; }
 .fiscal-nao-calculado .muted { font-style: italic; }
+
+/* =============================================================
+   Visual 2026 — camada de acabamento (só aparência; nenhuma regra de negócio)
+   Fonte Inter, menu lateral com mais contraste, cartões mais leves,
+   cabeçalhos de página e de seção, tabelas e conferência fiscal reorganizada.
+   ============================================================= */
+:root {
+  --fundo: #f3f5f9;
+  --borda: #e1e6ee;
+  --raio: 14px;
+  --raio-p: 9px;
+  --sombra: 0 1px 2px rgba(16, 42, 69, .05), 0 4px 14px rgba(16, 42, 69, .05);
+}
+body { font-family: "Inter", "Public Sans", "Segoe UI", system-ui, Arial, sans-serif; font-feature-settings: "tnum" 1, "cv11" 1; letter-spacing: -.003em; }
+h1 { font-size: 27px; font-weight: 750; letter-spacing: -.025em; }
+h3 { font-weight: 650; }
+
+/* Menu lateral */
+.lateral { background: linear-gradient(180deg, #0f2740 0%, #102a45 45%, #0c2036 100%); box-shadow: inset -1px 0 0 rgba(255, 255, 255, .04); }
+.lateral .marca { padding: 4px 8px 16px; }
+.lateral .marca strong { font-weight: 800; letter-spacing: .06em; }
+.lateral nav a { font-size: 13.5px; font-weight: 500; letter-spacing: -.005em; padding: 9px 10px 9px 12px; }
+.lateral nav a:hover { background: rgba(255, 255, 255, .06); }
+.lateral nav a.ativo { background: linear-gradient(90deg, rgba(194, 145, 46, .22), rgba(194, 145, 46, .06)); color: #fff; }
+.lateral nav a.ativo .ico { color: #f3d28a; }
+.menu-grupo, button.menu-grupo { font-size: 10.5px; letter-spacing: .09em; color: #7f97b0; font-weight: 700; }
+
+/* Topo e cabeçalho da página */
+.topo { background: rgba(255, 255, 255, .86); border-bottom-color: #e6ebf2; }
+.topo-titulo { font-weight: 600; color: var(--tinta); }
+.cab-pagina { position: relative; padding-bottom: 16px; margin-bottom: 22px; border-bottom: 1px solid var(--borda); }
+.cab-pagina::after { content: ""; position: absolute; left: 0; bottom: -2px; width: 56px; height: 3px; border-radius: 2px; background: var(--ouro); }
+.cab-pagina p { font-size: 14px; }
+.titulo-secao { display: flex; align-items: center; gap: 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: #4a5a6d; font-weight: 700; margin: 10px 0 12px; }
+.titulo-secao::after { content: ""; flex: 1; height: 1px; background: var(--borda); }
+
+/* Cartões, indicadores, botões */
+.cartao { border-color: var(--borda); padding: 20px 22px; }
+.cartao > h3:first-child { padding-bottom: 10px; border-bottom: 1px solid var(--borda-leve); margin-bottom: 14px; }
+.kpi { border-color: var(--borda); transition: box-shadow .15s, transform .15s; }
+a .kpi:hover, button.kpi:hover { box-shadow: 0 6px 18px rgba(16, 42, 69, .10); transform: translateY(-1px); }
+.kpi strong { font-weight: 750; }
+.btn { border-radius: 10px; font-weight: 600; letter-spacing: -.005em; }
+.btn:not(.btn-sec):not(.btn-perigo) { background: linear-gradient(180deg, #2160a0, var(--azul)); box-shadow: 0 1px 2px rgba(16, 42, 69, .18); }
+.btn:not(.btn-sec):not(.btn-perigo):hover { background: var(--azul-esc); }
+.btn-sec { border-color: #d6dde7; }
+input, select, textarea { border-color: #cfd7e1; border-radius: 9px; }
+.alerta { border-radius: 10px; }
+
+/* Tabelas */
+.tabela th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: #5a6878; background: #f6f8fb; }
+.tabela tbody tr:nth-child(even) td { background: #fbfcfe; }
+.tabela tbody tr:hover td { background: #f3f7fc; }
+
+/* ---- Conferência fiscal ---- */
+.fiscal-etapas { gap: 0; margin: 0 0 16px; background: var(--cartao); border: 1px solid var(--borda); border-radius: 999px; padding: 4px; width: fit-content; box-shadow: var(--sombra); }
+.fiscal-etapas li { border: 0; background: transparent; padding: 7px 16px 7px 7px; }
+.fiscal-etapas li.atual { background: var(--azul-claro); color: var(--azul-esc); font-weight: 650; }
+.fiscal-etapas li.feita { background: transparent; }
+.fiscal-etapas li + li { margin-left: 2px; }
+.fiscal-leitura { box-shadow: 0 1px 2px rgba(16, 42, 69, .05), 0 10px 28px rgba(16, 42, 69, .06); }
+.fiscal-resumo { border-left-width: 0; border-top: 5px solid var(--borda); padding-top: 16px; }
+.fiscal-resumo.fiscal-ok { border-top-color: var(--verde); }
+.fiscal-resumo.fiscal-alerta { border-top-color: #d9a521; }
+.fiscal-resumo.fiscal-erro { border-top-color: var(--vermelho); }
+.fiscal-resumo-topo strong { font-size: 17px; letter-spacing: -.01em; }
+.fiscal-kpis > div { background: #fff; border-radius: 11px; padding: 10px 12px; }
+.fiscal-kpis strong { font-size: 18px; font-weight: 750; }
+.fiscal-kpis .fiscal-kpi-destaque { background: var(--tinta); border-color: var(--tinta); }
+.fiscal-kpis .fiscal-kpi-destaque span { color: #b9c9db; }
+.fiscal-kpis .fiscal-kpi-destaque strong { color: #fff; font-size: 21px; }
+.fiscal-pergunta { margin: 0 0 var(--gap); border-left-width: 4px; border-left-color: var(--ouro); box-shadow: var(--sombra); }
+.fiscal-pergunta select { width: 100%; }
+.fiscal-bloco { border-radius: 11px; }
+.fiscal-problemas li { border-radius: 10px; }
+
+/* Pré-auditoria: cabeçalho com progresso; listas longas recolhidas */
+.aud { border-top: 4px solid var(--borda); }
+.aud-erro { border-top-color: var(--vermelho); }
+.aud-alerta { border-top-color: #d9a521; }
+.aud-ok { border-top-color: var(--verde); }
+.aud-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
+.aud-topo h3 { margin: 0 0 2px; border: 0 !important; padding: 0 !important; }
+.aud-situacao { font-size: 12px; font-weight: 700; letter-spacing: .04em; color: var(--muted); }
+.aud-erro .aud-situacao { color: var(--vermelho); }
+.aud-alerta .aud-situacao { color: var(--ambar); }
+.aud-ok .aud-situacao { color: var(--verde); }
+.aud-progresso { display: grid; gap: 5px; justify-items: end; min-width: 150px; font-size: 12.5px; color: var(--texto-2); }
+.aud-barra { display: block; width: 150px; height: 7px; border-radius: 99px; background: var(--borda-leve); overflow: hidden; }
+.aud-barra i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--azul), #3f86c9); transition: width .25s; }
+.aud-tomador { font-size: 13px; }
+.aud-sub { font-size: 13px; margin: 14px 0 8px; color: var(--vermelho); }
+.aud-det { border: 1px solid var(--borda); border-radius: 11px; margin-top: 10px; background: #fff; }
+.aud-det > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; padding: 11px 14px; font-weight: 600; color: var(--tinta); }
+.aud-det > summary::-webkit-details-marker { display: none; }
+.aud-det > summary::before { content: "›"; font-size: 18px; line-height: 1; color: var(--muted); transition: transform .15s; }
+.aud-det[open] > summary::before { transform: rotate(90deg); }
+.aud-det[open] > summary { border-bottom: 1px solid var(--borda-leve); }
+.aud-det > :not(summary) { margin: 10px 14px 14px; }
+.aud-chip { margin-left: auto; font-size: 11.5px; font-weight: 700; padding: 2px 9px; border-radius: 99px; background: var(--azul-claro); color: var(--azul-esc); }
+.aud-chip-alerta { background: var(--ambar-claro); color: var(--ambar); }
+.aud-lista { display: grid; gap: 4px; }
+.aud-check { display: flex; gap: 10px; align-items: flex-start; padding: 7px 9px; border-radius: 8px; cursor: pointer; }
+.aud-check:hover { background: var(--cinza-claro); }
+.aud-check input { margin-top: 2px; }
+.aud-check.feito span { color: var(--muted); text-decoration: line-through; text-decoration-color: rgba(95, 107, 121, .45); }
