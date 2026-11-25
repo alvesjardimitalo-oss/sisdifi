@@ -1,7 +1,8 @@
 // Testes da conferência fiscal: node tests/fiscal.test.mjs
 import assert from 'node:assert/strict';
-import { verificarNatureza, itensDoCnae, aliquotaIss, mensagemFornecedor, descreverTributacao, lerCodigo, cnpjValido, lerXML, conferir, irNoTexto, consultarCnpj, normalizarCadastro, sugerirNatureza, optanteNaData } from '../assets/js/fiscal.js';
+import { hojeBrasilia, verificarNatureza, itensDoCnae, aliquotaIss, mensagemFornecedor, descreverTributacao, lerCodigo, cnpjValido, lerXML, conferir, irNoTexto, consultarCnpj, normalizarCadastro, sugerirNatureza, optanteNaData } from '../assets/js/fiscal.js';
 let falhas = 0;
+const r2t = v => Math.round((v + Number.EPSILON) * 100) / 100;
 const ok = (cond, msg) => { if (!cond) { falhas++; console.log('FALHA:', msg); } };
 const tem = (r, trecho) => r.problemas.some(p => p.titulo.includes(trecho));
 
@@ -427,6 +428,48 @@ ok(r.verificacao.linhas.length >= 2 && tem(r, 'não corresponde à descrição')
   const fora = conferir({ doc: { ...base, codigoServico: '88.88.00' }, cadastro: cad, hoje: '2026-11-16' });
   assert.ok(fora.problemas.some(p => /não consta na lista do Anexo II/.test(p.titulo)));
   console.log('ok  Anexo II (Lei 883/2017): alíquota por subitem');
+}
+
+// ---------- INSS do contratante (Lei 8.212/1991, art. 31) ----------
+{
+  const cad = { cnpj: '10781677000168', situacao: 'ATIVA', simples: false, mei: false, fonte: 'RFB' };
+  const limp = { origem: 'pdf', servico: true, modelo: 'nfse', valor: 10000, emissao: '2026-11-10', municipioEmissor: '3126901', localPrestacao: '3126901',
+    regimeNota: 'normal', issRetidoNota: true, codigoServico: '07.10.01', irrfDestacado: 480, issValor: 500, issAliquota: 5, inssRetido: 1100, liquidoNota: 7920 };
+  const sem = conferir({ doc: limp, cadastro: cad, naturezaId: 'limpeza', hoje: '2026-11-25' });
+  ok(sem.situacao !== 'ok' && tem(sem, 'Defina a retenção do INSS'), 'INSS sem decisão impede o "ok"');
+  ok(sem.liquido === 9020, 'sem decisão o líquido não desconta o INSS');
+  const ret = conferir({ doc: { ...limp, inssDecisao: 'reter' }, cadastro: cad, naturezaId: 'limpeza', hoje: '2026-11-25' });
+  ok(ret.inss.reter && ret.inss.valor === 1100 && ret.liquido === 7920 && ret.situacao === 'ok', 'reter 11%: INSS entra no líquido e bate com a nota');
+  ok(ret.comparativo.some(l => l.item === 'INSS retido' && l.conferido === 1100 && l.diferenca === 0), 'INSS no comparativo');
+  ok(/INSS: 11% sobre R\$\s?10\.000,00/.test(mensagemFornecedor(ret, limp, cad)), 'carta traz o INSS conferido');
+  const ded = conferir({ doc: { ...limp, inssDecisao: 'reter', inssDeducao: 2000 }, cadastro: cad, naturezaId: 'limpeza', hoje: '2026-11-25' });
+  ok(ded.inss.base === 8000 && ded.inss.valor === 880 && tem(ded, 'INSS destacado na nota'), 'materiais discriminados reduzem a base; divergência com a nota é erro');
+  const cprb = conferir({ doc: { ...limp, inssDecisao: 'reter', inssAliquota: 3.5 }, cadastro: cad, naturezaId: 'limpeza', hoje: '2026-11-25' });
+  ok(cprb.inss.valor === 350, 'alíquota informada pela Contabilidade (ex.: 3,5%)');
+  const nao = conferir({ doc: { ...limp, inssDecisao: 'nao_reter' }, cadastro: cad, naturezaId: 'limpeza', hoje: '2026-11-25' });
+  ok(tem(nao, 'Informe por que o INSS não será retido') && !tem(nao, 'requer conciliação'), 'não reter exige motivo e não duplica a conciliação');
+  const motivo = conferir({ doc: { ...limp, inssDecisao: 'nao_reter', inssMotivo: 'Empreitada global com materiais' }, cadastro: cad, naturezaId: 'limpeza', hoje: '2026-11-25' });
+  ok(!tem(motivo, 'Informe por que') && motivo.inss.motivo.includes('Empreitada'), 'motivo registrado');
+  const consultoria = conferir({ doc: { ...limp, codigoServico: '17.01.01', inssRetido: null, liquidoNota: null, semDeducaoTerceiros: true }, cadastro: cad, naturezaId: 'demais_servicos', hoje: '2026-11-25' });
+  ok(!consultoria.inss.aplica && !tem(consultoria, 'INSS'), 'serviço sem cessão de mão de obra não pede INSS');
+  ok(ret.fundamentos.some(f => f.esfera === 'federal' && f.norma.includes('8.212')) && ret.fundamentos.some(f => f.esfera === 'municipal'), 'fundamentos federais e municipais');
+  console.log('ok  INSS do contratante (Lei 8.212/1991, art. 31)');
+}
+
+// ---------- Dedução de valores pagos a terceiros aplicada (Lei 966/2023) ----------
+{
+  const cad = { cnpj: '10781677000168', situacao: 'ATIVA', simples: false, fonte: 'RFB' };
+  const base = { origem: 'pdf', servico: true, modelo: 'nfse', valor: 10000, emissao: '2026-11-10', municipioEmissor: '3126901', localPrestacao: '3126901',
+    regimeNota: 'normal', issRetidoNota: true, codigoServico: '10.05.00' };
+  const d = conferir({ doc: { ...base, deducaoTerceiros: 8000 }, cadastro: cad, naturezaId: 'demais_servicos', hoje: '2026-11-25' });
+  ok(d.iss.base === 2000 && d.iss.aliquota === 2 && d.iss.valor === 40, 'base reduzida e alíquota mínima de 2%');
+  ok(!tem(d, 'admite dedução'), 'dedução informada some com o alerta');
+  const teto = conferir({ doc: { ...base, deducaoTerceiros: 9800 }, cadastro: cad, naturezaId: 'demais_servicos', hoje: '2026-11-25' });
+  ok(teto.iss.base === 500 && tem(teto, 'acima do limite'), 'acima de 95%: usa o limite e aponta erro');
+  const semD = conferir({ doc: { ...base, semDeducaoTerceiros: true }, cadastro: cad, naturezaId: 'demais_servicos', hoje: '2026-11-25' });
+  ok(!tem(semD, 'admite dedução') && semD.iss.valor === r2t(10000 * semD.iss.aliquota / 100), '"sem dedução" usa o valor cheio, sem alerta');
+  ok(hojeBrasilia(Date.UTC(2026, 10, 26, 2, 0)) === '2026-11-25', 'hoje pelo horário de Brasília');
+  console.log('ok  dedução de terceiros aplicada e data de Brasília');
 }
 
 console.log(falhas ? `${falhas} falha(s)` : 'fiscal: todos os testes passaram');

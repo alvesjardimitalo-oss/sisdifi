@@ -4,10 +4,11 @@ import { estado } from '../estado.js';
 import { esc, $, toast, dataBR, hojeISO } from '../ui.js';
 import { cabecalho } from './comum.js';
 import { lerDanfsePDF } from '../danfse-pdf.js';
-import { auditoriaNota, monitorFiscalSituacao, VERSAO_POLITICA_FISCAL, FONTES_LEGISLATIVAS } from '../auditoria-fiscal.js?v=3.22.0.29ae658e';
+import { auditoriaNota, monitorFiscalSituacao, VERSAO_POLITICA_FISCAL, FONTES_LEGISLATIVAS } from '../auditoria-fiscal.js?v=3.22.0.92f19d07';
 import {
   lerCodigo, lerXML, consultarCnpj, conferir, sugerirNatureza, descreverTributacao, NATUREZAS, MUNICIPIO, ISS,
-  formatarCnpj, limparCnpj, cnpjValido, moeda, aliquotaIss, mensagemFornecedor, faltaParaDiagnostico
+  formatarCnpj, limparCnpj, cnpjValido, moeda, aliquotaIss, mensagemFornecedor, faltaParaDiagnostico,
+  natureza as naturezaPorId, INSS, admiteDeducaoTerceiros, DEDUCAO_TERCEIROS
 } from '../fiscal.js';
 
 const PORTAL_SIMPLES = 'https://consopt.www8.receita.fazenda.gov.br/consultaoptantes';
@@ -59,7 +60,46 @@ function codigoMunicipio(texto) {
 function nomeMunicipio(cod) { const c = String(cod || ''); return (mapaMunicipios && mapaMunicipios[c]) || (c === 'outro' ? 'outro município' : c); }
 
 const pctTxt = v => (v == null ? '—' : String(Math.round(v * 100) / 100).replace('.', ',') + '%');
+const rotuloLiquido = r => (r.inss?.reter ? 'Líquido a pagar (após IRRF, ISS e INSS)' : 'Líquido após IRRF e ISS');
 const numCampo = v => (v == null || v === '' ? '' : String(v));
+
+/**
+ * Retenções que dependem de decisão da Contabilidade: valores pagos a terceiros (base do ISS,
+ * Lei 966/2023) e INSS do contratante (Lei 8.212/1991, art. 31). Só aparece quando se aplica.
+ */
+function blocoRetencoesContratante(d, naturezaId, ehServico) {
+  const nat = naturezaPorId(naturezaId);
+  const deducao = ehServico && admiteDeducaoTerceiros(d.codigoServico);
+  const inss = !!(nat?.inss || d.inssRetido > 0);
+  if (!deducao && !inss) return '';
+  const sel = (a, b) => (a === b ? 'selected' : '');
+  const decisao = d.inssDecisao || '';
+  return `<div class="fiscal-bloco fiscal-bloco-contratante">
+    <div class="fiscal-bloco-titulo">Retenções que dependem da Contabilidade</div>
+    ${deducao ? `<input type="hidden" name="_blocoDeducao" value="1">
+    <div class="grade-2">
+      <label class="campo"><span>Valores pagos a terceiros (R$)</span><input type="number" step="0.01" min="0" name="deducaoTerceiros" value="${esc(numCampo(d.deducaoTerceiros))}" ${d.semDeducaoTerceiros ? 'disabled' : ''} placeholder="total comprovado">
+        <small class="dica">Saem da base do ISS, até ${DEDUCAO_TERCEIROS.limitePercentual}% dela, com alíquota mínima de ${String(ISS.minimoSimples).replace('.', ',')}% (${esc(DEDUCAO_TERCEIROS.fundamento)}). Exige documento fiscal ou comprovante.</small></label>
+      <label class="check fiscal-check"><input type="checkbox" name="semDeducaoTerceiros" ${d.semDeducaoTerceiros ? 'checked' : ''}> Sem dedução — usar o valor cheio</label>
+    </div>` : ''}
+    ${inss ? `<div class="grade-2">
+      <label class="campo"><span>INSS retido impresso na nota (R$)</span><input type="number" step="0.01" min="0" name="inssRetido" value="${esc(numCampo(d.inssRetido))}" placeholder="se a nota destacar">
+        <small class="dica">"Retenção para a Previdência Social" (${esc(INSS.destaque)}).</small></label>
+      <label class="campo"><span>INSS — decisão da Contabilidade *</span><select name="inssDecisao">
+        <option value="" ${sel('', decisao)}>A definir (a nota não fica "ok")</option>
+        <option value="reter" ${sel('reter', decisao)}>Reter</option>
+        <option value="nao_reter" ${sel('nao_reter', decisao)}>Não reter (informar o motivo)</option></select>
+        <small class="dica">O contratante retém ${INSS.aliquota}% do valor bruto e recolhe em nome do prestador (${esc(INSS.fundamento)}).</small></label>
+    </div>
+    ${decisao === 'reter' ? `<div class="grade-2">
+      <label class="campo"><span>Materiais e equipamentos discriminados (R$)</span><input type="number" step="0.01" min="0" name="inssDeducao" value="${esc(numCampo(d.inssDeducao))}" placeholder="0,00">
+        <small class="dica">Só o que estiver discriminado na nota e previsto no contrato. Sai da base do INSS.</small></label>
+      <label class="campo"><span>Alíquota do INSS (%)</span><input type="number" step="0.01" min="0" max="11" name="inssAliquota" value="${esc(numCampo(d.inssAliquota ?? INSS.aliquota))}">
+        <small class="dica">Padrão ${INSS.aliquota}%. Use outra só com fundamento (ex.: empresa sujeita à CPRB).</small></label>
+    </div>` : ''}
+    ${decisao === 'nao_reter' ? `<label class="campo"><span>Motivo de não reter o INSS *</span><textarea name="inssMotivo" rows="2" placeholder="ex.: empreitada global com fornecimento de materiais; Simples fora do Anexo IV">${esc(d.inssMotivo || '')}</textarea></label>` : ''}` : ''}
+  </div>`;
+}
 
 function historico() { try { return JSON.parse(localStorage.getItem(CHAVE_HIST) || '[]'); } catch { return []; } }
 function guardarHistorico(item) {
@@ -318,6 +358,7 @@ function desenharForm(el) {
           <small class="dica">Lei 7.713/1988, art. 9º; ADN Cosit 1/1993.</small></label>
       </div>
     </div>` : ''}
+    ${blocoRetencoesContratante(d, s.natureza, ehServico)}
     <div class="fiscal-bloco">
       <div class="fiscal-bloco-titulo"><span class="fiscal-num">3</span> Valores e retenções impressos na nota</div>
       <div class="grade-2">
@@ -383,6 +424,14 @@ function desenharForm(el) {
       incidencia: 'incidencia' in v ? (v.incidencia === 'outro' ? (s.doc.incidencia && s.doc.incidencia !== MUNICIPIO.ibge && s.doc.incidencia !== String(s.doc.municipioEmissor) ? s.doc.incidencia : 'outro') : v.incidencia) : s.doc.incidencia,
       coopServicosPessoais: 'coopServicosPessoais' in v ? n(v.coopServicosPessoais) : s.doc.coopServicosPessoais,
       coopTransporte: 'coopTransporte' in v ? v.coopTransporte : s.doc.coopTransporte,
+      // Retenções do contratante: dedução de terceiros (Lei 966/2023) e INSS (Lei 8.212/1991, art. 31)
+      deducaoTerceiros: 'deducaoTerceiros' in v ? n(v.deducaoTerceiros) : s.doc.deducaoTerceiros,
+      semDeducaoTerceiros: '_blocoDeducao' in v ? v.semDeducaoTerceiros === 'on' : s.doc.semDeducaoTerceiros,
+      inssRetido: 'inssRetido' in v ? n(v.inssRetido) : s.doc.inssRetido,
+      inssDecisao: 'inssDecisao' in v ? v.inssDecisao : s.doc.inssDecisao,
+      inssDeducao: 'inssDeducao' in v ? n(v.inssDeducao) : s.doc.inssDeducao,
+      inssAliquota: 'inssAliquota' in v ? n(v.inssAliquota) : s.doc.inssAliquota,
+      inssMotivo: 'inssMotivo' in v ? v.inssMotivo : s.doc.inssMotivo,
       modelo: ({ 'NF-e': '55', 'NFC-e': '65', 'CT-e': '57', 'CT-e OS': '67', 'NFS-e Nacional': 'nfse', 'NFS-e': 'nfse', 'NF3-e (energia elétrica)': '66', 'NFCom (telecomunicação)': '62', 'BP-e (passagem)': '63' })[v.documento] || s.doc.modelo || '',
       servico: s.doc.origem === 'xml' ? s.doc.servico : (/NFS/.test(v.documento) || !!descreverTributacao(v.codigoServico)?.valido),
       totalRetencoesNota: n(v.totalRetencoesNota), liquidoNota: n(v.liquidoNota),
@@ -392,7 +441,7 @@ function desenharForm(el) {
     // mexeu na data: deixa de ser o palpite do dia 01 que veio da chave
     if (e?.target?.name === 'emissao') s.doc.emissaoPresumida = false;
     // campos que mudam o próprio formulário (código, documento, natureza sugerida) → redesenha mantendo o foco
-    const redesenhar = mudouCodigo || ['documento', 'natureza'].includes(e?.target?.name) || (e?.target?.name === 'descricaoServico' && s.naturezaAuto);
+    const redesenhar = mudouCodigo || ['documento', 'natureza', 'inssDecisao', 'semDeducaoTerceiros'].includes(e?.target?.name) || (e?.target?.name === 'descricaoServico' && s.naturezaAuto);
     if (mudouCnpj) consultar(el); else { if (redesenhar) { const nome = e?.target?.name; desenharForm(el); if (nome) f.querySelector(`[name="${nome}"]`)?.focus(); } recalcular(el); }
   };
   f.onchange = ler;
@@ -523,7 +572,7 @@ const CHECKS_FISCAIS=[
  ['legislacaoIssConfirmada','Validei alíquota e base de ISS na lei municipal com Tributos'],
  ['baseEspecialAnalisada','Examinei deduções legais específicas da base do ISS e comprovantes'],
  ['outrasRetencoesAnalisadas','Documentei as retenções adicionais e o líquido final no processo'],
- ['inssAnalisado','Analisei possível retenção do INSS (não calculada automaticamente)'],
+ ['inssAnalisado','Analisei a retenção do INSS (Lei 8.212/1991, art. 31)'],
  ['vinculoEmpenho','Conferi empenho, contrato/ordem de fornecimento e valores'],
  ['atestoConfirmado','Conferi o atesto de recebimento dos bens ou da execução do serviço']
 ];
@@ -619,8 +668,8 @@ function desenharResultado(el) {
         <span>${qtd('erro')} erro(s) · ${qtd('alerta')} aviso(s) · ${qtd('info')} orientação(ões)</span></div>
       <div class="fiscal-kpis">
         <div><span>Valor bruto</span><strong>${moeda(r.valor)}</strong></div>
-        <div><span>Retenções (IRRF + ISS)</span><strong>${moeda(r.retencoes)}</strong></div>
-        <div class="fiscal-kpi-destaque"><span>Líquido após IRRF e ISS</span><strong>${moeda(r.liquido)}</strong></div>
+        <div><span>${r.inss?.reter ? 'Retenções (IRRF + ISS + INSS)' : 'Retenções (IRRF + ISS)'}</span><strong>${moeda(r.retencoes)}</strong></div>
+        <div class="fiscal-kpi-destaque"><span>${rotuloLiquido(r)}</span><strong>${moeda(r.liquido)}</strong></div>
       </div>
       <div class="fiscal-acoes">
         <a class="btn" href="#/imprimir/fiscal">🖨 Ficha de conferência</a>
@@ -643,12 +692,13 @@ function desenharResultado(el) {
         ${r.comparativo.map(l => `<tr class="${l.total ? 'fiscal-total' : ''} ${l.naoCalculado ? 'fiscal-nao-calculado' : ''} ${l.diferenca != null && Math.abs(l.diferenca) >= 0.01 ? 'fiscal-difere' : ''}"><td>${l.total ? '' : '(−) '}${esc(l.item)}${l.notaAliq != null || l.conferidoAliq != null ? ` <span class="muted">${l.notaAliq != null ? pctTxt(l.notaAliq) : '—'} → ${l.conferidoAliq != null ? pctTxt(l.conferidoAliq) : '—'}</span>` : ''}${l.detalhe ? `<br><span class="muted">${esc(l.detalhe)}</span>` : ''}</td>
           <td class="num">${moeda(l.nota)}</td><td class="num">${l.naoCalculado ? '<span class="muted">não calculada aqui</span>' : '<strong>' + moeda(l.conferido) + '</strong>'}</td><td class="num">${l.naoCalculado ? '—' : (Math.abs(l.diferenca) >= 0.01 ? (l.diferenca > 0 ? '+' : '−') + moeda(Math.abs(l.diferenca)) : '✓')}</td></tr>`).join('')}
       </tbody></table>
-      <p class="dica">Valor líquido <b>estimado</b>, sujeito à conferência documental, INSS e demais hipóteses legais. Não liquidar enquanto houver pendências. ${r.ir.reter ? ` IRRF ${pctTxt(r.ir.aliquota)} — ${esc(r.natureza.texto)}.` : ''}</p>`
+      <p class="dica">Valor líquido <b>estimado</b>, sujeito à conferência documental e demais hipóteses legais.${r.inss?.aplica && !r.inss.decidido ? ' O INSS ainda não foi decidido e não entra no líquido.' : ''} Não liquidar enquanto houver pendências. ${r.ir.reter ? ` IRRF ${pctTxt(r.ir.aliquota)} — ${esc(r.natureza.texto)}.` : ''}</p>`
       : `<table class="tabela tabela-peq fiscal-liq"><tbody>
         <tr><td>Valor bruto da nota</td><td class="num">${moeda(r.valor)}</td></tr>
         <tr><td>(−) IRRF ${r.ir.reter ? `${pctTxt(r.ir.aliquota)} · ${esc(r.natureza.texto)}` : ''}</td><td class="num">${moeda(r.ir.reter ? r.ir.valor : 0)}</td></tr>
         <tr><td>(−) ISSQN ${r.iss.reter && r.iss.valor ? pctTxt(r.iss.aliquota) : ''}</td><td class="num">${moeda(r.iss.reter ? r.iss.valor : 0)}</td></tr>
-        <tr class="fiscal-total"><td>Líquido após IRRF e ISS</td><td class="num">${moeda(r.liquido)}</td></tr>
+        ${r.inss?.reter ? `<tr><td>(−) INSS ${pctTxt(r.inss.aliquota)}</td><td class="num">${moeda(r.inss.valor)}</td></tr>` : ''}
+        <tr class="fiscal-total"><td>${rotuloLiquido(r)}</td><td class="num">${moeda(r.liquido)}</td></tr>
       </tbody></table>`}
       ${r.cbsibs.esperado && r.cbsibs.parametros?.teste ? `<p class="dica">CBS (${moeda(r.cbsibs.esperado.vCBS)}) e IBS (${moeda(r.cbsibs.esperado.vIBS)}) de 2026 são informativos: não entram no total nem são retidos.</p>` : ''}
     </div>
@@ -767,8 +817,8 @@ export function telaImprimirFiscal(el) {
         <tr><td class="r">Valor bruto</td><td>${moeda(r.valor)}</td><td>${moeda(r.valor)}</td><td></td></tr>
         ${r.comparativo.map(l => `<tr><td class="r">${l.total ? '' : '(−) '}${esc(l.item)}${l.detalhe ? ' — ' + esc(l.detalhe) : ''}${l.notaAliq != null || l.conferidoAliq != null ? ` (${l.notaAliq != null ? pctTxt(l.notaAliq) : '—'} → ${l.conferidoAliq != null ? pctTxt(l.conferidoAliq) : '—'})` : ''}</td><td>${moeda(l.nota)}</td><td>${l.naoCalculado ? 'não calculada aqui' : (l.total ? '<strong>' + moeda(l.conferido) + '</strong>' : moeda(l.conferido))}</td><td>${l.diferenca != null && Math.abs(l.diferenca) >= 0.01 ? moeda(l.diferenca) : '—'}</td></tr>`).join('')}
       </table>` : `<table class="doc-tab">
-        ${linha('Valor bruto', moeda(r.valor))}${linha('(−) IRRF', moeda(r.ir.reter ? r.ir.valor : 0))}${linha('(−) ISSQN', moeda(r.iss.reter ? r.iss.valor : 0))}
-        ${linha('Líquido após IRRF e ISS', `<strong>${moeda(r.liquido)}</strong>`)}</table>`}</div>
+        ${linha('Valor bruto', moeda(r.valor))}${linha('(−) IRRF', moeda(r.ir.reter ? r.ir.valor : 0))}${linha('(−) ISSQN', moeda(r.iss.reter ? r.iss.valor : 0))}${r.inss?.reter ? linha('(−) INSS', moeda(r.inss.valor)) : ''}
+        ${linha(rotuloLiquido(r), `<strong>${moeda(r.liquido)}</strong>`)}</table>`}</div>
       <div class="doc-secao"><div class="doc-secao-titulo">5 - Divergências e providências</div><table class="doc-tab"><tr><td>
         ${r.problemas.length ? `<ul class="doc-lista">${r.problemas.map(p => `<li><strong>[${NIVEL[p.nivel][0]}] ${esc(p.titulo)}.</strong> ${esc(p.solucao)}</li>`).join('')}</ul>` : 'Nenhuma divergência encontrada.'}
       </td></tr></table></div>
@@ -778,9 +828,12 @@ export function telaImprimirFiscal(el) {
         ${linha('Boletim legislativo',esc(a?.monitor?.ultimo || 'Não verificado')+' · '+(a?.monitor?.pendentes?.length || 0)+' alteração(ões) pendente(s)')}
         ${a?.pendencias?.length?linha('Informações não confirmadas','<ul class="doc-lista">'+a.pendencias.map(p=>'<li>'+esc(p.titulo)+': '+esc(p.pergunta)+'</li>').join('')+'</ul>'):''}
         ${a?.impedimentos?.length?linha('Impedimentos','<ul class="doc-lista">'+a.impedimentos.map(p=>'<li>'+esc(p.titulo)+': '+esc(p.pergunta)+'</li>').join('')+'</ul>'):''}
+        ${r.inss?.aplica ? linha('INSS (Lei 8.212/1991, art. 31)', r.inss.reter ? esc(r.inss.motivo) + ' = <strong>' + moeda(r.inss.valor) + '</strong>' : r.inss.decidido ? 'Não retido. Motivo: ' + esc(r.inss.motivo || 'não informado') : '<strong>A definir</strong>') : ''}
+        ${r.iss?.deducaoTerceiros ? linha('Base do ISS', 'Valor bruto menos ' + moeda(r.iss.deducaoTerceiros) + ' pagos a terceiros = ' + moeda(r.iss.base)) : ''}
+        ${r.fundamentos?.length ? linha('Base legal aplicada', '<ul class="doc-lista">' + r.fundamentos.map(f => '<li><strong>' + esc(f.esfera === 'federal' ? 'Federal' : 'Municipal') + '</strong> — ' + esc(f.norma) + ': ' + esc(f.uso) + '</li>').join('') + '</ul>') : ''}
       </table></div>
       <p class="doc-sub" style="margin-top:6px">Bases: IN RFB 1.234/2012 com a IN RFB 2.145/2023 (IRRF); LC 116/2003, Lei Municipal 883/2017 e Lei 966/2023 (ISSQN conforme subitem, local e vigência); LC 123/2006 (Simples Nacional); LC 214/2025 (CBS/IBS).
-        O cálculo não abrange retenção previdenciária e situações especiais de base de ISS, que exigem parecer específico. Este documento não autoriza liquidar notas. Consulta do CNPJ em dados abertos da Receita Federal${cad ? ' (' + esc(cad.fonte) + ')' : ''}. Conferido em ${esc(ultimaConferencia.quando.toLocaleString('pt-BR'))} por ${esc(estado.sessao?.nome || '')}.</p>
+        A retenção previdenciária (Lei 8.212/1991, art. 31) e a dedução de valores pagos a terceiros (Lei 966/2023) seguem a decisão e os valores registrados pela Contabilidade; não há norma estadual aplicável, pois o Município não retém tributo estadual. Este documento não autoriza liquidar notas. Consulta do CNPJ em dados abertos da Receita Federal${cad ? ' (' + esc(cad.fonte) + ')' : ''}. Conferido em ${esc(ultimaConferencia.quando.toLocaleString('pt-BR'))} por ${esc(estado.sessao?.nome || '')}.</p>
       <table class="doc-ass"><tr><td><div class="doc-linha-ass">${esc(estado.sessao?.nome || 'Contabilidade')}<br>Contabilidade</div></td><td><div class="doc-linha-ass">Ordenador da despesa</div></td></tr></table>
     </div></div>`;
   return { titulo: 'Ficha de conferência fiscal' };
