@@ -587,11 +587,12 @@ function blocoAuditoriaFiscal(el) {
   const perfil=estado.sessao?.perfil;
   const fontes=a.monitor.fontes;
   const estadoFonte={monitorado:'Monitorada',mudanca_detectada:'Alteração detectada',erro:'Fonte indisponível',consulta_intermediada:'Consulta por espelho — revisão obrigatória',verificacao_manual:'Conferência manual válida por 7 dias',revisao_registrada:'Alteração revisada',nao_verificado:'Aguardando coleta'};
-  let marcacoes='';
+  let marcacoes='', total=0, feitas=0;
   for(const [id,label] of CHECKS_FISCAIS){
     const cond={outrasRetencoesAnalisadas:'outras_retencoes',localConfirmado:'local',legislacaoIssConfirmada:'legislacao_iss',baseEspecialAnalisada:'base_especial',inssAnalisado:'inss'};
     if(cond[id] && !relevantes.has(cond[id]) && !s.confirmacoes[id]) continue;
-    marcacoes+='<label style="display:flex;gap:9px;align-items:flex-start;margin:8px 0"><input type="checkbox" data-fis-confirma="'+id+'" '+(s.confirmacoes[id]?'checked':'')+'><span>'+esc(label)+'</span></label>';
+    total++; if(s.confirmacoes[id]) feitas++;
+    marcacoes+='<label class="aud-check'+(s.confirmacoes[id]?' feito':'')+'"><input type="checkbox" data-fis-confirma="'+id+'" '+(s.confirmacoes[id]?'checked':'')+'><span>'+esc(label)+'</span></label>';
   }
   const lembretes=a.pendencias.map(q=>'<li><strong>'+esc(q.titulo)+'</strong>: '+esc(q.pergunta)+(q.base?' <small>('+esc(q.base)+')</small>':'')+'</li>').join('');
   const impedimentos=a.impedimentos.map(q=>'<li><strong>'+esc(q.titulo)+'</strong>: '+esc(q.pergunta)+'</li>').join('');
@@ -603,15 +604,18 @@ function blocoAuditoriaFiscal(el) {
       (aprovar?'<button type="button" class="btn btn-sec" data-fis-aprovar-lei="'+esc(f.id)+'">Registrar revisão</button>':'')+'</li>';
   }).join(''):'<li>Boletim oficial ainda não carregado. Conferência de vigência obrigatória.</li>';
   const situacaoTxt={bloqueada:'NÃO LIQUIDAR — divergência identificada',pendente:'AGUARDAR CONFERÊNCIAS E DOCUMENTOS',conferida_para_revisao:'PRÉ-AUDITORIA CONCLUÍDA — decisão humana obrigatória'}[a.situacao];
-  return '<section class="cartao" style="border-left:4px solid '+(a.situacao==='bloqueada'?'#b84040':a.situacao==='pendente'?'#c39131':'#2c885b')+'">'+
-    '<h3>Auditoria da Prefeitura de Frei Inocêncio</h3><p><strong>'+esc(situacaoTxt)+'</strong></p>'+
+  const pct=total?Math.round(feitas/total*100):0;
+  const tom=a.situacao==='bloqueada'?'erro':a.situacao==='pendente'?'alerta':'ok';
+  return '<section class="cartao aud aud-'+tom+'">'+
+    '<header class="aud-topo"><div><h3>Auditoria da Prefeitura de Frei Inocêncio</h3><span class="aud-situacao">'+esc(situacaoTxt)+'</span></div>'+
+      '<div class="aud-progresso" title="Confirmações do processo"><b>'+feitas+' de '+total+'</b><span class="aud-barra"><i style="width:'+pct+'%"></i></span></div></header>'+
     '<p class="dica">'+esc(a.resumo)+' O sistema não acessa nem bloqueia a liquidação no software contábil externo.</p>'+
-    (s.doc.tomadorNome||s.doc.tomadorCnpj?'<p><strong>Tomador lido da nota:</strong> '+esc(s.doc.tomadorNome||'Não identificado')+
+    (s.doc.tomadorNome||s.doc.tomadorCnpj?'<p class="aud-tomador"><strong>Tomador lido da nota:</strong> '+esc(s.doc.tomadorNome||'Não identificado')+
       (s.doc.tomadorCnpj?' · CNPJ '+esc(formatarCnpj(s.doc.tomadorCnpj)):'')+'</p>':'')+
-    (impedimentos?'<h4>Inconsistências impeditivas</h4><ul class="fiscal-problemas">'+impedimentos+'</ul>':'')+
-    '<details open><summary><strong>Confirmações do processo administrativo</strong></summary><div style="padding:10px 0">'+marcacoes+'</div></details>'+
-    (lembretes?'<details open><summary><strong>Perguntas e informações pendentes ('+a.pendencias.length+')</strong></summary><ul class="fiscal-problemas">'+lembretes+'</ul></details>':'')+
-    '<details><summary><strong>Atualizador de legislação · '+esc(VERSAO_POLITICA_FISCAL)+'</strong> '+(a.monitor.requerRevisao?' · REVISÃO OBRIGATÓRIA':'')+'</summary>'+
+    (impedimentos?'<h4 class="aud-sub">Inconsistências impeditivas</h4><ul class="fiscal-problemas">'+impedimentos+'</ul>':'')+
+    '<details class="aud-det" open><summary>Confirmações do processo administrativo <span class="aud-chip">'+feitas+'/'+total+'</span></summary><div class="aud-lista">'+marcacoes+'</div></details>'+
+    (lembretes?'<details class="aud-det"><summary>Perguntas e informações pendentes <span class="aud-chip aud-chip-alerta">'+a.pendencias.length+'</span></summary><ul class="fiscal-problemas">'+lembretes+'</ul></details>':'')+
+    '<details class="aud-det"><summary>Atualizador de legislação · '+esc(VERSAO_POLITICA_FISCAL)+(a.monitor.requerRevisao?' <span class="aud-chip aud-chip-alerta">revisão obrigatória</span>':'')+'</summary>'+
       '<p class="dica">As fontes oficiais são consultadas diariamente. Mudanças no texto geram revisão; nunca alteram automaticamente ISS, IRRF ou outros parâmetros da liquidação.</p>'+
       '<p><strong>Última varredura:</strong> '+esc(a.monitor.ultimo||'Ainda não realizada')+(erroCatalogoFiscal?' · '+esc(erroCatalogoFiscal):'')+
       ' · <strong>'+a.monitor.pendentes.length+'</strong> alteração(ões) detectada(s) e <strong>'+a.monitor.indisponiveis.length+'</strong> fonte(s) com verificação manual necessária</p><ul>'+fontesHtml+'</ul>'+
@@ -682,7 +686,7 @@ function desenharResultado(el) {
         ${linkPortal('Portal do Simples', 'btn btn-sec')}
       </div>
     </div>
-    ${blocoAuditoriaFiscal(el)}
+    ${perguntaUnica()}
     ${s.repetida ? `<div class="alerta">Esta nota já foi conferida neste computador em ${esc(new Date(s.repetida.quando).toLocaleString('pt-BR'))}${s.repetida.por ? ' por ' + esc(s.repetida.por) : ''}. Confira se não é pagamento em duplicidade.</div>` : ''}
     <div class="cartao">
       <h3><span class="fiscal-num">1</span> Erros e soluções</h3>
@@ -722,7 +726,8 @@ ${blocoFornecedor(cad, '<span class="fiscal-num">3</span> ')}
       <ul class="fiscal-verif">${r.verificacao.linhas.map(l => `<li class="${l.ok === true ? 'v-ok' : l.ok === false ? 'v-erro' : 'v-info'}"><span aria-hidden="true">${l.ok === true ? '✓' : l.ok === false ? '✕' : '•'}</span>
         <div><strong>${esc(l.titulo)}</strong><small>${esc(l.detalhe)}</small></div></li>`).join('')}</ul>
     </div>` : ''}
-    ${perguntaUnica()}${linkFormulario()}
+    ${blocoAuditoriaFiscal(el)}
+    ${linkFormulario()}
     <div class="fiscal-proxima"><button type="button" class="btn btn-sec fiscal-limpar" data-limpar>Limpar consulta e conferir outra nota</button></div>`;
   box.querySelectorAll('[data-fis-confirma]').forEach(cb=>cb.onchange=()=>{
     s.confirmacoes[cb.dataset.fisConfirma]=cb.checked;
