@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {auditoriaNota,monitorFiscalSituacao,codigoExcecaoISS,VERSAO_POLITICA_FISCAL} from '../assets/js/auditoria-fiscal.js';
+import {auditoriaNota,monitorFiscalSituacao,codigoExcecaoISS,FONTES_LEGISLATIVAS,VERSAO_POLITICA_FISCAL} from '../assets/js/auditoria-fiscal.js';
 import {lerXML,MUNICIPIO} from '../assets/js/fiscal.js';
 
 assert.equal(MUNICIPIO.nome,'Frei Inocêncio');
@@ -22,6 +22,10 @@ const aval={simples:false,natureza:{servico:true,inss:false},problemas:[]};
 const catalogo={ultimaExecucao:'2026-11-11T07:00:00Z',fontes:[{
  id:'lei_966_2023',estado:'monitorado',hashObservado:'ABC',hashReferencia:'ABC',ultimaConsulta:'2026-11-11T07:00:00Z'
 }]};
+const restantes=FONTES_LEGISLATIVAS.filter(f=>f.id!=='lei_966_2023').map(f=>({...f,estado:'monitorado'}));
+catalogo.fontes.push(...restantes);
+assert.ok(monitorFiscalSituacao({...catalogo,fontes:restantes},'2026-11-11').requerRevisao);
+assert.ok(monitorFiscalSituacao({...catalogo,ultimaExecucao:'2026-11-12'},'2026-11-11').requerRevisao);
 const base={...nota,servico:true,numeroEmpenho:'1234/2026',referenciaAtesto:'Atesto assinado no processo 123/2026',localPrestacao:'3126901',incidencia:'3126901',
  codigoServico:'17.01',descricaoServico:'Assessoria',valor:1000};
 const c={originalConferido:true,tomadorConfirmado:true,autenticidadeConfirmada:true,naturezaConfirmada:true,
@@ -44,7 +48,7 @@ assert.ok(a.impedimentos.some(p=>p.id==='tomador_divergente'));
 a=auditoriaNota({doc:base,cadastro:{situacao:'ATIVA'},resultado:{...aval,problemas:[{nivel:'erro',titulo:'ISS incorreto',solucao:'Pedir correção'}]},
  contexto:c,catalogo,hoje:'2026-11-11'});
 assert.equal(a.situacao,'bloqueada');
-let alterado={...catalogo,fontes:[{...catalogo.fontes[0],estado:'mudanca_detectada',hashObservado:'NOVO'}]};
+let alterado={...catalogo,fontes:[{...catalogo.fontes[0],estado:'mudanca_detectada',hashObservado:'NOVO'},...restantes]};
 assert.equal(monitorFiscalSituacao(alterado,'2026-11-11').requerRevisao,true);
 a=auditoriaNota({doc:base,cadastro:{situacao:'ATIVA'},resultado:aval,contexto:c,catalogo:alterado,hoje:'2026-11-11'});
 assert.equal(a.situacao,'pendente');
@@ -70,13 +74,22 @@ console.log('Pré-auditoria municipal: perguntas, bloqueios, leis especiais e mo
 
 
 // Fontes municipais que recusam robôs não podem ser consideradas automaticamente verificadas.
-const proxied={...catalogo,fontes:[{...catalogo.fontes[0],consultaIntermediada:true,estado:'monitorado'}]};
+const proxied={...catalogo,fontes:[{...catalogo.fontes[0],consultaIntermediada:true,estado:'monitorado'},...restantes]};
 assert.equal(monitorFiscalSituacao(proxied,'2026-11-11').requerRevisao,true);
 assert.ok(monitorFiscalSituacao(proxied,'2026-11-11').indisponiveis.length);
 const manualFonte={lei_966_2023:{hash:'ABC',verificacaoManualEm:'2026-11-11T10:00:00Z',observacao:'Lei municipal consultada em portal oficial'}};
 assert.equal(monitorFiscalSituacao(proxied,'2026-11-11',manualFonte).requerRevisao,false);
 assert.equal(monitorFiscalSituacao(proxied,'2026-11-20',manualFonte).requerRevisao,true);
-const erroFonte={...catalogo,fontes:[{...catalogo.fontes[0],estado:'erro',hashObservado:null}]};
+const erroFonte={...catalogo,fontes:[{...catalogo.fontes[0],estado:'erro',hashObservado:null},...restantes]};
 assert.equal(monitorFiscalSituacao(erroFonte,'2026-11-11').requerRevisao,true);
 assert.equal(monitorFiscalSituacao(erroFonte,'2026-11-11',{lei_966_2023:{verificacaoManualEm:'2026-11-11T10:00:00Z',observacao:'verificação no portal municipal'}}).requerRevisao,false);
 console.log('Portal municipal com erro 403 e espelho exigem revisão humana válida por 7 dias.');
+
+for (const [cenario, id] of [
+  [{doc:{...base,emissaoPresumida:true}}, 'emissao'],
+  [{resultado:{...aval,simples:null}}, 'simples'],
+  [{resultado:{...aval,comparativo:[{naoCalculado:true}]}}, 'outras_retencoes']
+]) {
+  const r=auditoriaNota({doc:base,cadastro:{situacao:'ATIVA'},resultado:aval,contexto:c,catalogo,hoje:'2026-11-11',...cenario});
+  assert.ok(r.pendencias.some(p=>p.id===id));
+}

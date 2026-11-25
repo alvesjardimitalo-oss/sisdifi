@@ -243,6 +243,10 @@ function lerNFSeNacional(x) {
     regimeNotaTexto: ({ 1: 'Não optante pelo Simples Nacional', 2: 'MEI', 3: 'ME/EPP do Simples Nacional' })[op] || '',
     servico: true, codigoServico: tag(bloco(dps, 'cServ'), 'cTribNac'), descricaoServico: tag(bloco(dps, 'cServ'), 'xDescServ'),
     irrfDestacado: numOuNulo(tag(tribFed, 'vRetIRRF')),
+    inssRetido: numOuNulo(tag(tribFed, 'vRetCP')),
+    csrfRetido: numOuNulo(tag(tribFed, 'vRetCSLL')),
+    liquidoNota: numOuNulo(tag(vals, 'vLiq')),
+    totalRetencoesNota: numOuNulo(tag(vals, 'vTotalRet')),
     issAliquota: numOuNulo(tag(vals, 'pAliqAplic')) ?? numOuNulo(tag(tribMun, 'pAliq')),
     issValor: numOuNulo(tag(vals, 'vISSQN')),
     issRetidoNota: tpRet ? tpRet !== '1' : null,
@@ -269,6 +273,9 @@ function lerNFSeAbrasf(x) {
     regimeNota: op === '1' ? 'simples' : op === '2' ? 'normal' : '',
     regimeNotaTexto: op === '1' ? 'Optante pelo Simples Nacional' : op === '2' ? 'Não optante pelo Simples Nacional' : '',
     servico: true, codigoServico: tag(x, 'ItemListaServico') || tag(x, 'CodigoTributacaoMunicipio'), descricaoServico: tag(x, 'Discriminacao'),
+    inssRetido: numOuNulo(tag(v, 'ValorInss')),
+    liquidoNota: numOuNulo(tag(x, 'ValorLiquidoNfse')),
+    csrfRetido: ['ValorPis', 'ValorCofins', 'ValorCsll'].reduce((soma, campo) => soma + num(tag(v, campo)), 0),
     irrfDestacado: numOuNulo(tag(v, 'ValorIr')), issAliquota: aliq, issValor: numOuNulo(tag(v, 'ValorIss')),
     issRetidoNota: ret ? ret === '1' : null, ibscbs: lerIbsCbs(x)
   };
@@ -465,7 +472,7 @@ export function normalizarCadastro(j, fonte) {
       cnae: sem(e.atividade_principal?.id), cnaeTexto: e.atividade_principal?.descricao || '',
       cnaesSecundarios: (e.atividades_secundarias || []).map(a => ({ codigo: sem(a.id).replace(/\D/g, ''), texto: a.descricao || '' })),
       municipio: e.cidade?.nome || '', uf: e.estado?.sigla || '', municipioIbge: sem(e.cidade?.ibge_id),
-      simples: /sim/i.test(sem(s.simples)), simplesInicio: s.data_opcao_simples || '', simplesFim: s.data_exclusao_simples || '',
+      simples: s.simples == null ? null : /^sim$/i.test(s.simples), simplesInicio: s.data_opcao_simples || '', simplesFim: s.data_exclusao_simples || '',
       mei: /sim/i.test(sem(s.mei)), meiInicio: s.data_opcao_mei || '', meiFim: s.data_exclusao_mei || ''
     };
   }
@@ -475,7 +482,7 @@ export function normalizarCadastro(j, fonte) {
     cnae: sem(j.cnae_fiscal), cnaeTexto: j.cnae_fiscal_descricao || '',
     cnaesSecundarios: (j.cnaes_secundarios || []).filter(a => a && a.codigo).map(a => ({ codigo: sem(a.codigo).replace(/\D/g, ''), texto: a.descricao || '' })),
     municipio: j.municipio || '', uf: j.uf || '', municipioIbge: sem(j.codigo_municipio_ibge),
-    simples: j.opcao_pelo_simples === true, simplesInicio: j.data_opcao_pelo_simples || '', simplesFim: j.data_exclusao_do_simples || '',
+    simples: typeof j.opcao_pelo_simples === 'boolean' ? j.opcao_pelo_simples : null, simplesInicio: j.data_opcao_pelo_simples || '', simplesFim: j.data_exclusao_do_simples || '',
     mei: j.opcao_pelo_mei === true, meiInicio: j.data_opcao_pelo_mei || '', meiFim: j.data_exclusao_do_mei || ''
   };
 }
@@ -509,8 +516,7 @@ export async function consultarCnpj(cnpj, { fetchFn = globalThis.fetch, tempo = 
 
 /** Optante na data? (opção até a data e sem exclusão até a data) */
 export function optanteNaData(inicio, fim, marcado, data) {
-  if (!data) return !!marcado;
-  if (!inicio) return !!marcado;
+  if (!data || !inicio) return marcado == null ? null : !!marcado;
   if (inicio > data) return false;
   if (fim && fim <= data) return false;
   return true;
@@ -556,7 +562,17 @@ export function faltaParaDiagnostico(doc = {}) {
   return falta;
 }
 
-export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual = '', hoje = new Date().toISOString().slice(0, 10), chave = null, parametros = null } = {}) {
+/** Data de hoje no horário de Brasília ('AAAA-MM-DD'), independente do fuso do computador. */
+export const hojeBrasilia = (agora = Date.now()) => new Date(agora - 3 * 3600e3).toISOString().slice(0, 10);
+
+/** Retenção previdenciária (INSS) do contratante: Lei 8.212/1991, art. 31. */
+export const INSS = {
+  aliquota: 11,
+  fundamento: 'Lei 8.212/1991, art. 31',
+  destaque: 'Lei 8.212/1991, art. 31, § 1º'
+};
+
+export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual = '', hoje = hojeBrasilia(), chave = null, parametros = null } = {}) {
   const issMun = aliquotaIss(doc.codigoServico, parametros, doc.emissao);
   const ISS_ALIQ = issMun.aliquota;
   const nat = natureza(naturezaId) || natureza(sugerirNatureza(doc));
@@ -630,7 +646,7 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
   if (!simples) {
     const calc = r2(ir.base * nat.ir / 100);
     if (nat.ir === 0) ir.motivo = 'Natureza sem retenção de IR no Anexo I';
-    else if (calc < MINIMO_RETENCAO_IR) { ir.valor = calc; ir.motivo = `IR calculado inferior a R$ 10,00 — retenção dispensada (art. 3º, § 6º)`; }
+    else if (calc < MINIMO_RETENCAO_IR) { ir.valor = calc; ir.motivo = 'IR inferior a R$ 10,00: confirmar o tratamento municipal.'; if (calc > 0) add('alerta', 'Confirmar o tratamento municipal do IRRF inferior a R$ 10,00', 'Registre a norma municipal aplicável e confira o recolhimento antes de aplicar a dispensa ao pagamento.'); }
     else { ir.valor = calc; ir.reter = true; ir.motivo = ir.motivo || (nat.cooperativa ? `Cooperativa: ${pct(nat.ir)} sobre ${ir.baseTexto} (IN RFB 1.234/2012, art. 26; código 3280)` : `${nat.texto}: ${pct(nat.ir)} sobre o valor bruto (Anexo I da IN RFB 1.234/2012; IN RFB 2.145/2023)`); }
   }
   if (cadastro?.naturezaCodigo === '2143' && !nat.cooperativa) add('erro', 'O fornecedor é uma COOPERATIVA', 'Escolha a natureza "Cooperativa de trabalho/transporte" (IR 1,5% sobre os serviços pessoais dos cooperados, código 3280), e não a do serviço em si.');
@@ -642,7 +658,45 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
   } else if (simples && irNota > 0) {
     add('alerta', `Nota com IRRF destacado (${moeda(irNota)}), mas o fornecedor é do Simples`, 'Não retenha. Avise o fornecedor para retirar o destaque nas próximas notas; se ele quiser a nota corrigida agora, NFS-e por nota substituta.');
   }
-  if (nat.inss && !simples) add('info', 'Verifique a retenção do INSS (11%)', 'Cessão de mão de obra e empreitada podem ter retenção previdenciária (Lei 8.212/1991, art. 31; IN RFB 2.110/2022). Esta ferramenta não calcula o INSS.');
+  /* INSS (Lei 8.212/1991, art. 31). O contratante de cessão de mão de obra ou
+     empreitada - inclusive o Municipio - retem 11% do valor bruto e recolhe em
+     nome do prestador. Antes, a ferramenta so avisava e o liquido nao descontava
+     o INSS: com a nota "ok", pagava-se ao fornecedor um valor que o Municipio
+     deveria ter retido. Agora a Contabilidade decide (reter ou nao, com motivo);
+     sem decisao, a nota nao fica "ok". As hipoteses de deducao e dispensa ficam
+     com a Contabilidade, que informa o valor e o motivo: o sistema calcula e
+     registra, sem presumir percentuais. */
+  const inssNotaDecl = r2(doc.inssRetido || 0);
+  const nomeInssNota = doc.inssRotulo || 'Contribuição Previdenciária Retida';
+  const inss = { aplica: !!(nat.inss || inssNotaDecl > 0), decidido: false, reter: false, base: valor, deducao: 0, aliquota: INSS.aliquota, valor: 0,
+    sugerido: r2(valor * INSS.aliquota / 100), motivo: '', fundamento: INSS.fundamento };
+  if (inss.aplica) {
+    const decisao = doc.inssDecisao || '';
+    if (decisao === 'reter') {
+      inss.decidido = true; inss.reter = true;
+      inss.aliquota = Number(doc.inssAliquota) > 0 ? Number(doc.inssAliquota) : INSS.aliquota;
+      inss.deducao = Math.min(Math.max(r2(doc.inssDeducao || 0), 0), valor);
+      inss.base = r2(valor - inss.deducao);
+      inss.valor = r2(inss.base * inss.aliquota / 100);
+      inss.motivo = `Retenção de ${pct(inss.aliquota)} sobre ${moeda(inss.base)} — valor bruto${inss.deducao ? ` menos ${moeda(inss.deducao)} de materiais/equipamentos discriminados` : ''} (${INSS.fundamento})`;
+      if (inssNotaDecl > 0 && difere(inssNotaDecl, inss.valor)) add('erro', `INSS destacado na nota (${moeda(inssNotaDecl)}) diferente do conferido (${moeda(inss.valor)})`,
+        `Retenha ${moeda(inss.valor)} (${pct(inss.aliquota)} sobre ${moeda(inss.base)}). Confira a base (materiais e equipamentos discriminados) e a alíquota; se a nota estiver errada, peça a correção ao fornecedor.`, INSS.fundamento);
+      if (!(inssNotaDecl > 0)) add('info', 'Nota sem o destaque da retenção previdenciária',
+        `O INSS de ${moeda(inss.valor)} será retido mesmo assim. O fornecedor deve destacar a retenção na nota (${INSS.destaque}).`, '', 'declaracao',
+        `A nota não destaca a retenção para a Previdência Social. Pedimos que as próximas notas tragam o destaque (${INSS.destaque}).`);
+      if (mei) add('alerta', 'Retenção de INSS para MEI', 'Confira se cabe a retenção: o MEI tem tratamento próprio na contribuição previdenciária. Na dúvida, consulte o setor de Tributos antes de liquidar.');
+    } else if (decisao === 'nao_reter') {
+      inss.decidido = true;
+      inss.motivo = String(doc.inssMotivo || '').trim();
+      if (!inss.motivo) add('alerta', 'Informe por que o INSS não será retido', 'Registre o motivo (ex.: empreitada global com fornecimento de materiais, optante do Simples fora do Anexo IV, serviço sem cessão de mão de obra). O motivo vai para a ficha da liquidação.');
+      if (inssNotaDecl > 0) add('alerta', `A nota destaca ${nomeInssNota} de ${moeda(inssNotaDecl)}, mas a Contabilidade decidiu não reter`,
+        `O líquido a pagar fica ${moeda(inssNotaDecl)} maior que o impresso na nota. Confirme a decisão e oriente o fornecedor a emitir a nota sem o destaque, se for o caso.`);
+    } else {
+      add('alerta', 'Defina a retenção do INSS antes de liquidar',
+        `${nat.inss ? `A natureza escolhida (${nat.texto}) costuma envolver cessão de mão de obra ou empreitada.` : `A nota declara ${nomeInssNota} de ${moeda(inssNotaDecl)}.`} O contratante — inclusive o Município — retém ${pct(INSS.aliquota)} do valor bruto da nota e recolhe em nome do prestador (${INSS.fundamento}); optantes do Simples tributados pelo Anexo IV da LC 123/2006 também sofrem a retenção. No formulário, em "INSS", escolha "Reter" (sugestão: ${moeda(inss.sugerido)}; informe materiais e equipamentos discriminados, se houver) ou "Não reter" com o motivo.`,
+        INSS.fundamento);
+    }
+  }
 
   // 5. ISSQN
   const iss = { aplica: false, aliquota: null, valor: 0, reter: false, motivo: '' };
@@ -690,17 +744,19 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
   /* Deducao de valores pagos a terceiros (Lei 966/2023). Muda a base e a
      aliquota, entao muda o que o Municipio retem: e questao de pagamento,
      nao observacao. So aparece quando o Municipio e o destinatario do ISS. */
+  let dedTerceiros = 0;
   if (servico && !indefinido && localIss.aqui === true && admiteDeducaoTerceiros(doc.codigoServico)) {
-    const deduzido = doc.deducaoTerceiros != null ? r2(doc.deducaoTerceiros) : null;
+    const deduzido = doc.deducaoTerceiros != null && doc.deducaoTerceiros !== '' ? r2(doc.deducaoTerceiros) : null;
     const teto = r2(valor * (DEDUCAO_TERCEIROS.limitePercentual / 100));
-    if (deduzido == null) {
+    if (deduzido == null && !doc.semDeducaoTerceiros) {
       add('alerta', 'Este serviço admite dedução de valores pagos a terceiros',
-        `${DEDUCAO_TERCEIROS.fundamento}: o que foi pago a terceiros, com documento fiscal ou comprovante eficaz, sai da base do ISS, até ${DEDUCAO_TERCEIROS.limitePercentual}% dela — e nessa hipótese vale a alíquota mínima de ${pct(ISS.minimoSimples)}, não a de ${pct(ISS_ALIQ)}. Confirme com a nota e os comprovantes se há valores a deduzir; se não houver, a base é o valor cheio.`,
+        `${DEDUCAO_TERCEIROS.fundamento}: o que foi pago a terceiros, com documento fiscal ou comprovante eficaz, sai da base do ISS, até ${DEDUCAO_TERCEIROS.limitePercentual}% dela — e nessa hipótese vale a alíquota mínima de ${pct(ISS.minimoSimples)}, não a de ${pct(ISS_ALIQ)}. Informe em "Valores pagos a terceiros" o total comprovado, ou marque "Sem dedução" para usar o valor cheio.`,
         'Pode reduzir a base e a alíquota');
     } else if (deduzido > teto) {
       add('erro', `Dedução de terceiros acima do limite de ${DEDUCAO_TERCEIROS.limitePercentual}% da base`,
-        `${DEDUCAO_TERCEIROS.fundamento} limita a dedução a ${moeda(teto)} nesta nota. Reduza a dedução ao limite ou confira os comprovantes.`);
+        `${DEDUCAO_TERCEIROS.fundamento} limita a dedução a ${moeda(teto)} nesta nota. O cálculo usou o limite; reduza a dedução ou confira os comprovantes.`);
     }
+    if (deduzido > 0) dedTerceiros = Math.min(deduzido, teto);
   }
 
   /* A lei municipal cita um subitem e descreve outro. Enquadrar nao muda,
@@ -729,6 +785,11 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
         else if (informada < ISS.minimoSimples || informada > ISS.maximoSimples) { iss.aliquota = ISS_ALIQ; add('erro', `Alíquota de ISS do Simples fora da faixa (${pct(informada)})`, `No Simples a alíquota do ISS fica entre ${pct(ISS.minimoSimples)} e ${pct(ISS.maximoSimples)}. Retenha ${pct(ISS_ALIQ)} e peça nota substituta com a alíquota correta.`); }
         else iss.aliquota = informada;
         iss.motivo = `ME/EPP do Simples: retenção pela alíquota informada na nota (LC 123/2006, art. 21, § 4º)`;
+      } else if (dedTerceiros > 0) {
+        iss.aliquota = ISS.minimoSimples;
+        iss.motivo = `Base reduzida pelos valores pagos a terceiros (${moeda(dedTerceiros)}) e alíquota mínima de ${pct(ISS.minimoSimples)} (${DEDUCAO_TERCEIROS.fundamento})`;
+        if (doc.issAliquota != null && doc.issAliquota !== 0 && difere(doc.issAliquota, iss.aliquota, 0.001)) add('erro', `Alíquota de ISS na nota (${pct(doc.issAliquota)}) diferente da devida com a dedução de terceiros (${pct(iss.aliquota)})`,
+          `Com a dedução de valores pagos a terceiros, vale a alíquota mínima de ${pct(ISS.minimoSimples)} (${DEDUCAO_TERCEIROS.fundamento}). Retenha ${pct(iss.aliquota)} sobre a base reduzida e peça a nota substituta, se for o caso.`);
       } else {
         iss.aliquota = ISS_ALIQ;
         iss.motivo = `Não optante, serviço prestado em ${MUNICIPIO.nome}: ISS de ${pct(ISS_ALIQ)}${
@@ -748,7 +809,10 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
         if (trib?.issNoLocal) iss.motivo += ` — subitem ${trib.subitem.slice(0, 2)}.${trib.subitem.slice(2)}: ISS devido no local da prestação (LC 116/2003, art. 3º)`;
         if (doc.issAliquota != null && doc.issAliquota !== 0 && difere(doc.issAliquota, ISS_ALIQ, 0.001)) add('erro', `Alíquota de ISS na nota (${pct(doc.issAliquota)}) diferente da do município (${pct(ISS_ALIQ)})`, `O fornecedor não é do Simples: o ISS em ${MUNICIPIO.nome} é de ${pct(ISS_ALIQ)}${issMun.fonte === 'lei' ? ` para o subitem ${issMun.subitem}, pelo ${ANEXO_II_CURTO}` : issMun.excecao ? ' para este código' : ''}. Retenha ${pct(ISS_ALIQ)} e peça a nota substituta com a alíquota correta.${doc.modelo === 'nfse' && String(doc.incidencia || '') === MUNICIPIO.ibge ? ` Atenção: na NFS-e Nacional com incidência em ${MUNICIPIO.nome}, a alíquota é puxada do cadastro do próprio Município no Emissor Nacional — confirme com o setor de Tributos. Se a lei municipal prevê ${pct(doc.issAliquota)} para este serviço, cadastre a exceção em "Alíquotas do ISS" nesta tela; se não, Tributos deve corrigir o cadastro no Painel Municipal da NFS-e.` : ''}`);
       }
-      iss.valor = r2(valor * iss.aliquota / 100);
+      iss.base = r2(valor - dedTerceiros);
+      iss.deducaoTerceiros = dedTerceiros;
+      if (dedTerceiros > 0 && simples) iss.motivo += ` — base reduzida pelos valores pagos a terceiros (${moeda(dedTerceiros)}, ${DEDUCAO_TERCEIROS.fundamento})`;
+      iss.valor = r2(iss.base * iss.aliquota / 100);
       iss.reter = ISS.retemOrgao;
       if (doc.issValor != null && doc.issValor > 0 && difere(doc.issValor, iss.valor) && !problemas.some(p => p.titulo.startsWith('Alíquota de ISS'))) add('erro', `Valor do ISS na nota (${moeda(doc.issValor)}) diferente do calculado (${moeda(iss.valor)})`, 'Confira a base de cálculo (deduções) na nota. Se não houver dedução legal, peça a nota substituta.');
       // Nota emitida no município do prestador é normal; o que importa é o MUNICÍPIO DE INCIDÊNCIA do ISS informado na nota.
@@ -799,14 +863,11 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
   }
 
   // 7. Resultado para a liquidação
-  if (doc.inssRetido > 0) add('info', `A nota informa ${doc.inssRotulo || 'Contribuição Previdenciária Retida'} de ${moeda(doc.inssRetido)}`, 'Esta ferramenta não calcula o INSS. Confira a retenção previdenciária (cessão de mão de obra/empreitada) e, se devida, desconte-a também no pagamento.');
-  const retencoes = r2((ir.reter ? ir.valor : 0) + (iss.reter ? iss.valor : 0));
+  const retencoes = r2((ir.reter ? ir.valor : 0) + (iss.reter ? iss.valor : 0) + (inss.reter ? inss.valor : 0));
   const liquido = r2(valor - retencoes);
   // Comparativo: o que a nota diz × o que a conferência calculou
   const irNotaV = r2(doc.irrfDestacado || 0);
   const issNotaV = doc.issRetidoNota === false ? 0 : r2(doc.issValor || 0);
-  const totalNota = doc.totalRetencoesNota != null ? r2(doc.totalRetencoesNota) : r2(irNotaV + issNotaV);
-  const liquidoNota = doc.liquidoNota != null ? r2(doc.liquidoNota) : r2(valor - totalNota);
   /* Retenções que a nota declara e esta ferramenta não calcula. Apareciam
      só como uma diferença no líquido, sem nome: "faltam R$ 78,12" não diz
      se é erro do fornecedor, imposto esquecido ou retenção que o Município
@@ -820,47 +881,45 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
   const nomeInss = doc.inssRotulo || 'Contribuição Previdenciária Retida';
   const naoCalculadas = [];
   if (csrfNota) naoCalculadas.push({ item: nomeCsrf, nota: csrfNota, conferido: null, naoCalculado: true, detalhe: doc.csrfDescricao || '' });
-  if (inssNota) naoCalculadas.push({ item: nomeInss, nota: inssNota, conferido: null, naoCalculado: true });
+  if (inssNota && !inss.decidido) naoCalculadas.push({ item: nomeInss, nota: inssNota, conferido: null, naoCalculado: true });
   /* Qualquer outra retenção que a nota traga e que não seja nenhuma das acima
      também desce no comparativo, pelo nome dela: retenção que some da tela é
      retenção que alguém paga sem perceber. */
   for (const r of (doc.retencoesNota || [])) {
     if (!(r.valor > 0)) continue;
-    if (r.valor === csrfNota || r.valor === inssNota) continue;
     if (naoCalculadas.some(l => l.item === r.rotulo)) continue;
+    if (inss.decidido && r.rotulo === nomeInss) continue;
     naoCalculadas.push({ item: r.rotulo, nota: r2(r.valor), conferido: null, naoCalculado: true });
   }
 
+  const outras = r2(naoCalculadas.reduce((soma, linha) => soma + linha.nota, 0));
+  const totalNota = doc.totalRetencoesNota != null ? r2(doc.totalRetencoesNota) : r2(irNotaV + issNotaV + outras);
+  const liquidoNota = doc.liquidoNota != null ? r2(doc.liquidoNota) : r2(valor - totalNota);
   const comparativo = [
     { item: 'IRRF', nota: irNotaV, conferido: ir.reter ? ir.valor : 0 },
     { item: 'ISSQN retido', nota: issNotaV, conferido: iss.reter ? iss.valor : 0, notaAliq: doc.issAliquota, conferidoAliq: iss.aplica ? iss.aliquota : null },
+    ...(inss.aplica && inss.decidido ? [{ item: 'INSS retido', nota: inssNota, conferido: inss.reter ? inss.valor : 0, notaAliq: null, conferidoAliq: inss.reter ? inss.aliquota : null }] : []),
     ...naoCalculadas,
     { item: 'Total das retenções', nota: totalNota, conferido: retencoes },
-    { item: 'Valor líquido a pagar', nota: liquidoNota, conferido: liquido, total: true }
+    { item: inss.reter ? 'Líquido a pagar' : 'Líquido após IRRF e ISS', nota: liquidoNota, conferido: liquido, total: true }
   ].map(l => ({ ...l, diferenca: l.conferido == null ? null : r2(l.conferido - l.nota) }));
-  const temDadosNota = doc.irrfDestacado != null || doc.issValor != null || doc.liquidoNota != null;
-  if (temDadosNota && valor && Math.abs(liquidoNota - liquido) >= 0.01) {
-    const dif = r2(Math.abs(liquido - liquidoNota));
-    const soma = r2(csrfNota + inssNota);
-    /* Quando a diferença é exatamente o que a nota retém e a ferramenta não
-       calcula, dizer isso vale mais que apontar "erro de retenção": não há
-       erro do fornecedor, há uma retenção que esta conferência não cobre. */
-    const explicadaPorOutras = soma > 0 && Math.abs(dif - soma) < 0.01;
-    if (explicadaPorOutras) {
-      const nomes = [
-        csrfNota ? `${nomeCsrf}${doc.csrfDescricao ? ` — ${doc.csrfDescricao}` : ''} (${moeda(csrfNota)})` : '',
-        inssNota ? `${nomeInss} (${moeda(inssNota)})` : ''
-      ].filter(Boolean).join(' e ');
-      /* A retenção é do emitente, não do Município: ela não entra no cálculo do
-         que se paga, então não trava a nota. O valor a pagar já vai no
-         comparativo; aqui o que falta é dizer ao fornecedor que ele errou. */
-      add('info', `A nota prevê retenção de ${nomes} que o Município não faz`,
-        `Isso não muda o que o Município paga: a retenção de ${nomes} só é exigida de Estados e Municípios com convênio com a Receita Federal (Lei 10.833/2003, art. 33; IN RFB 475/2004). Sem convênio, pague ${moeda(liquido)}, e não os ${moeda(liquidoNota)} impressos na nota. Se o Município tiver convênio, o líquido correto é o da nota.`,
-        'Retenção declarada pelo emitente', 'declaracao',
-        `A nota informa retenção de ${nomes}, mas o Município não efetua essa retenção — ela só é exigida de entes com convênio com a Receita Federal (Lei 10.833/2003, art. 33; IN RFB 475/2004). O crédito será de ${moeda(liquido)}, e não de ${moeda(liquidoNota)}. Pedimos o ajuste nas próximas emissões para esta Prefeitura.`);
-    } else {
-      add('erro', `Valor líquido da nota (${moeda(liquidoNota)}) diferente do que deve ser pago (${moeda(liquido)})`,
-        `Pague ${moeda(liquido)}, com as retenções conferidas. A diferença de ${moeda(dif)}${soma ? ` não se explica pelas retenções que a nota declara e esta ferramenta não calcula (${moeda(soma)})` : ''} vem dos erros de retenção apontados acima; peça ao fornecedor a nota corrigida (ou registre a retenção correta e comunique o fornecedor).`);
+  const temDadosNota = outras > 0 || doc.totalRetencoesNota != null || doc.irrfDestacado != null || doc.issValor != null || doc.liquidoNota != null;
+  if (temDadosNota && valor) {
+    const diferenca = r2(liquido - liquidoNota);
+    if (outras > 0) {
+      const nomes = naoCalculadas.map(l => l.item + ' (' + moeda(l.nota) + ')').join(', ');
+      const diligencias = [];
+      if (csrfNota) diligencias.push('Confira o convênio aplicável e sua vigência para PIS/Cofins/CSLL (Lei 10.833/2003, art. 33).');
+      if (inssNota && !inss.decidido) diligencias.push('Defina a retenção do INSS no formulário (Lei 8.212/1991, art. 31).');
+      add('info', 'Retenções adicionais na nota: ' + nomes,
+        'Líquido impresso: ' + moeda(liquidoNota) + '. Após apenas IRRF e ISS: ' + moeda(liquido) + '. ' + diligencias.join(' '));
+    }
+    // Não repete o aviso quando a diferença é só o INSS que a Contabilidade decidiu não reter.
+    const soInssNaoRetido = inss.decidido && !inss.reter && inssNota > 0 && Math.abs(diferenca - outras - inssNota) < 0.01;
+    if (Math.abs(diferenca - outras) >= 0.01 && !soInssNaoRetido) {
+      add('erro', 'Valor líquido da nota requer conciliação',
+        'Confira descontos, bases e retenções no documento. Líquido impresso: ' + moeda(liquidoNota) +
+        '. Após IRRF e ISS: ' + moeda(liquido) + '. Demais retenções declaradas: ' + moeda(outras) + '.');
     }
   }
   const ordem = { erro: 0, alerta: 1, info: 2 };
@@ -869,7 +928,30 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
      emitente nao pode bloquear um pagamento que esta correto. */
   const doPagamento = problemas.filter(p => p.impacto !== 'declaracao');
   const situacao = doPagamento.some(p => p.nivel === 'erro') ? 'erro' : doPagamento.some(p => p.nivel === 'alerta') ? 'alerta' : 'ok';
-  return { natureza: nat, valor, emissao, simples, mei, fonteSimples, ir, iss, localIss, cbsibs: cb, retencoes, liquido, comparativo, temDadosNota, verificacao, problemas, situacao };
+  const fundamentos = fundamentosAplicados({ nat, simples, mei, ir, iss, inss, localIss, cb, dedTerceiros, issMun });
+  return { natureza: nat, valor, emissao, simples, mei, fonteSimples, ir, iss, inss, localIss, cbsibs: cb, retencoes, liquido, comparativo, temDadosNota, verificacao, problemas, situacao, fundamentos };
+}
+
+/**
+ * Normas que sustentaram cada parte do cálculo, por esfera (federal e municipal).
+ * Não há norma estadual: o Município, como tomador, não retém tributo estadual.
+ */
+export function fundamentosAplicados({ nat, simples, mei, ir, iss, inss, localIss, cb, dedTerceiros, issMun }) {
+  const f = [];
+  const add = (esfera, norma, uso) => { if (!f.some(x => x.norma === norma && x.uso === uso)) f.push({ esfera, norma, uso }); };
+  if (simples) add('federal', 'LC 123/2006 e IN RFB 1.234/2012, art. 4º, XI', mei ? 'MEI: sem retenção de IRRF e de ISS' : 'Optante do Simples: sem retenção de IRRF');
+  else add('federal', 'IN RFB 1.234/2012, Anexo I, com a IN RFB 2.145/2023', `IRRF de ${pct(nat.ir)} — ${nat.texto}`);
+  if (!simples && ir.valor > 0 && !ir.reter) add('federal', 'IN RFB 1.234/2012, art. 3º, § 6º', 'Dispensa de IRRF inferior a R$ 10,00');
+  if (localIss && !localIss.indefinido) add('federal', 'LC 116/2003, art. 3º', 'Município onde o ISS é devido');
+  if (iss.aplica && !mei) {
+    if (simples) add('federal', 'LC 123/2006, art. 21, § 4º', 'ISS do Simples pela alíquota informada na nota');
+    else if (dedTerceiros > 0) add('municipal', 'Lei 966/2023 (art. 102, § 15, da Lei 883/2017)', 'Dedução de valores pagos a terceiros e alíquota mínima');
+    else add('municipal', issMun?.fonte === 'lei' ? ANEXO_II_CURTO : issMun?.fonte === 'cadastro' ? 'Alíquota cadastrada pela administração (config/fiscal)' : 'Lei 883/2017 (alíquota padrão)', `ISS de ${pct(iss.aliquota)}`);
+    add('municipal', 'Lei 883/2017, art. 98, XI', 'Município responsável pela retenção do ISS');
+  }
+  if (inss?.aplica) add('federal', INSS.fundamento, inss.reter ? `INSS de ${pct(inss.aliquota)} retido` : inss.decidido ? 'INSS não retido (motivo registrado)' : 'Retenção do INSS a definir');
+  if (cb?.parametros) add('federal', 'LC 214/2025', cb.parametros.teste ? 'CBS/IBS em ano-teste (informativo)' : 'CBS/IBS');
+  return f;
 }
 
 /** Texto pronto para pedir a correção ao fornecedor, a partir dos erros e avisos da conferência. */
@@ -880,7 +962,12 @@ export function mensagemFornecedor(r, doc = {}, cadastro = null, orgao = 'Prefei
      mas e exatamente o que ele precisa corrigir nas proximas notas. */
   const itens = r.problemas.filter(p => (p.nivel !== 'info' || p.impacto === 'declaracao')
     && !/^Comprove|^Alíquotas de|^Sem parâmetros|^Não foi possível consultar/.test(p.titulo));
-  if (!itens.length) return `Prezados (${nome}),\n\nA ${nota} está em pré-conferência fiscal. Não foram encontradas divergências no cálculo preliminar, mas a Contabilidade ainda verificará o documento original, eventuais retenções adicionais e o processo administrativo. Não há, por ora, solicitação de substituição da nota.\n\nAtenciosamente,\nContabilidade — ${orgao}`;
+  const corretos = [];
+  if (r.ir.reter) corretos.push(`IRRF: ${moeda(r.ir.valor)} (${pct(r.ir.aliquota)}${r.natureza.cooperativa ? '' : ' — ' + r.natureza.texto})`);
+  if (r.inss?.reter) corretos.push(`INSS: ${pct(r.inss.aliquota)} sobre ${moeda(r.inss.base)} = ${moeda(r.inss.valor)} (${INSS.fundamento})`);
+  if (r.iss.aplica && r.iss.reter && r.iss.valor) corretos.push(`ISSQN: ${pct(r.iss.aliquota)} = ${moeda(r.iss.valor)}, retido pelo tomador, local da prestação/incidência ${MUNICIPIO.nome}/${MUNICIPIO.uf}`);
+  const valoresConferidos = corretos.length ? `Valores conferidos pela Contabilidade:\n- ${corretos.join('\n- ')}\n- Valor líquido a pagar: ${moeda(r.liquido)}\n\n` : '';
+  if (!itens.length) return `Prezados (${nome}),\n\nA ${nota} está em pré-conferência fiscal. Não foram encontradas divergências no cálculo preliminar, mas a Contabilidade ainda verificará o documento original, eventuais retenções adicionais e o processo administrativo. Não há, por ora, solicitação de substituição da nota.\n\n${valoresConferidos}Atenciosamente,\nContabilidade — ${orgao}`;
   /* Dois assuntos diferentes na mesma carta: o que ele precisa corrigir
      porque muda o pagamento, e o que e so declaracao dele. Misturar os dois
      faz a carta pedir ao fornecedor providencia que e do Municipio. */
@@ -888,14 +975,14 @@ export function mensagemFornecedor(r, doc = {}, cadastro = null, orgao = 'Prefei
   const soDeclaracao = itens.filter(p => p.impacto === 'declaracao');
   const linhas = daNota.map((p, i) => `${i + 1}. ${p.titulo}.\nProvidência solicitada: ${p.solucao}`);
   const avisos = soDeclaracao.map(p => `- ${p.aoEmitente || p.titulo}`);
-  const corretos = [];
-  if (r.ir.reter) corretos.push(`IRRF: ${moeda(r.ir.valor)} (${pct(r.ir.aliquota)}${r.natureza.cooperativa ? '' : ' — ' + r.natureza.texto})`);
-  if (r.iss.aplica && r.iss.reter && r.iss.valor) corretos.push(`ISSQN: ${pct(r.iss.aliquota)} = ${moeda(r.iss.valor)}, retido pelo tomador, local da prestação/incidência ${MUNICIPIO.nome}/${MUNICIPIO.uf}`);
   const corpo = linhas.length
     ? `Na conferência da ${nota}, no valor de ${moeda(r.valor)}, encontramos:\n${linhas.join('\n')}\n\n`
-    : `Na conferência da ${nota}, no valor de ${moeda(r.valor)}, não encontramos divergência que impeça o pagamento.\n\n`;
+    : `Na conferência da ${nota}, no valor de ${moeda(r.valor)}, as retenções declaradas seguem em conferência pela Contabilidade.\n\n`;
   const bloco = avisos.length ? `Observação sobre o preenchimento da nota:\n${avisos.join('\n')}\n\n` : '';
   return `Prezados (${nome}),\n\n` + corpo + bloco +
-    (corretos.length ? `Valores preliminares para conferência da Contabilidade (não substituir orientação tributária final):\n- ${corretos.join('\n- ')}\n- Valor líquido a pagar: ${moeda(r.liquido)}\n\n` : '') +
+    (corretos.length ? `Valores preliminares para conferência da Contabilidade (não substituir orientação tributária final):\n- ${corretos.join('\n- ')}\n- Líquido preliminar${r.inss?.reter ? '' : ' após IRRF e ISS'}: ${moeda(r.liquido)}\n\n` : '') +
     `Solicitamos a providência correspondente, observando se o documento admite correção, cancelamento ou substituição conforme a legislação e o emissor. A análise final depende do setor de Tributos, Contabilidade e dos documentos do processo. Ficamos à disposição.\n\nAtenciosamente,\nContabilidade — ${orgao}`;
 }
+
+// Reexporta para a tela: quais serviços admitem a dedução de terceiros (Lei 966/2023).
+export { admiteDeducaoTerceiros, DEDUCAO_TERCEIROS };

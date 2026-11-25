@@ -22,7 +22,7 @@ lab(0, 'Descrição do Serviço', 'TRANSPORTE ESCOLAR ROTA 01'); t(X[0], y + 18,
 lab(0, 'TRIBUTAÇÃO MUNICIPAL (ISSQN)'); lab(1, 'Tipo de Tributação do ISSQN', 'Operação Tributável'); lab(2, 'Município / Sigla UF / País de Incidência do ISSQN', 'Frei Inocêncio'); linha();
 lab(0, 'BC ISSQN', 'R$ 10.000,00'); lab(1, 'Alíquota Aplicada', '5,00 %'); lab(2, 'Retenção do ISSQN', 'Retido pelo Tomador'); lab(3, 'ISSQN Apurado', 'R$ 500,00'); linha(24);
 lab(0, 'TRIBUTAÇÃO FEDERAL (EXCETO CBS)'); lab(1, 'IRRF', 'R$ 240,00'); lab(2, 'Contribuição Previdenciária - Retida', '-'); linha(24);
-lab(0, 'TRIBUTAÇÃO IBS / CBS'); lab(1, 'CST / cClassTrib', '000 / 000001'); lab(2, 'Indicador de Operação / Código IBGE Incidência / Município Incidência / Sigla UF', '060101 / 3126901 / Frei Inocêncio'); linha();
+lab(0, 'TRIBUTAÇÃO IBS / CBS'); lab(1, 'CST / cClassTrib', '000 / 000001'); lab(2, 'Indicador de Operação / Código IBGE Incidência / Município Incidência / Sigla UF', '060101 / 3118601 / Contagem'); linha();
 lab(0, 'Exclusões e Reduções da Base de Cálculo', 'R$ 865,00'); lab(1, 'Base de Cálculo Após Exclusões e Reduções', 'R$ 9.135,00'); lab(3, 'Alíquota - IBS UF / IBS Mun', '0,10 % / 0,00 %'); linha();
 lab(0, 'Valor Total Apurado - IBS', 'R$ 9,14'); lab(1, 'Alíquota - CBS', '0,90 %'); lab(3, 'Valor Total Apurado - CBS', 'R$ 82,22'); linha(24);
 lab(0, 'VALOR TOTAL DA NFS-E'); lab(1, 'VALOR DA OPERAÇÃO / SERVIÇO', 'R$ 10.000,00'); linha();
@@ -32,7 +32,7 @@ const d = lerDanfse(itens);
 ok(d.chave.length === 50 && d.numero === '15' && d.emissao === '2026-10-05', 'chave, número, competência');
 ok(d.cnpj === '11222333000181' && d.nome === 'TRANSPORTES FICTICIOS LTDA' && d.email === 'contato@ficticio.com.br', 'prestador (não o tomador)');
 ok(d.municipioEmissorIbge === '3113404' && d.regimeNota === 'normal', 'emissor e Simples');
-ok(d.codigoServico === '16.02.01' && d.localPrestacaoTexto === 'Frei Inocêncio / MG' && d.incidenciaIbge === '3126901', 'serviço, local e incidência');
+ok(d.codigoServico === '16.02.01' && d.localPrestacaoTexto === 'Frei Inocêncio / MG' && d.incidenciaTexto === 'Frei Inocêncio' && !d.incidenciaIbge, 'serviço, local e incidência');
 ok(d.descricaoServico === 'TRANSPORTE ESCOLAR ROTA 01 PERIODO 09/2026', 'descrição em duas linhas');
 ok(d.issAliquota === 5 && d.issValor === 500 && d.issRetidoNota === true && d.irrfDestacado === 240, 'ISS e IRRF');
 ok(d.valor === 10000 && d.totalRetencoesNota === 740 && d.liquidoNota === 9260, 'valores');

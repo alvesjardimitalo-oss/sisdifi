@@ -146,7 +146,6 @@ export function lerDanfse(itens) {
     descricaoServico: descricao,
     localPrestacaoTexto: vazio(local) ? '' : local,
     incidenciaTexto: vazio(incid) ? '' : incid,
-    incidenciaIbge: (v(/codigo ibge incidencia/).match(/\b\d{7}\b/) || [])[0] || '',
     issAliquota: percentual(v(/^aliquota aplicada/)),
     issValor: dinheiro(v(/^issqn apurado/)),
     issBase: dinheiro(v(/^bc issqn/)),

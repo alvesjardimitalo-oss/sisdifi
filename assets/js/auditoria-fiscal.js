@@ -21,7 +21,7 @@ export function codigoExcecaoISS(codigo) {
   const item=n.slice(0,2),sub=n.slice(2,4);
   return (item==='10' && Number(sub)>=1 && Number(sub)<=8) || n==='1508' || n==='1701';
 }
-export function monitorFiscalSituacao(catalogo, agora='2026-11-11', aprovacoes={}) {
+export function monitorFiscalSituacao(catalogo, agora=new Date().toISOString().slice(0,10), aprovacoes={}) {
   const fontes = (Array.isArray(catalogo?.fontes) ? catalogo.fontes : []).map(f => {
     const aprovado = aprovacoes?.[f.id] || {};
     const aprovadoHash = !!(aprovado.hash && aprovado.hash === f.hashObservado);
@@ -41,23 +41,26 @@ export function monitorFiscalSituacao(catalogo, agora='2026-11-11', aprovacoes={
   const pendentes=fontes.filter(f=>f.estado==='mudanca_detectada');
   const indisponiveis=fontes.filter(f=>['erro','consulta_intermediada'].includes(f.estado));
   const ultimo = /^\d{4}-\d{2}-\d{2}/.test(catalogo?.ultimaExecucao||'') ? catalogo.ultimaExecucao.slice(0,10) : '';
-  const dias = ultimo ? Math.max(0,Math.floor((Date.parse(agora+'T12:00:00Z')-Date.parse(ultimo+'T12:00:00Z'))/86400000)) : null;
+  const dias = ultimo ? Math.floor((Date.parse(agora+'T12:00:00Z')-Date.parse(ultimo+'T12:00:00Z'))/86400000) : null;
+  const recente = Number.isFinite(dias) && dias >= 0 && dias <= 7;
+  const completas = FONTES_LEGISLATIVAS.every(ref => fontes.some(f => f.id === ref.id));
+  const estadosValidos = fontes.every(f => ['monitorado','verificacao_manual','revisao_registrada'].includes(f.estado));
   return {fontes,verificadas,pendentes,indisponiveis,ultimo,dias,
-    recente:dias!==null && dias<=7,
+    recente,
     aplicacaoAutomatica:false,
-    requerRevisao:!fontes.length || dias===null || dias>7 || pendentes.length>0 || indisponiveis.length>0};
+    requerRevisao:!completas || !recente || !estadosValidos};
 }
-export function auditoriaNota({doc={},cadastro=null,resultado=null,contexto={},catalogo=null,aprovacoes={},hoje=new Date().toISOString().slice(0,10)}={}) {
+export function auditoriaNota({doc={},cadastro=null,resultado=null,contexto={},parametrosDisponiveis=true,catalogo=null,aprovacoes={},hoje=new Date().toISOString().slice(0,10)}={}) {
   const pendencias=[], impedimentos=[], orientacoes=[];
   const adicionar = (id,titulo,pergunta,base='')=>pendencias.push(fato(id,titulo,pergunta,base));
   const bloquear=(id,titulo,pergunta,base='')=>impedimentos.push(fato(id,titulo,pergunta,base));
   const ehServico=!!(doc.servico || /NFS/.test(doc.documento||'') || resultado?.natureza?.servico);
   if (!literal(doc.documento)) adicionar('documento','Tipo do documento','Informe se é NF-e, NFS-e, CT-e ou outro documento fiscal.');
   if (!literal(doc.numero)) adicionar('numero','Número da nota','Informe o número da nota fiscal e confira a série, quando aplicável.');
-  if (!literal(doc.emissao)) adicionar('emissao','Data de emissão','Confira a data de emissão com a nota original.');
+  if (!literal(doc.emissao) || doc.emissaoPresumida) adicionar('emissao','Data de emissão','Confira a data de emissão com a nota original.');
   if (!(Number(doc.valor)>0)) adicionar('valor','Valor bruto','Informe o valor total efetivo da nota.');
   if (!literal(doc.cnpj)) adicionar('cnpj','CNPJ emitente','Informe o CNPJ que consta na nota.');
-  if (!cadastro) adicionar('cadastro','Cadastro do fornecedor','Consultar e documentar a situação cadastral do emitente na Receita Federal.');
+  if (!literal(cadastro?.situacao)) adicionar('cadastro','Cadastro do fornecedor','Consultar e documentar a situação cadastral do emitente na Receita Federal.');
   if (!contexto.originalConferido) adicionar('original','Documento fiscal original','Abra PDF/XML integral da nota ou confirme a verificação do documento no portal oficial.');
   const nomeTomador = norm(doc.tomadorNome);
   if (nomeTomador && !nomeTomador.includes('FREI INOCENCIO')) {
@@ -68,19 +71,23 @@ export function auditoriaNota({doc={},cadastro=null,resultado=null,contexto={},c
   if (!contexto.autenticidadeConfirmada) adicionar('autenticidade','Autenticidade e autorização','Confirme no portal emissor que a nota está autorizada, não cancelada nem substituída.');
   if (!contexto.vinculoEmpenho || !literal(doc.numeroEmpenho)) adicionar('empenho','Vínculo com empenho/contrato','Informe o número do empenho/contrato e confira valores e saldo contratual.');
   if (!contexto.atestoConfirmado || !literal(doc.referenciaAtesto)) adicionar('atesto','Atesto do fornecimento ou serviço','Registre a referência ao atesto/recebimento efetivo e confira a assinatura do fiscal responsável.');
-  if (resultado?.simples==null && !contexto.regimeConfirmado) adicionar('simples','Regime tributário na data da emissão','Confirme Simples Nacional/MEI em consulta oficial ou com declaração válida.');
+  if (resultado?.simples==null) adicionar('simples','Regime tributário na data da emissão','Consulte o regime e selecione a opção correspondente em Situação na data da nota.');
   if (ehServico) {
     if (!literal(doc.codigoServico)) adicionar('codigo','Código do serviço','Informe o código de tributação conforme a NFS-e e confira com a descrição.');
     if (!literal(doc.descricaoServico)) adicionar('descricao','Descrição dos serviços','Confira o objeto do contrato e a descrição discriminada na nota.');
     if (!literal(doc.incidencia)) adicionar('incidencia','Município de incidência do ISS','Confirme o município de incidência da nota; a cidade do prestador não determina sozinha o ISS devido.');
     if (!literal(doc.localPrestacao) || !contexto.localConfirmado) adicionar('local','Local efetivo da prestação','Confirme onde o serviço foi executado e a regra específica de incidência da LC 116/2003.');
     if (!contexto.legislacaoIssConfirmada) adicionar('legislacao_iss','Alíquota e base do ISS em Frei Inocêncio','Valide o Código Tributário Municipal (Lei 883/2017 e alterações), a lista do serviço, a sujeição à retenção e a base de cálculo.');
-    if (codigoExcecaoISS(doc.codigoServico) && !contexto.baseEspecialAnalisada) adicionar('base_especial','Possível redução legal da base do ISS','Verifique documentação de valores pagos a terceiros e hipóteses específicas dos §§15-16 do art. 102 (Lei 966/2023); não aplique automaticamente o ISS sobre o bruto.','Lei Municipal 966/2023, art. 1º');
-    if (resultado?.natureza?.inss && !contexto.inssAnalisado) adicionar('inss','Retenção previdenciária a conferir','Analise cessão de mão de obra/empreitada, base, dispensa e eventual retenção previdenciária; o valor líquido simulado não inclui INSS.','Lei 8.212/1991 art. 31; IN RFB 2.110/2022');
+    if (codigoExcecaoISS(doc.codigoServico) && !contexto.baseEspecialAnalisada && !(doc.deducaoTerceiros > 0 || doc.semDeducaoTerceiros)) adicionar('base_especial','Possível redução legal da base do ISS','Verifique documentação de valores pagos a terceiros e hipóteses específicas dos §§15-16 do art. 102 (Lei 966/2023); não aplique automaticamente o ISS sobre o bruto.','Lei Municipal 966/2023, art. 1º');
+    if (resultado?.natureza?.inss && !resultado?.inss?.decidido && !contexto.inssAnalisado) adicionar('inss','Retenção previdenciária a conferir','Analise cessão de mão de obra/empreitada, base e dispensa, e registre a decisão (reter ou não reter) no bloco "Retenções que dependem da Contabilidade".','Lei 8.212/1991 art. 31; IN RFB 2.110/2022');
   }
   if (resultado?.problemas?.some(p=>p.nivel==='erro')) for(const p of resultado.problemas.filter(p=>p.nivel==='erro'))
     bloquear('motor_'+impedimentos.length,p.titulo,p.solucao);
   if (cadastro?.situacao && norm(cadastro.situacao)!=='ATIVA') bloquear('cnpj_inativo','CNPJ com situação cadastral irregular','Esclarecer a situação cadastral antes de prosseguir.');
+  if (!parametrosDisponiveis) adicionar('parametros','Parâmetros fiscais indisponíveis','Carregue a configuração fiscal do Município antes de concluir a conferência.');
+  if (!resultado) adicionar('calculo','Cálculo pendente','Execute a conferência de retenções.');
+  if (resultado?.comparativo?.some(l => l.naoCalculado) && !contexto.outrasRetencoesAnalisadas)
+    adicionar('outras_retencoes','Retenções adicionais declaradas','Documente no processo quais retenções adicionais são devidas, sua base legal e o líquido final.');
   const monitor=monitorFiscalSituacao(catalogo,hoje,aprovacoes);
   if (monitor.requerRevisao) adicionar('legislacao','Monitoramento legislativo pendente','Confirme as fontes oficiais e os efeitos de alterações antes de validar as retenções; nenhuma alíquota é alterada automaticamente.');
   if (!contexto.naturezaConfirmada) adicionar('natureza','Natureza tributária do item','Confirme a natureza do serviço/bem escolhida para o cálculo do IRRF.');
