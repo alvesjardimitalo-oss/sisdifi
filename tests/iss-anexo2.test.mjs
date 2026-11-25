@@ -107,30 +107,46 @@ t('manutenção de veículos (14.01) é 3% e instalação/montagem (14.06) é 5%
   assert.equal(aliquotaAnexo('14.06').aliquota, 5);
 });
 
+// --- alíquota única (padrão): 5% para todo serviço prestado no Município ---
+t('sem a tabela ligada, todo serviço do Município é 5%', () => {
+  for (const c of ['17.05.00', '01.07.00', '04.01.00', '16.01.01', '08.01.01.000', '']) {
+    const r = aliquotaIss(c);
+    assert.equal(r.aliquota, 5, c);
+    assert.equal(r.fonte, 'unica', c);
+  }
+  assert.equal(aliquotaIss('17.05.00').anexo, 3, 'a alíquota do Anexo continua informada');
+});
+
+t('o cadastro de Tributos fica acima da alíquota única', () => {
+  assert.equal(aliquotaIss('17.05.00', { issPorCodigo: { '17.05': 2 } }).aliquota, 2);
+});
+
+// --- tabela por subitem: só quando o administrador liga "issPorSubitem" ---
+const TABELA = { issPorSubitem: true };
 // --- integração com o motor ---
 t('a tabela do Município vale: mão de obra é 3%, não o padrão', () => {
-  const r = aliquotaIss('17.05.00');
+  const r = aliquotaIss('17.05.00', TABELA);
   assert.equal(r.aliquota, 3);
   assert.equal(r.fonte, 'lei');
   assert.equal(r.subitem, '17.05');
 });
 
 t('o cadastro de Tributos fica acima da tabela e do padrão', () => {
-  const r = aliquotaIss('17.05.00', { issPorCodigo: { '17.05': 2 } });
+  const r = aliquotaIss('17.05.00', { ...TABELA, issPorCodigo: { '17.05': 2 } });
   assert.equal(r.aliquota, 2);
   assert.equal(r.fonte, 'cadastro');
   assert.equal(r.anexo, 3);
 });
 
 t('código fora da lista cai no padrão, sem alíquota de lei', () => {
-  const r = aliquotaIss('88.88.00');
+  const r = aliquotaIss('88.88.00', TABELA);
   assert.equal(r.aliquota, ISS.aliquota);
   assert.equal(r.fonte, 'padrao');
   assert.equal(r.anexo, null);
 });
 
 t('obra continua em 5%', () => {
-  assert.equal(aliquotaIss('07.02.00').aliquota, 5);
+  assert.equal(aliquotaIss('07.02.00', TABELA).aliquota, 5);
 });
 
 // --- vigência: a nota é regida pela alíquota da data em que foi emitida ---
@@ -158,17 +174,17 @@ t('vigência não contamina subitem que nunca mudou', () => {
 });
 
 t('a nota velha de educação chega ao motor com 3%', () => {
-  assert.equal(aliquotaIss('08.01.01.000', null, '2026-06-30').aliquota, 3);
-  assert.equal(aliquotaIss('08.01.01.000', null, '2026-11-16').aliquota, 5);
+  assert.equal(aliquotaIss('08.01.01.000', TABELA, '2026-06-30').aliquota, 3);
+  assert.equal(aliquotaIss('08.01.01.000', TABELA, '2026-11-16').aliquota, 5);
 });
 
 t('nota sem código de serviço usa o padrão', () => {
-  assert.equal(aliquotaIss('').aliquota, ISS.aliquota);
-  assert.equal(aliquotaIss('').fonte, 'padrao');
+  assert.equal(aliquotaIss('', TABELA).aliquota, ISS.aliquota);
+  assert.equal(aliquotaIss('', TABELA).fonte, 'padrao');
 });
 
 t('subitem vetado não vira alíquota da lei', () => {
-  const r = aliquotaIss('03.01.00');
+  const r = aliquotaIss('03.01.00', TABELA);
   assert.equal(r.fonte, 'padrao');
   assert.equal(r.vetado, '3.01');
 });

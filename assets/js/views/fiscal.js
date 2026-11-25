@@ -466,7 +466,10 @@ function desenharForm(el) {
 const TECLADO = {
   valor: { tipo: 'number', step: '0.01', min: '0', dica: 'O valor total da nota, antes das retenções.' },
   emissao: { tipo: 'date', dica: 'A chave só informa o mês; confirme o dia impresso na nota.' },
-  codigoServico: { tipo: 'text', dica: 'O código de tributação da nota, como 16.01.01.' }
+  codigoServico: { tipo: 'text', dica: 'O código de tributação da nota, como 16.01.01.' },
+  issRetidoNota: { tipo: 'select', opcoes: [['true', 'Sim, ISS retido'], ['false', 'Não retido']], dica: 'Campo "Retenção do ISSQN" impresso na nota.' },
+  issAliquota: { tipo: 'number', step: '0.01', min: '0', dica: 'Campo "Alíquota aplicada" da nota. Use 0 se não informar.' },
+  irrfDestacado: { tipo: 'number', step: '0.01', min: '0', dica: 'Valor do IRRF retido impresso na nota. Use 0 se não houver.' }
 };
 function perguntaUnica() {
   const falta = faltaParaDiagnostico(s.doc);
@@ -477,8 +480,9 @@ function perguntaUnica() {
   const restam = falta.length - 1;
   return `<form class="fiscal-pergunta" data-pergunta="${esc(f.campo)}">
     <label><span>${esc(f.rotulo)}</span>
-      <input name="resposta" type="${t.tipo}" ${t.step ? `step="${t.step}"` : ''} ${t.min ? `min="${t.min}"` : ''}
-        value="${esc(String(valorAtual))}" autocomplete="off" autofocus>
+      ${t.tipo === 'select' ? `<select name="resposta" autofocus><option value="">Selecione</option>${t.opcoes.map(([v, r]) => `<option value="${v}">${esc(r)}</option>`).join('')}</select>`
+      : `<input name="resposta" type="${t.tipo}" ${t.step ? `step="${t.step}"` : ''} ${t.min ? `min="${t.min}"` : ''}
+        value="${esc(String(valorAtual))}" autocomplete="off" autofocus>`}
     </label>
     <button class="btn" type="submit">Continuar</button>
     <small>${esc(t.dica || f.porque)}${restam ? ` · depois ${restam === 1 ? 'falta mais 1' : `faltam mais ${restam}`}` : ' · é o último'}</small>
@@ -501,7 +505,8 @@ document.addEventListener('submit', ev => {
   const v = f.querySelector('[name=resposta]')?.value.trim();
   if (!v) return;
   s.confirmacoes = {};
-  s.doc[campo] = campo === 'valor' ? Number(String(v).replace(',', '.')) : v;
+  s.doc[campo] = ['valor', 'issAliquota', 'irrfDestacado'].includes(campo) ? Number(String(v).replace(',', '.'))
+    : campo === 'issRetidoNota' ? v === 'true' : v;
   if (campo === 'emissao') s.doc.emissaoPresumida = false;
   if (campo === 'codigoServico') s.doc.coopTransporte = null;
   if (s.formAberto) desenharForm(s.el);
@@ -903,7 +908,9 @@ async function abrirAliquotas(el) {
   fundo.innerHTML = `<div class="modal" style="max-width:560px" role="dialog" aria-label="Alíquotas do ISS"><div class="modal-topo"><h2>Alíquotas do ISS — ${esc(MUNICIPIO.nome)}</h2><button class="btn-icone" type="button" data-fechar aria-label="Fechar">✕</button></div>
     <form class="modal-corpo" id="f-aliq">
       <p class="dica">Valem para serviços prestados em ${esc(MUNICIPIO.nome)} por fornecedor que não é do Simples. Use as alíquotas do Código Tributário Municipal (confirme com o setor de Tributos).</p>
-      <label class="campo campo-curto"><span>Alíquota padrão (%)</span><input type="number" name="padrao" step="0.01" min="2" max="5" value="${esc(String(p.issPadrao ?? ISS.aliquota))}" ${ehAdmin ? '' : 'disabled'}></label>
+      <label class="check"><input type="checkbox" name="porSubitem" ${p.issPorSubitem === true ? 'checked' : ''} ${ehAdmin ? '' : 'disabled'}> Usar a tabela do Anexo II da Lei 883/2017 (3% ou 5% conforme o subitem)</label>
+      <p class="dica">Desmarcado (padrão), vale a alíquota abaixo para todos os serviços prestados em ${esc(MUNICIPIO.nome)}.</p>
+      <label class="campo campo-curto"><span>Alíquota do Município (%)</span><input type="number" name="padrao" step="0.01" min="2" max="5" value="${esc(String(p.issPadrao ?? ISS.aliquota))}" ${ehAdmin ? '' : 'disabled'}></label>
       <label class="campo"><span>Exceções por código de serviço — uma por linha</span><textarea name="excecoes" rows="6" placeholder="16.01 = 2,5&#10;16.02 = 2,5" ${ehAdmin ? '' : 'disabled'}>${esc(textoExcecoes(p.issPorCodigo))}</textarea>
         <small class="dica">Item (16), subitem (16.01) ou código completo (16.01.01). O mais específico vale.</small></label>
       ${ehAdmin ? '<div class="acoes-form"><button class="btn" type="submit">Salvar alíquotas</button></div>' : '<p class="muted">Só o administrador altera as alíquotas.</p>'}
@@ -928,7 +935,7 @@ async function abrirAliquotas(el) {
     }
     try {
       const db = await import('../db.js');
-      const novo = { issPadrao: padrao, issPorCodigo: tab };
+      const novo = { issPadrao: padrao, issPorCodigo: tab, issPorSubitem: f.porSubitem.checked };
       await db.salvarConfiguracaoFiscal(novo, Object.keys(novo), 'fiscal.aliquotas', {});
       parametrosFiscais = { ...parametrosFiscais, ...novo };
       toast('Alíquotas do ISS salvas.');
