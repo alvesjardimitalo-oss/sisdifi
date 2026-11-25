@@ -1,0 +1,41 @@
+name: Publicar regras do Firestore SISDIFI
+# Publica automaticamente o firestore.rules quando ele muda na main.
+# Também pode ser disparado à mão (aba Actions > este workflow > Run workflow).
+on:
+  push:
+    branches: [main]
+    paths:
+      - firestore.rules
+      - firebase.json
+      - .github/workflows/publicar-firestore.yml
+  workflow_dispatch:
+jobs:
+  publicar:
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: sisdifi-firestore-rules-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - name: Conferir conta de serviço configurada
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SISDIFI }}
+        run: |
+          if [ -z "$FIREBASE_SA" ]; then
+            echo "::error::Falta o segredo FIREBASE_SERVICE_ACCOUNT_SISDIFI. Cadastre a chave da conta de serviço em Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Autenticar no Firebase (conta de serviço)
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SISDIFI }}
+      # O deploy compila as regras antes de publicar: regras com erro são recusadas e nada muda.
+      - name: Publicar somente as regras do Firestore
+        run: npx --yes firebase-tools@15.34.1 deploy --only firestore:rules --project sisdifi --non-interactive
