@@ -396,4 +396,48 @@ const uiNovo=readFileSync(new URL('../assets/js/views/folha-empenhos.js',import.
 assert.match(uiNovo,/slot\('automatico',[^\n]*'automatico'\)/);
 assert.match(uiNovo,/Preencha ficha e fonte de recursos/);
 
-console.log('Folha: resumo, INSS individual, família, matrícula, ordenação, consignações e XLSX: OK.');
+/* A ficha tem de vir sugerida pela lotação. Sem esta ligação o módulo existe
+   e a tela abre com tudo em branco — foi o que fez novembro sair com 66
+   empenhos sem ficha e ser digitado à mão. */
+assert.match(uiNovo,/sugerirFichaDaLotacao/);
+assert.match(uiNovo,/sugerirFichaDaLotacao\(r\)/);
+// Sugerida aparece assinalada e editável: a conferência na LOA precisa ver onde olhar.
+assert.match(uiNovo,/fichaSugerida\?' class="fe-sugerida"/);
+assert.match(uiNovo,/input\.fe-sugerida\{/);
+// Escolha manual manda sobre a sugestão.
+assert.match(uiNovo,/if\(mapa\[chave\]\?\.ficha\)continue/);
+
+/* Transcrever: um empenho por vez, que é como se digita no Memory. */
+assert.match(uiNovo,/<option value="transcrever">/);
+assert.match(uiNovo,/visao==='transcrever'/);
+assert.match(uiNovo,/passosDoEmpenho\(/);
+assert.match(uiNovo,/conferirEmpenho\(/);
+for(const marca of ['data-andar','data-feito','data-op','data-ficha-op','fe-data-liq','fe-modelo-sel'])
+  assert.ok(uiNovo.includes(marca),'transcrever sem '+marca);
+/* `atual` já é uma local de persistir(), e `.fe-passos` já é a navegação das
+   etapas: os dois nomes não podem reaparecer na transcrição. */
+assert.ok(!/let .*,atual=0/.test(uiNovo),'o índice da transcrição não pode se chamar atual');
+assert.match(uiNovo,/empenhoAtual/);
+assert.match(uiNovo,/<table class="fe-campos">/);
+
+/* O estado da transcrição é gravado no mês, senão recarregar a página perde o
+   número das OPs e o que já foi digitado. */
+{
+  const campos=uiNovo.match(/const CAMPOS_MES=\[([^\]]*)\]/)[1];
+  for(const k of ['numerosOP','dataLiquidacao','transcritos','fichasOP','escolhasHistorico','textosHistorico'])
+    assert.ok(campos.includes("'"+k+"'"),'CAMPOS_MES sem '+k);
+  // E tem de voltar na leitura, não só subir.
+  assert.ok(new RegExp('numerosOP=\\{\\.\\.\\.\\(m\\.numerosOP').test(uiNovo),'numerosOP não é relido do mês');
+}
+
+/* Todo #fe-... que o código procura tem de existir na marcação: uma caixa
+   removida deixa um $('#fe-...') órfão e a tela quebra ao renderizar. */
+{
+  const declarados=new Set([...uiNovo.matchAll(/id="(fe-[\w-]+)"/g)].map(m=>m[1]));
+  for(const m of uiNovo.matchAll(/slot\('(\w+)'/g))declarados.add('fe-nome-'+m[1]);
+  const usados=[...uiNovo.matchAll(/\$\('#(fe-[\w-]+)'\)/g)].map(m=>m[1]);
+  const orfaos=[...new Set(usados)].filter(id=>!declarados.has(id));
+  assert.deepEqual(orfaos,[],'ids procurados que não existem na marcação: '+orfaos.join(', '));
+}
+
+console.log('Folha: resumo, INSS individual, família, matrícula, ordenação, consignações, sugestão de ficha, transcrição e XLSX: OK.');
