@@ -15,14 +15,14 @@ import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,p
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
 import {varrerServidores} from '../folha-servidores.js';
-import {pensoesParaOP,chaveCadastro,RUBRICAS_PENSAO} from '../folha-pensoes.js';
+import {pensoesParaOP,chaveCadastro,RUBRICAS_PENSAO} from '../folha-pensoes.js?v=3.26.0.6d3bdba8';
 import {passosDoEmpenho,conferirEmpenho,fichasOPpendentes,modeloDoEmpenho,textoDoModelo,MODELOS_HISTORICO} from '../folha-transcrever.js';
 import {ordemDasLotacoes} from '../folha-ordem.js?v=3.23.0.06d2837c';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js?v=3.23.0.418e5047';
 import {ouvir,ouvirDoc,salvar,substituir,excluir,campoApagado} from '../db.js';
 import {carregarMes,salvarMes} from '../consignacoes-mensal.js?v=3.13.0.357fc820';
 import {saldosDasContas,consignadosPorFonte,etapasDaFolha,avisosDaConta,contaParaFonte,rotuloConta,novaContaId,
-  normalizarFonte,assinaturaDaFolha,previstoParaConsignacoes} from '../folha-fluxo.js?v=3.23.0.3b56a92a';
+  normalizarFonte,assinaturaDaFolha,previstoParaConsignacoes} from '../folha-fluxo.js?v=3.23.0.d0b07bba';
 
 const CADASTRO_PENSAO='pensoes-beneficiarios';
 const tipos={principal:'Folha principal',extra:'Folha extra · incentivo federal (dia 10)',decimo:'Adiantamento de 50% do 13º',rescisao:'Rescisões'};
@@ -779,16 +779,16 @@ export function telaFolhaEmpenhos(el){
       '<td>'+esc(l.matricula)+'</td><td>'+esc(l.servidor)+'</td><td>'+esc(l.rubrica)+'</td>'+
       '<td class="fe-money">'+dinheiroFolha(l.valor)+'</td>'+
       '<td><input style="width:190px" data-pensao="'+i+'" data-campo="beneficiario" '+
-        'placeholder="quem recebe" aria-label="Beneficiário" '+(l.matricula?'':'disabled ')+'value="'+esc(l.beneficiario)+'"></td>'+
+        'placeholder="Nome no comprovante" aria-label="Beneficiário no comprovante de depósito" '+(l.matricula?'':'disabled ')+'value="'+esc(l.beneficiario)+'"></td>'+
       '<td><input style="width:150px" data-pensao="'+i+'" data-campo="processo" '+
         'placeholder="processo (opcional)" aria-label="Processo" '+(l.matricula?'':'disabled ')+'value="'+esc(l.processo)+'"></td></tr>'+
       '<tr class="fe-historico"><td colspan="8"><span class="fe-muted">Histórico: </span>'+esc(l.historico)+'</td></tr>').join('');
     alvo.innerHTML='<section class="fe-card"><h2>Pensão alimentícia · OP única · ficha 8 · '+r.op.quantidade+
       ' liquidaç'+(r.op.quantidade===1?'ão':'ões')+' · '+dinheiroFolha(r.op.total)+'</h2>'+
       '<p class="fe-muted">Uma ordem de pagamento extraorçamentária, com uma liquidação por pensão. '+
-      'O beneficiário entra no histórico da liquidação e fica guardado por matrícula e rubrica para os próximos meses.</p>'+
+      'A folha do RH identifica o desconto por matrícula. Após o pagamento da folha, informe o nome do beneficiário que consta no comprovante de depósito. O nome entra no histórico e fica salvo por matrícula e rubrica.</p>'+
       (r.pendentes.length?'<p class="fe-alert">'+r.pendentes.length+' liquidaç'+(r.pendentes.length===1?'ão':'ões')+
-        ' sem beneficiário informado.</p>':'')+
+        ' aguardando identificação do beneficiário pelo comprovante de depósito.</p>':'')+
       r.avisos.map(a=>'<p class="fe-alert">'+esc(a)+'</p>').join('')+
       (r.op.quantidade?'<div class="fe-scroll"><table><thead><tr><th>Lotação</th><th>Empenho</th>'+
         '<th>Matrícula</th><th>Servidor</th><th>Rubrica</th><th>Valor</th><th>Beneficiário</th><th>Processo</th>'+
@@ -812,7 +812,9 @@ export function telaFolhaEmpenhos(el){
     const confirmada=confirmadaValida(pacote);
     const lista=sit.etapas.map(x=>'<li>'+(x.pronta?'✓ ':'✗ ')+'<strong>'+esc(x.titulo)+'</strong>'+
       (x.pronta?'':'<ul class="fe-pend">'+x.pendencias.map(p=>'<li>'+esc(p)+'</li>').join('')+'</ul>')+'</li>').join('');
-    $('#fe-checklist').innerHTML='<ul style="list-style:none;padding:0;margin:0 0 12px">'+lista+'</ul>'+
+    const avisosSaldo=sit.situacao.insuficientes.map(c=>'<p class="fe-alert">Saldo insuficiente em '+
+      esc(rotuloConta(c))+'. Faltam '+dinheiroFolha(-c.restante)+'. Você pode confirmar a folha.</p>').join('');
+    $('#fe-checklist').innerHTML='<ul style="list-style:none;padding:0;margin:0 0 12px">'+lista+'</ul>'+avisosSaldo+
       (confirmada?'<p class="fe-ok"><strong>Folha confirmada</strong>'+(confirmacao.por?' por '+esc(confirmacao.por):'')+' em '+esc(new Date(confirmacao.em).toLocaleString('pt-BR'))+'. Os consignados e pensões por fonte foram enviados para <a href="#/consignacoes" id="fe-ir-consig">Consignações por mês</a>.</p>':
         confirmacao?'<p class="fe-alert">A folha mudou depois da confirmação de '+esc(new Date(confirmacao.em).toLocaleString('pt-BR'))+'. Confirme de novo para atualizar os consignados.</p>':
         sit.podeConfirmar?'<p class="fe-ok">Tudo pronto. Ao confirmar, os descontos de consignados e pensões por fonte vão para Consignações por mês.</p>':'');
