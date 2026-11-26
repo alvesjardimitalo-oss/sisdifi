@@ -7,7 +7,7 @@
 // matrícula. Daí este módulo cruzar os dois.
 //
 // O beneficiário não está em nenhum dos dois documentos — a folha mostra o
-// servidor que sofre o desconto, não quem recebe. Então ele vem de cadastro,
+// servidor que sofre o desconto, não quem recebe. O nome vem do comprovante de depósito e fica no cadastro,
 // por matrícula e rubrica, e o histórico fica pendente até ser informado.
 import { somarRubricas } from './folha-servidores.js';
 
@@ -90,7 +90,7 @@ export function pensoesParaOP(empenhos = [], servidores = [], cadastro = {}) {
   // de diferença aqui só esconderia o que a Contabilidade precisa fazer.
   if (totalEmpenhado && !liquidacoes.length)
     avisos.push('Os empenhos descontam ' + reais(totalEmpenhado) + ' de pensão, mas a folha nominal não trouxe nenhuma. ' +
-      'Envie a folha individual para identificar os beneficiários.');
+      'Envie a folha individual para localizar os descontos por matrícula.');
   else if (totalEmpenhado && total !== totalEmpenhado)
     avisos.push('A soma das liquidações de pensão (' + reais(total) + ') não fecha com o descontado nos empenhos (' +
       reais(totalEmpenhado) + '). Falta ' + reais(totalEmpenhado - total) + ' — confira se a folha nominal está completa.');

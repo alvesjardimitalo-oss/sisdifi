@@ -80,7 +80,9 @@ t('confirmação só libera com tudo preenchido e saldo suficiente', () => {
   const base = { arquivos: { principal: { registros: [{}] } }, primeiro: 5000, contas: [{ id: 'c1', nome: 'A', fonte: '1540' }],
     saldos: { c1: 1000000 }, previsao: { empenhos: [emp(0)] }, maternidade: { avisos: [] }, conferiuFichas: true };
   assert.equal(etapasDaFolha(base).podeConfirmar, true);
-  assert.equal(etapasDaFolha({ ...base, saldos: { c1: 1 } }).podeConfirmar, false, 'saldo insuficiente');
+  const saldoInsuficiente = etapasDaFolha({ ...base, saldos: { c1: 1 } });
+  assert.equal(saldoInsuficiente.podeConfirmar, true, 'saldo insuficiente só gera aviso');
+  assert.equal(saldoInsuficiente.situacao.insuficientes.length, 1);
   assert.equal(etapasDaFolha({ ...base, saldos: {} }).podeConfirmar, false, 'saldo não informado');
   assert.equal(etapasDaFolha({ ...base, conferiuFichas: false }).podeConfirmar, false);
   assert.equal(etapasDaFolha({ ...base, previsao: { empenhos: [emp(0, { contaId: '' })] } }).podeConfirmar, false);

@@ -156,8 +156,6 @@ export function etapasDaFolha({ arquivos = {}, primeiro, contas = [], saldos = {
     return c && avisosDaConta(e, c).length;
   }).length;
   if (fonteDiferente) e4.push(fonteDiferente + ' empenho(s) com fonte diferente da conta');
-  for (const c of situacao.insuficientes)
-    e4.push('Saldo insuficiente em ' + rotuloConta(c) + ': faltam ' + dinheiro(-c.restante));
   const outros = empenhos.filter(e => (e.problemas || []).some(p => !/^Informar ficha e fonte/.test(p))).length;
   if (outros) e4.push(outros + ' empenho(s) com outras pendências da folha');
   if (!conferiuFichas && empenhos.length) e4.push('Marque que conferiu fichas e fontes na LOA');
