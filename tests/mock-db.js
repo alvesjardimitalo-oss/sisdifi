@@ -23,6 +23,7 @@ export async function entrar(email, senha) {
 }
 export async function sair() { usuarioAtual = null; cbSessao(null); }
 export async function redefinirSenha() {}
+export async function excluirUsuario(uid) { usuarios.delete(uid); garantir('usuarios').delete(uid); notificar('usuarios'); }
 export async function alterarMinhaSenha() {}
 export async function bootstrapExiste() { return [...usuarios.values()].some(u => u.perfil === 'admin'); }
 export async function criarPrimeiroAdmin({ nome, email, senha }) {

@@ -129,12 +129,34 @@ function formUsuario(u) {
       <label class="campo"><span>Perfil</span><select name="perfil">${Object.entries(PERFIS).map(([k, v]) => `<option value="${k}" ${(u?.perfil || 'operador') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
       <label class="campo" id="campo-sec-usr"><span>Secretaria do usuário *</span><select name="secretaria_id">${opcoesSecretarias(u?.secretaria_id || '')}</select></label>
       ${u ? `<label class="campo"><span>Situação</span><select name="ativo"><option value="1" ${u.ativo === false && !u.pendente ? '' : 'selected'}>Ativo</option><option value="0" ${u.ativo === false && !u.pendente ? 'selected' : ''}>Bloqueado</option></select></label>` : ''}
+      ${u && u.id !== estado.sessao.uid ? `<p style="margin:4px 0 10px"><button type="button" class="btn btn-sec btn-peq" data-redefinir>✉ Enviar e-mail para redefinir a senha</button></p>` : ''}
       <p class="erro-form" id="erro-usr"></p>
-      <div class="acoes-form"><button type="button" class="btn btn-sec" data-cancelar>Cancelar</button><button class="btn" type="submit">Salvar</button></div>
+      <div class="acoes-form">${u && u.id !== estado.sessao.uid ? '<button type="button" class="btn btn-sec btn-excluir" data-excluir style="margin-right:auto">🗑 Excluir usuário</button>' : ''}<button type="button" class="btn btn-sec" data-cancelar>Cancelar</button><button class="btn" type="submit">Salvar</button></div>
     </form>`
   });
   const f = $('#fusr', m.el);
   f.querySelector('[data-cancelar]').onclick = m.fechar;
+  f.querySelector('[data-redefinir]')?.addEventListener('click', async ev => {
+    const b = ev.currentTarget; b.disabled = true;
+    try {
+      await db.redefinirSenha(u.email);
+      await db.registrarLog('usuario.senha', { email: u.email });
+      toast(`E-mail de redefinição enviado para ${u.email}.`);
+    } catch (err) { $('#erro-usr', m.el).textContent = mensagemErro(err); }
+    b.disabled = false;
+  });
+  f.querySelector('[data-excluir]')?.addEventListener('click', async () => {
+    const ok = await confirmar(`Excluir o usuário ${u.nome || u.email}?`, { titulo: 'Excluir usuário', ok: 'Excluir', perigo: true });
+    if (!ok) return;
+    try {
+      await db.excluirUsuario(u.id);
+      await db.registrarLog('usuario.excluir', { email: u.email, perfil: u.perfil });
+      m.fechar();
+      avisoRecriar(u.email, 'Usuário excluído do SISDIFI.');
+    } catch (err) {
+      $('#erro-usr', m.el).textContent = String(err?.code || '').includes('permission') ? 'O Firebase recusou a exclusão: as regras atualizadas ainda não foram publicadas.' : mensagemErro(err);
+    }
+  });
   const mostrarSec = () => { $('#campo-sec-usr', m.el).hidden = f.perfil.value !== 'secretaria'; };
   f.perfil.addEventListener('change', mostrarSec); mostrarSec();
   f.onsubmit = async e => {
@@ -154,13 +176,38 @@ function formUsuario(u) {
       } else {
         if (!d.email) { btn.disabled = false; return (erro.textContent = 'Informe o e-mail.'); }
         if ((d.senha || '').length < 8) { btn.disabled = false; return (erro.textContent = 'A senha provisória precisa ter 8 caracteres ou mais.'); }
-        await db.criarUsuario({ nome: d.nome, email: d.email, senha: d.senha, perfil: d.perfil, ...vinculo });
+        try {
+          await db.criarUsuario({ nome: d.nome, email: d.email, senha: d.senha, perfil: d.perfil, ...vinculo });
+        } catch (e2) {
+          if (e2?.code !== 'auth/email-already-in-use') throw e2;
+          btn.disabled = false;
+          erro.innerHTML = `Este e-mail já tem login no Firebase. Apague o login antes: <a href="${CONSOLE_LOGINS}" target="_blank" rel="noopener noreferrer">abrir os logins no Firebase</a>, procure <b>${esc(d.email)}</b>, clique nos três pontinhos e em <b>Excluir conta</b>. Depois volte aqui e clique em Salvar de novo.`;
+          return;
+        }
         await db.registrarLog('usuario.criar', { email: d.email, perfil: d.perfil });
       }
       toast('Usuário salvo.');
       m.fechar();
     } catch (err) { erro.textContent = mensagemErro(err); btn.disabled = false; }
   };
+}
+
+// Lista de logins (e-mail e senha) do Firebase Authentication do SISDIFI.
+const CONSOLE_LOGINS = 'https://console.firebase.google.com/project/sisdifi/authentication/users';
+
+/** Depois de excluir: explica como recriar o usuário com a mesma e-mail e uma senha nova. */
+function avisoRecriar(email, titulo) {
+  const m = modal({
+    titulo, largura: 520,
+    corpo: `<p><strong>Para recriar com o mesmo e-mail e senha nova:</strong></p>
+      <ol class="passos">
+        <li><a href="${CONSOLE_LOGINS}" target="_blank" rel="noopener noreferrer">Abra os logins do Firebase</a> (entre com a sua conta Google de administrador).</li>
+        <li>Procure <b>${esc(email)}</b>, clique nos três pontinhos ⋮ da linha e em <b>Excluir conta</b>.</li>
+        <li>Volte ao SISDIFI e crie o usuário de novo em <b>＋ Novo usuário</b>, com a senha que quiser.</li>
+      </ol>
+      <div class="acoes-form"><button class="btn" type="button" data-ok>Entendi</button></div>`
+  });
+  m.el.querySelector('[data-ok]').onclick = m.fechar;
 }
 
 function gerarSenha() {
@@ -312,7 +359,7 @@ const NOMES_ACAO = {
   'solicitacao.reativar': 'Reativou solicitação', 'solicitacao.excluir': 'Excluiu solicitação', 'solicitacao.empenho': 'Registrou empenho',
   'reembolso.lancar': 'Lançou reembolso', 'reembolso.editar': 'Editou reembolso', 'reembolso.excluir': 'Excluiu reembolso',
   'servidor.criar': 'Cadastrou servidor', 'servidor.editar': 'Editou servidor', 'secretaria.criar': 'Cadastrou secretaria',
-  'secretaria.editar': 'Editou secretaria', 'parametros.alterar': 'Alterou parâmetros', 'usuario.criar': 'Criou usuário',
+  'secretaria.editar': 'Editou secretaria', 'parametros.alterar': 'Alterou parâmetros', 'usuario.criar': 'Criou usuário', 'usuario.excluir': 'Excluiu usuário', 'usuario.senha': 'Enviou redefinição de senha',
   'usuario.editar': 'Editou usuário', 'importacao.banco_antigo': 'Importou banco antigo', 'solicitacao.etapa': 'Tramitou solicitação', 'backup.baixar': 'Baixou cópia de segurança', 'servidor.pix': 'Alterou chave Pix', 'valores.proteger': 'Protegeu valores'
 };
 export function telaAuditoria(el) {
