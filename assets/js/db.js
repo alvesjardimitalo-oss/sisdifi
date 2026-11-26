@@ -45,6 +45,9 @@ export async function tokenAnexos() {
   return auth.currentUser.getIdToken();
 }
 export const redefinirSenha = email => sendPasswordResetEmail(auth, email.trim());
+/** Admin exclui o cadastro de um usuário (as regras impedem excluir a si mesmo). A conta de login
+ *  continua existindo no Firebase Auth, mas sem cadastro ela não entra: se tentar, vira pedido de acesso bloqueado. */
+export const excluirUsuario = uid => deleteDoc(doc(fs, 'usuarios', uid));
 
 export async function alterarMinhaSenha(atual, nova) {
   const u = auth.currentUser;

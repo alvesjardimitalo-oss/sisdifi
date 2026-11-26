@@ -129,12 +129,38 @@ function formUsuario(u) {
       <label class="campo"><span>Perfil</span><select name="perfil">${Object.entries(PERFIS).map(([k, v]) => `<option value="${k}" ${(u?.perfil || 'operador') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
       <label class="campo" id="campo-sec-usr"><span>Secretaria do usuário *</span><select name="secretaria_id">${opcoesSecretarias(u?.secretaria_id || '')}</select></label>
       ${u ? `<label class="campo"><span>Situação</span><select name="ativo"><option value="1" ${u.ativo === false && !u.pendente ? '' : 'selected'}>Ativo</option><option value="0" ${u.ativo === false && !u.pendente ? 'selected' : ''}>Bloqueado</option></select></label>` : ''}
+      ${u && u.id !== estado.sessao.uid ? `<div class="cartao" style="padding:12px 14px;margin:6px 0 10px">
+        <strong>Senha</strong>
+        <p class="muted" style="margin:4px 0 8px">Ninguém consegue ver a senha de um usuário — nem o administrador: o Firebase guarda só uma versão embaralhada. Para trocar, envie o e-mail de redefinição; o usuário cria a senha nova pelo link.</p>
+        <button type="button" class="btn btn-sec btn-peq" data-redefinir>✉ Enviar e-mail para redefinir a senha</button>
+      </div>` : ''}
       <p class="erro-form" id="erro-usr"></p>
-      <div class="acoes-form"><button type="button" class="btn btn-sec" data-cancelar>Cancelar</button><button class="btn" type="submit">Salvar</button></div>
+      <div class="acoes-form">${u && u.id !== estado.sessao.uid ? '<button type="button" class="btn btn-sec btn-excluir" data-excluir style="margin-right:auto">🗑 Excluir usuário</button>' : ''}<button type="button" class="btn btn-sec" data-cancelar>Cancelar</button><button class="btn" type="submit">Salvar</button></div>
     </form>`
   });
   const f = $('#fusr', m.el);
   f.querySelector('[data-cancelar]').onclick = m.fechar;
+  f.querySelector('[data-redefinir]')?.addEventListener('click', async ev => {
+    const b = ev.currentTarget; b.disabled = true;
+    try {
+      await db.redefinirSenha(u.email);
+      await db.registrarLog('usuario.senha', { email: u.email });
+      toast(`E-mail de redefinição enviado para ${u.email}. Peça para olhar também a caixa de spam.`);
+    } catch (err) { $('#erro-usr', m.el).textContent = mensagemErro(err); }
+    b.disabled = false;
+  });
+  f.querySelector('[data-excluir]')?.addEventListener('click', async () => {
+    const ok = await confirmar(`Excluir o usuário ${u.nome || u.email}? Ele perde o acesso ao SISDIFI na hora. O histórico do que ele fez continua na Auditoria. Se ele tentar entrar de novo, aparece aqui como pedido de acesso bloqueado.`, { titulo: 'Excluir usuário', ok: 'Excluir', perigo: true });
+    if (!ok) return;
+    try {
+      await db.excluirUsuario(u.id);
+      await db.registrarLog('usuario.excluir', { email: u.email, perfil: u.perfil });
+      toast('Usuário excluído.');
+      m.fechar();
+    } catch (err) {
+      $('#erro-usr', m.el).textContent = String(err?.code || '').includes('permission') ? 'O Firebase recusou a exclusão: as regras atualizadas ainda não foram publicadas.' : mensagemErro(err);
+    }
+  });
   const mostrarSec = () => { $('#campo-sec-usr', m.el).hidden = f.perfil.value !== 'secretaria'; };
   f.perfil.addEventListener('change', mostrarSec); mostrarSec();
   f.onsubmit = async e => {
@@ -312,7 +338,7 @@ const NOMES_ACAO = {
   'solicitacao.reativar': 'Reativou solicitação', 'solicitacao.excluir': 'Excluiu solicitação', 'solicitacao.empenho': 'Registrou empenho',
   'reembolso.lancar': 'Lançou reembolso', 'reembolso.editar': 'Editou reembolso', 'reembolso.excluir': 'Excluiu reembolso',
   'servidor.criar': 'Cadastrou servidor', 'servidor.editar': 'Editou servidor', 'secretaria.criar': 'Cadastrou secretaria',
-  'secretaria.editar': 'Editou secretaria', 'parametros.alterar': 'Alterou parâmetros', 'usuario.criar': 'Criou usuário',
+  'secretaria.editar': 'Editou secretaria', 'parametros.alterar': 'Alterou parâmetros', 'usuario.criar': 'Criou usuário', 'usuario.excluir': 'Excluiu usuário', 'usuario.senha': 'Enviou redefinição de senha',
   'usuario.editar': 'Editou usuário', 'importacao.banco_antigo': 'Importou banco antigo', 'solicitacao.etapa': 'Tramitou solicitação', 'backup.baixar': 'Baixou cópia de segurança', 'servidor.pix': 'Alterou chave Pix', 'valores.proteger': 'Protegeu valores'
 };
 export function telaAuditoria(el) {

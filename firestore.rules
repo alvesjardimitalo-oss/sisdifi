@@ -60,7 +60,8 @@ service cloud.firestore {
         && (!('termo_lgpd' in request.resource.data) || request.resource.data.termo_lgpd.versao is string);
       // Só admin altera usuários, e não pode bloquear/rebaixar a si mesmo.
       allow update: if admin() && (uid != request.auth.uid || (request.resource.data.perfil == 'admin' && request.resource.data.ativo == true));
-      allow delete: if false;
+      // Só admin exclui o cadastro de um usuário, e nunca o próprio.
+      allow delete: if admin() && uid != request.auth.uid;
     }
 
     match /config/{doc} {
