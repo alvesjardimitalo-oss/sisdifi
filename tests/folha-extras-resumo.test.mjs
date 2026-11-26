@@ -6,6 +6,7 @@
 //
 //   somados ao empenho orçamentário : 358 diferença de salário extra folha
 //                                     344 complementação do piso da enfermagem
+//                                     855 férias vencidas segundo período
 //   em ordem de pagamento própria   : 163 salário-maternidade (INSS)
 //                                     164 salário-família
 //                                     361 auxílio-natalidade
@@ -76,9 +77,9 @@ const EX_FOLHA = lotacao({
               ['228', 'EMPRÉSTIMO SICOOB 2', '885,05'], ['355', 'EMPRESTIMO SICOOB 3', '422,89']]
 });
 
-t('reconhece as cinco extras do rodapé', () => {
+t('reconhece as seis extras do rodapé', () => {
   assert.deepEqual([...EXTRAS_DO_RESUMO].sort(),
-    ['enfermagem', 'exFolha', 'familia', 'maternidade', 'natalidade']);
+    ['enfermagem', 'exFolha', 'familia', 'feriasVencidas', 'maternidade', 'natalidade']);
 });
 
 t('lê salário-maternidade e salário-família do rodapé', () => {
@@ -170,6 +171,43 @@ t('o INSS da maternidade move dinheiro de documento, não muda o total', () => {
   assert.equal(com.totalLiquido + com.totalLiquidoExtras, sem.totalLiquido + sem.totalLiquidoExtras);
   assert.equal(com.totalLiquido, sem.totalLiquido + 27218, 'o empenho cresce');
   assert.equal(com.totalLiquidoExtras, sem.totalLiquidoExtras - 27218, 'a OP encolhe no mesmo valor');
+});
+
+/* Férias vencidas segundo período (855) apareceu em novembro/2026, nas
+   rescisões, e nunca antes. Ela vem como rubrica E como linha de total no
+   rodapé, então ficava fora do bruto do empenho: 4.376,70 em duas lotações.
+   A Contabilidade soma ao empenho, como a 358 e a 344.
+
+   As irmãs — 147 primeiro, 856 terceiro, 857 quarto período — aparecem só
+   como rubrica, já dentro do bruto, e não podem ser somadas de novo. */
+t('férias vencidas segundo período (855) somam ao empenho', () => {
+  const linhas = [
+    'PREF. MUNIC. DE FREI INOCENCIO',
+    'TIPO CALCULO: 06 - RESCISAO',
+    'LOTACAO: 002.012.296.00001 - OBRAS PUBLICAS',
+    'CLASSIFICAÇÃO CONTÁBIL: 1',
+    '147 FER. VENCIDAS PRIMEIRO PERÍODO 2.026,25',
+    '855 FER. VENCIDAS SEGUNDO PERÍODO 2.026,25',
+    '856 FER. VENCIDAS TERCEIRO PERÍODO 2.026,25',
+    'VALOR BRUTO DO EMPENHO......: 8.797,30',
+    'VALOR DO DESCONTO NA LIQUIDAÇÃO......: 298,39',
+    'VALOR LIQUIDO DO EMPENHO......: 8.498,91',
+    'FER. VENCIDAS SEGUNDO PERÍODO......: 2.026,25',
+    'TOTAL BRUTO DE PROVENTOS......: 10.823,55',
+  ].map(texto => ({ texto, pagina: 1 }));
+  const r = analisarResumoVerbas(linhas, { nome: 'rescisao.pdf' });
+  const g = r.registros[0];
+  assert.equal(g.valores.feriasVencidas, 202625, 'a 855 do rodapé não foi lida');
+  // Soma ao empenho, não vira OP.
+  assert.equal(g.extrasNoEmpenho, 202625);
+  assert.equal(g.extrasEmOP, 0);
+  /* A identidade do rodapé tem de fechar: bruto do empenho mais extras é o
+     total bruto de proventos. Era ela que acusava a 855 como desconhecida. */
+  assert.equal(g.valores.bruto + g.extras, g.valores.proventos);
+  assert.deepEqual(r.avisos.filter(a => /não reconhece/.test(a)), [],
+    'a identidade do rodapé não devia mais acusar a 855');
+  // 147, 856 e 857 não têm linha de rodapé: entram só como rubrica.
+  assert.equal(g.valores.feriasVencidas, 202625, 'as irmãs não podem somar à 855');
 });
 
 console.log(`folha-extras-resumo: ${ok} ok, ${falhas.length} falhas`);
