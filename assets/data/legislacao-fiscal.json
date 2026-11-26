@@ -3,7 +3,7 @@
   "municipio": "Prefeitura Municipal de Frei Inocêncio",
   "codigoIBGE": "3126901",
   "versaoPolitica": "2026-11-11.1",
-  "ultimaExecucao": "2026-11-25T19:56:37+00:00",
+  "ultimaExecucao": "2026-11-26T19:37:37+00:00",
   "explicacao": "Monitor automático das publicações oficiais. Mudança de conteúdo não é mudança de alíquota. Parâmetros tributários exigem validação da Contabilidade/ADM.",
   "fontes": [
     {
@@ -13,11 +13,11 @@
       "url": "https://freiinocencio.mg.gov.br/legislacoes",
       "estado": "mudanca_detectada",
       "hashReferencia": "cd7ac76b972d26c7c81ddc07dce5cbd6baccb829d72db1a6c6ed80dcacf9c766",
-      "hashObservado": "2c69199cc58a0f0e367ec2ce777b81d5c071d0c48ac85d8ccf973597bd9902c7",
-      "ultimaConsulta": "2026-11-25T19:56:37+00:00",
+      "hashObservado": "291d1cb5460f600ae3e65d1bd5d7089a1b4155f1d72bd5212d22305151f7a133",
+      "ultimaConsulta": "2026-11-26T19:37:37+00:00",
       "consultaIntermediada": true,
       "referenciaCapturadaEm": "2026-11-11T14:38:47+00:00",
-      "mudancaDetectadaEm": "2026-11-25T19:56:37+00:00"
+      "mudancaDetectadaEm": "2026-11-26T19:37:37+00:00"
     },
     {
       "id": "lei_966_2023",
@@ -26,11 +26,11 @@
       "url": "https://freiinocencio.mg.gov.br/arquivo/67d484b2ddc9d.pdf",
       "estado": "mudanca_detectada",
       "hashReferencia": "02e7010d5e3086c845e14d30d2fcdff3a87ed735efc13c05aa774c6c1630f7ab",
-      "hashObservado": "837ad7511c9c6b80f7cbd83cef8d2f7663c090fb9e305e32a92a74ab36a55e7d",
-      "ultimaConsulta": "2026-11-25T19:56:37+00:00",
+      "hashObservado": "b93a67320e71075590bfe9cf4e4f78edeb8638d15f5e90f712176e4e6b7eb0f5",
+      "ultimaConsulta": "2026-11-26T19:37:37+00:00",
       "consultaIntermediada": true,
       "referenciaCapturadaEm": "2026-11-11T14:38:47+00:00",
-      "mudancaDetectadaEm": "2026-11-25T19:56:37+00:00"
+      "mudancaDetectadaEm": "2026-11-26T19:37:37+00:00"
     },
     {
       "id": "municipal_publicacoes",
@@ -39,11 +39,11 @@
       "url": "https://camarafreiinocencio.mg.gov.br/legislacoes",
       "estado": "mudanca_detectada",
       "hashReferencia": "9caa5f15e1bdb091e5c4ec2cec91ce53bff259661755bb8a5e07bc5efba019d3",
-      "hashObservado": "a78283d8e00956bf68378cc5797f1e60ed608c62038c00c8833ab144f244a4d2",
-      "ultimaConsulta": "2026-11-25T19:56:37+00:00",
+      "hashObservado": "49f32b5a1848531d848ae37249a0e0716678e8d9d32b6adf70728903bd9fa352",
+      "ultimaConsulta": "2026-11-26T19:37:37+00:00",
       "consultaIntermediada": true,
       "referenciaCapturadaEm": "2026-11-11T14:38:47+00:00",
-      "mudancaDetectadaEm": "2026-11-25T19:56:37+00:00"
+      "mudancaDetectadaEm": "2026-11-26T19:37:37+00:00"
     },
     {
       "id": "receita_normas",
@@ -53,7 +53,7 @@
       "estado": "mudanca_detectada",
       "hashReferencia": "b4f3ab2d0410857b779e224ddcd66fef149a0783253e22993d11b103ac4e5f37",
       "hashObservado": "2468f5f99d226938e0055daea835346110c7ce5d002371e6d2993c379d36fdde",
-      "ultimaConsulta": "2026-11-25T19:56:37+00:00",
+      "ultimaConsulta": "2026-11-26T19:37:37+00:00",
       "referenciaCapturadaEm": "2026-11-11T14:32:50+00:00",
       "consultaIntermediada": false,
       "mudancaDetectadaEm": "2026-11-16T20:29:10+00:00",
@@ -67,7 +67,7 @@
       "estado": "mudanca_detectada",
       "hashReferencia": "012a14f4844f6b3e66a6fc485dc54931e110cb6f6d6b49d8b1c9ecf81f67aef3",
       "hashObservado": "1841a29d1382b808c0cc9812f61181529b0fb3c95a44ed7dd6dafc4da51d0adc",
-      "ultimaConsulta": "2026-11-25T19:56:37+00:00",
+      "ultimaConsulta": "2026-11-26T19:37:37+00:00",
       "referenciaCapturadaEm": "2026-11-11T14:32:50+00:00",
       "consultaIntermediada": false,
       "mudancaDetectadaEm": "2026-11-17T19:11:41+00:00",
@@ -81,7 +81,7 @@
       "estado": "mudanca_detectada",
       "hashReferencia": "aebca686da08a5d2d17c07c15d5c5893ccafefbcb13e88fbd40b237fbca1861e",
       "hashObservado": "0df1ce1f83bcfc12afbeb043d1fbf2705e657be3a76524d540958acc52d2654c",
-      "ultimaConsulta": "2026-11-25T19:56:37+00:00",
+      "ultimaConsulta": "2026-11-26T19:37:37+00:00",
       "referenciaCapturadaEm": "2026-11-11T14:32:50+00:00",
       "consultaIntermediada": false,
       "mudancaDetectadaEm": "2026-11-16T20:29:10+00:00",
