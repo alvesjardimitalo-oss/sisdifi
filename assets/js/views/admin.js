@@ -129,11 +129,7 @@ function formUsuario(u) {
       <label class="campo"><span>Perfil</span><select name="perfil">${Object.entries(PERFIS).map(([k, v]) => `<option value="${k}" ${(u?.perfil || 'operador') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
       <label class="campo" id="campo-sec-usr"><span>Secretaria do usuário *</span><select name="secretaria_id">${opcoesSecretarias(u?.secretaria_id || '')}</select></label>
       ${u ? `<label class="campo"><span>Situação</span><select name="ativo"><option value="1" ${u.ativo === false && !u.pendente ? '' : 'selected'}>Ativo</option><option value="0" ${u.ativo === false && !u.pendente ? 'selected' : ''}>Bloqueado</option></select></label>` : ''}
-      ${u && u.id !== estado.sessao.uid ? `<div class="cartao" style="padding:12px 14px;margin:6px 0 10px">
-        <strong>Senha</strong>
-        <p class="muted" style="margin:4px 0 8px">Ninguém consegue ver a senha de um usuário — nem o administrador: o Firebase guarda só uma versão embaralhada. Para trocar, envie o e-mail de redefinição; o usuário cria a senha nova pelo link.</p>
-        <button type="button" class="btn btn-sec btn-peq" data-redefinir>✉ Enviar e-mail para redefinir a senha</button>
-      </div>` : ''}
+      ${u && u.id !== estado.sessao.uid ? `<p style="margin:4px 0 10px"><button type="button" class="btn btn-sec btn-peq" data-redefinir>✉ Enviar e-mail para redefinir a senha</button></p>` : ''}
       <p class="erro-form" id="erro-usr"></p>
       <div class="acoes-form">${u && u.id !== estado.sessao.uid ? '<button type="button" class="btn btn-sec btn-excluir" data-excluir style="margin-right:auto">🗑 Excluir usuário</button>' : ''}<button type="button" class="btn btn-sec" data-cancelar>Cancelar</button><button class="btn" type="submit">Salvar</button></div>
     </form>`
@@ -145,18 +141,18 @@ function formUsuario(u) {
     try {
       await db.redefinirSenha(u.email);
       await db.registrarLog('usuario.senha', { email: u.email });
-      toast(`E-mail de redefinição enviado para ${u.email}. Peça para olhar também a caixa de spam.`);
+      toast(`E-mail de redefinição enviado para ${u.email}.`);
     } catch (err) { $('#erro-usr', m.el).textContent = mensagemErro(err); }
     b.disabled = false;
   });
   f.querySelector('[data-excluir]')?.addEventListener('click', async () => {
-    const ok = await confirmar(`Excluir o usuário ${u.nome || u.email}? Ele perde o acesso ao SISDIFI na hora. O histórico do que ele fez continua na Auditoria. Se ele tentar entrar de novo, aparece aqui como pedido de acesso bloqueado.`, { titulo: 'Excluir usuário', ok: 'Excluir', perigo: true });
+    const ok = await confirmar(`Excluir o usuário ${u.nome || u.email}?`, { titulo: 'Excluir usuário', ok: 'Excluir', perigo: true });
     if (!ok) return;
     try {
       await db.excluirUsuario(u.id);
       await db.registrarLog('usuario.excluir', { email: u.email, perfil: u.perfil });
-      toast('Usuário excluído.');
       m.fechar();
+      avisoRecriar(u.email, 'Usuário excluído do SISDIFI.');
     } catch (err) {
       $('#erro-usr', m.el).textContent = String(err?.code || '').includes('permission') ? 'O Firebase recusou a exclusão: as regras atualizadas ainda não foram publicadas.' : mensagemErro(err);
     }
@@ -180,13 +176,38 @@ function formUsuario(u) {
       } else {
         if (!d.email) { btn.disabled = false; return (erro.textContent = 'Informe o e-mail.'); }
         if ((d.senha || '').length < 8) { btn.disabled = false; return (erro.textContent = 'A senha provisória precisa ter 8 caracteres ou mais.'); }
-        await db.criarUsuario({ nome: d.nome, email: d.email, senha: d.senha, perfil: d.perfil, ...vinculo });
+        try {
+          await db.criarUsuario({ nome: d.nome, email: d.email, senha: d.senha, perfil: d.perfil, ...vinculo });
+        } catch (e2) {
+          if (e2?.code !== 'auth/email-already-in-use') throw e2;
+          btn.disabled = false;
+          erro.innerHTML = `Este e-mail já tem login no Firebase. Apague o login antes: <a href="${CONSOLE_LOGINS}" target="_blank" rel="noopener noreferrer">abrir os logins no Firebase</a>, procure <b>${esc(d.email)}</b>, clique nos três pontinhos e em <b>Excluir conta</b>. Depois volte aqui e clique em Salvar de novo.`;
+          return;
+        }
         await db.registrarLog('usuario.criar', { email: d.email, perfil: d.perfil });
       }
       toast('Usuário salvo.');
       m.fechar();
     } catch (err) { erro.textContent = mensagemErro(err); btn.disabled = false; }
   };
+}
+
+// Lista de logins (e-mail e senha) do Firebase Authentication do SISDIFI.
+const CONSOLE_LOGINS = 'https://console.firebase.google.com/project/sisdifi/authentication/users';
+
+/** Depois de excluir: explica como recriar o usuário com a mesma e-mail e uma senha nova. */
+function avisoRecriar(email, titulo) {
+  const m = modal({
+    titulo, largura: 520,
+    corpo: `<p><strong>Para recriar com o mesmo e-mail e senha nova:</strong></p>
+      <ol class="passos">
+        <li><a href="${CONSOLE_LOGINS}" target="_blank" rel="noopener noreferrer">Abra os logins do Firebase</a> (entre com a sua conta Google de administrador).</li>
+        <li>Procure <b>${esc(email)}</b>, clique nos três pontinhos ⋮ da linha e em <b>Excluir conta</b>.</li>
+        <li>Volte ao SISDIFI e crie o usuário de novo em <b>＋ Novo usuário</b>, com a senha que quiser.</li>
+      </ol>
+      <div class="acoes-form"><button class="btn" type="button" data-ok>Entendi</button></div>`
+  });
+  m.el.querySelector('[data-ok]').onclick = m.fechar;
 }
 
 function gerarSenha() {
