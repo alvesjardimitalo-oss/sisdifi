@@ -134,22 +134,47 @@ t('empenhos mais ordens de pagamento fecham com o total líquido', () => {
 });
 
 // --- quando os arquivos não combinam ---
-t('lotação do 13º ausente na folha mensal é denunciada', () => {
-  const outra = resumo('05-DÉCIMO TERCEIRO SALÁRIO', [
-    { codigo: '002.099.999.00001', nome: 'PESSOAL CONTRATADO',
-      fixa: [['150', 'ADIANTAMENTO 13SALARIO', '500,00']], descontos: [] }
-  ]);
-  const r = descontarFolhasProprias([ler(MENSAL, 'principal'), ler(outra, 'decimo')]);
-  assert.ok(r.avisos.some(a => /não na folha mensal/.test(a)), 'avisos: ' + r.avisos.join(' | '));
+/* O RH gera o resumo mensal de dois jeitos. Em outubro/2026 a mensal CONTINHA
+   o 13º e as rescisões; em novembro veio sem eles. Qual deles chegou só os
+   dados dizem, então o modo é descoberto, não presumido. */
+const um = (codigo, bruto, desconto = 0) => ({ codigo, nome: 'PESSOAL CONTRATADO',
+  fixa: [['100', 'VENCIMENTO MENSAL', brl(bruto)]],
+  descontos: desconto ? [['201', 'I.N.S.S.', brl(desconto)]] : [] });
+
+t('lotação ausente na mensal prova que os arquivos se somam', () => {
+  const men = ler(resumo('01-FOLHA MENSAL', [um('002.004.217.00001', 1000)]), 'principal');
+  const dec = ler(resumo('05-DÉCIMO', [um('002.099.999.00001', 50)]), 'decimo');
+  const r = descontarFolhasProprias([men, dec]);
+  assert.equal(r.sobrepostos, false);
+  assert.equal(r.descontados, 0, 'nada é deduzido: a mensal não continha o 13º');
+  assert.match(r.avisos[0], /se somam a ele/);
+  assert.match(r.avisos[0], /002\.099\.999\.00001/);
+  assert.equal(men.registros[0].valores.bruto, 100000, 'a mensal fica intacta');
 });
 
-t('desconto maior que o mensal denuncia competência trocada', () => {
-  const grande = resumo('06-RESCISÃO CONTRATUAL', [
-    { codigo: '002.004.217.00001', nome: 'PESSOAL CONTRATADO',
-      fixa: [['100', 'VENCIMENTO MENSAL', '99.000,00']], descontos: [] }
-  ]);
-  const r = descontarFolhasProprias([ler(MENSAL, 'principal'), ler(grande, 'rescisao')]);
-  assert.ok(r.avisos.some(a => /negativo/.test(a)), 'avisos: ' + r.avisos.join(' | '));
+// Valor maior que o da mensal também prova que não cabia dentro dela.
+t('valor maior que o da mensal prova que os arquivos se somam', () => {
+  const men = ler(resumo('01-FOLHA MENSAL', [um('002.004.217.00001', 1000)]), 'principal');
+  const dec = ler(resumo('05-DÉCIMO', [um('002.004.217.00001', 1500)]), 'decimo');
+  const r = descontarFolhasProprias([men, dec]);
+  assert.equal(r.sobrepostos, false);
+  assert.match(r.avisos[0], /maior que o da mensal/);
+  assert.equal(men.registros[0].valores.bruto, 100000);
+});
+
+/* Competência trocada não é problema daqui: o cabeçalho do PDF é conferido na
+   importação. Aqui, arquivo que não cabe na mensal significa que ela veio sem
+   ele — e foi essa confusão que encheu a tela de valores negativos. */
+t('cabendo em tudo, deduz como antes', () => {
+  const men = ler(resumo('01-FOLHA MENSAL', [um('002.004.217.00001', 1000, 200)]), 'principal');
+  const dec = ler(resumo('05-DÉCIMO', [um('002.004.217.00001', 300, 50)]), 'decimo');
+  const r = descontarFolhasProprias([men, dec]);
+  assert.equal(r.sobrepostos, true);
+  assert.equal(r.descontados, 1);
+  assert.deepEqual(r.avisos, []);
+  const m = r.arquivos.find(a => a.tipo === 'principal').registros[0];
+  assert.equal(m.valores.bruto, 70000);
+  assert.equal(m.valores.desconto, 15000);
 });
 
 t('sem os arquivos próprios nada é alterado', () => {
