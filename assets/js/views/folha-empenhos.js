@@ -11,9 +11,11 @@
 import {estado,pode} from '../estado.js';
 import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificacaoPessoal,sugerirFichaDaLotacao,fontesParaEscolher,FICHAS_PESSOAL_2026} from '../folha-orcamento-2026.js';
 import {esc,toast} from '../ui.js';
-import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha,tipoDeFolhaCabecalho} from '../folha-empenhos.js?v=3.23.0.f3bcaf4d';
+import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha,tipoDeFolhaCabecalho,competenciaNoResumo,pagamentosConsignados,atualizarFeriasNoResumo} from '../folha-empenhos.js?v=3.23.0.997c05d0';
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
+import {varrerServidores} from '../folha-servidores.js';
+import {pensoesParaOP,chaveCadastro,RUBRICAS_PENSAO} from '../folha-pensoes.js';
 import {passosDoEmpenho,conferirEmpenho,fichasOPpendentes,modeloDoEmpenho,textoDoModelo,MODELOS_HISTORICO} from '../folha-transcrever.js';
 import {ordemDasLotacoes} from '../folha-ordem.js?v=3.23.0.06d2837c';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js?v=3.23.0.418e5047';
@@ -22,6 +24,7 @@ import {carregarMes,salvarMes} from '../consignacoes-mensal.js?v=3.13.0.357fc820
 import {saldosDasContas,consignadosPorFonte,etapasDaFolha,avisosDaConta,contaParaFonte,rotuloConta,novaContaId,
   normalizarFonte,assinaturaDaFolha,previstoParaConsignacoes} from '../folha-fluxo.js?v=3.23.0.3b56a92a';
 
+const CADASTRO_PENSAO='pensoes-beneficiarios';
 const tipos={principal:'Folha principal',extra:'Folha extra · incentivo federal (dia 10)',decimo:'Adiantamento de 50% do 13º',rescisao:'Rescisões'};
 const formato=c=>(Number(c||0)/100).toFixed(2).replace('.',',');
 const lerValor=v=>{const t=String(v||'').trim();if(!t)return null;return centavosFolha(/^\d+$/.test(t)?t+',00':t);};
@@ -73,9 +76,21 @@ export function telaFolhaEmpenhos(el){
   const uid=estado.sessao?.uid;
   let competencia=new Date().getFullYear()+'-'+String(new Date().getMonth()+1).padStart(2,'0');
   let primeiro=null,fontesRH={},legado=null,pessoas=[],base={mes:{},mapa:{},contas:{},arquivos:{}},escutas=[],renderPendente=false,mapa={},contas=[],saldos={},aprovouMapa=false,confirmacao=null;
+  let cadastroPensao={};
   let minutas=[],alertas=[],origemIndividual='',filtro='todos',visao='resumo',carregando=false,ativa=true,etapa='arquivos';
   const $=sel=>el.querySelector(sel);
-  const arquivosAtuais=()=>legado||arquivosDoRH(fontesRH);
+  const leituraAtual=()=>{
+    const originais=legado||arquivosDoRH(fontesRH);
+    const arquivos={},resolvidos=new Set(),avisosAtivos=new Set();
+    for(const [tipo,original] of Object.entries(originais)){
+      const atual=atualizarFeriasNoResumo(original);
+      arquivos[tipo]=atual.arquivo;
+      for(const a of atual.resolvidos)resolvidos.add(a);
+      for(const a of atual.arquivo?.avisos||[])avisosAtivos.add(a);
+    }
+    return {arquivos,alertasAtivos:alertas.filter(a=>!avisosAtivos.has(a)&&!resolvidos.has(a))};
+  };
+  const arquivosAtuais=()=>leituraAtual().arquivos;
   const localizarFicha=numero=>consultarFichaOrcamento(numero,Number(competencia.slice(0,4)),estado.fichas||[],estado.secretarias||[]);
   const contaPorId=id=>contas.find(c=>c.id===id)||null;
   const sugerirConta=id=>{
@@ -106,6 +121,10 @@ export function telaFolhaEmpenhos(el){
     '.fe .fe-file input[type=file]{width:100%;font-size:.8rem;margin:4px 0}.fe .fe-file .fe-recebido{color:#265f3f;font-size:.8rem;display:block}.fe .fe-file.ok{border-style:solid;border-color:#7fbf98;background:#f2fbf5}'+
     '.fe .fe-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.fe .fe-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:10px 0}'+
     '.fe .fe-kpis div{border:1px solid #d7e4ee;background:#f7fbff;border-radius:8px;padding:12px}.fe .fe-kpis small{font-size:.74rem;color:#526c82;display:block}.fe .fe-kpis strong{font-size:1.13rem;color:#13466a;display:block;margin-top:5px}'+
+    '.fe #fe-tabela.fe-grade{max-height:65vh;max-height:65dvh;min-height:min(200px,40vh);scrollbar-gutter:stable;scroll-padding-top:62px;border:1px solid #dce5ee;border-radius:8px}'+
+    '.fe #fe-tabela.fe-grade thead{position:sticky;top:0;z-index:1}.fe .fe-grade:focus-visible{outline:2px solid #174366}'+
+    '.fe .fe-tabela-fichas{min-width:710px}.fe .fe-tabela-fichas td input,.fe .fe-tabela-fichas td select{font-size:1rem}'+
+    '.fe .fe-tabela-fichas small{display:block;color:#526b80}.fe .fe-tabela-fichas td{vertical-align:top}'+
     '.fe .fe-scroll{overflow:auto;max-width:100%}.fe table{border-collapse:collapse;width:100%;font-size:.82rem}.fe th,.fe td{padding:8px;border-bottom:1px solid #e1e9ef;text-align:left;vertical-align:middle}'+
     '.fe th{background:#edf4f9;color:#345975;white-space:nowrap}.fe td input,.fe td select{border:1px solid #b9ccda;border-radius:5px;padding:6px;min-width:78px;width:100px;font-size:.8rem}'+
     '.fe .fe-money{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.fe .fe-neg{color:#b53c30;font-weight:700}.fe .fe-alert{border-left:4px solid #bc8b31;background:#fff8e9;padding:10px;margin:9px 0;color:#704e21;border-radius:4px}'+
@@ -144,7 +163,7 @@ export function telaFolhaEmpenhos(el){
       '<p class="fe-muted">Envie, nesta ordem, o <strong>Resumo de Verbas</strong> e a <strong>Folha de pagamento</strong> do mês; depois o Resumo de Verbas do <strong>13º</strong> e o das <strong>rescisões</strong>, quando houver. O resumo mensal do RH já contém o 13º e as rescisões: o SISDIFI desconta esses valores do mensal e gera empenhos separados, sem contar o mesmo dinheiro duas vezes.</p>'+
       '<div class="fe-files">'+
         '<div>'+slot('principal','Folha mensal · Resumo de Verbas','Totais por lotação: bruto, descontos e líquido. Obrigatório.','principal')+
-          slot('nominal','Folha mensal · Folha de pagamento','Folha nominal: identifica as servidoras com salário-maternidade (rubricas 163 e 201).','nominal')+'</div>'+
+          slot('nominal','Folha mensal · Folha de pagamento','Folha nominal para identificar salário-maternidade e descontos de pensão por matrícula.','nominal')+'</div>'+
         '<div>'+slot('decimo','13º salário · Resumo de Verbas','Adiantamento de 50% do 13º. Opcional: só quando houver na competência.','decimo')+'</div>'+
         '<div>'+slot('rescisao','Rescisões · Resumo de Verbas','Opcional: só quando houver rescisões na competência.','rescisao')+'</div>'+
       '</div>'+
@@ -174,9 +193,9 @@ export function telaFolhaEmpenhos(el){
       '<div class="fe-actions"><button class="btn btn-sec" id="fe-baixar-mapa" type="button">Baixar modelo CSV</button>'+
       '<label class="btn btn-sec" style="cursor:pointer">Importar mapa CSV <input id="fe-ler-mapa" type="file" accept=".csv,text/csv" style="display:none"></label>'+
       '<label class="campo"><span>Filtrar empenhos</span><select id="fe-filtro"><option value="todos">Todos</option><option value="pendentes">Com pendências</option><option value="principal">Folha principal</option><option value="extra">Folha extra</option><option value="decimo">13º adiantamento</option><option value="rescisao">Rescisões</option></select></label>'+
-      '<label class="campo"><span>Visualização</span><select id="fe-visao"><option value="resumo">Empenhos: ficha, fonte, conta e saldo</option><option value="transcrever">Transcrever: um empenho por vez</option><option value="composicao">Composição dos descontos</option></select></label></div>'+
+      '<label class="campo"><span>Visualização</span><select id="fe-visao"><option value="resumo">Preencher ficha e fonte</option><option value="planilha">Planilha de empenhos</option><option value="transcrever">Transcrever: um empenho por vez</option><option value="composicao">Composição dos descontos</option></select></label></div>'+
       '<div id="fe-kpis" class="fe-kpis"></div><div id="fe-pendencias"></div>'+
-      '<div class="fe-scroll" id="fe-tabela"></div><div id="fe-extras"></div>'+
+      '<div class="fe-scroll" id="fe-tabela" role="region" aria-label="Visualização dos empenhos"></div><div id="fe-extras"></div>'+
       '<p style="margin-top:12px"><label><input type="checkbox" id="fe-confirmar-mapa"> Conferi as fichas e fontes na LOA</label></p>'+
       '<p class="fe-muted">Preencha ficha e fonte de recursos de todos os empenhos. Na folha extra, se o incentivo federal estiver fora do bruto do RH, escolha <strong>Somar ao bruto</strong> na lotação.</p>'+
       '<div class="fe-continuar"><button type="button" class="btn btn-sec" data-ir="saldos">Voltar</button><button type="button" class="btn" data-ir="confirmar">Continuar</button></div>')+
@@ -185,7 +204,7 @@ export function telaFolhaEmpenhos(el){
       '<div class="fe-actions"><button type="button" class="btn" id="fe-confirmar-folha" disabled>Confirmar a folha</button>'+
       '<button class="btn btn-sec" type="button" id="fe-rascunho">Baixar rascunho XLSX</button>'+
       '<button class="btn" type="button" id="fe-final" disabled>Baixar planilha conferida XLSX</button></div>'+
-      '<div id="fe-consignados"></div>'+
+      '<div id="fe-repasses"></div><div id="fe-pensoes"></div><div id="fe-consignados"></div>'+
       '<details class="fe-sub" id="fe-depois"><summary>Depois do lançamento: conferir com as minutas dos bancos</summary>'+
         '<p class="fe-muted">A minuta de arrecadação só sai depois que a folha é lançada no sistema contábil. Importe-a em Consignações por mês e compare aqui. Esta conferência não impede a planilha conferida.</p>'+
         '<div class="fe-actions"><button class="btn btn-sec" type="button" id="fe-buscar-minutas">Consultar minutas</button></div><div id="fe-bancos"></div></details>')+
@@ -238,7 +257,7 @@ export function telaFolhaEmpenhos(el){
   const situacaoGeral=pacote=>{
     const arquivos=arquivosAtuais();
     return etapasDaFolha({arquivos,primeiro,contas,saldos,previsao:pacote?.previsao,maternidade:pacote?.maternidade,
-      alertas,avisosArquivos:arquivosLista().flatMap(a=>a.avisos||[]),conferiuFichas:aprovouMapa});
+      alertas:leituraAtual().alertasAtivos,avisosArquivos:[...new Set(arquivosLista().flatMap(a=>a.avisos||[]))],conferiuFichas:aprovouMapa});
   };
   const assinaturaAtual=pacote=>pacote?assinaturaDaFolha(pacote.previsao.empenhos,contas,saldos):'';
   const confirmadaValida=pacote=>!!(confirmacao&&pacote&&confirmacao.assinatura===assinaturaAtual(pacote));
@@ -330,8 +349,10 @@ export function telaFolhaEmpenhos(el){
       base.arquivos={...novo};fontesRH=novo;
     }),erro));
     escutas.push(ouvir('folha_mapa',primeira(docs=>{
-      mapa={};base.mapa={};
-      for(const d of docs){mapa[d.id]={...semMeta(d),_quem:quem(d),_quando:quando(d)};base.mapa[d.id]=structuredClone(mapa[d.id]);}
+      mapa={};base.mapa={};cadastroPensao={};
+      for(const d of docs){
+        if(d.id===CADASTRO_PENSAO){cadastroPensao=d.beneficiarios||{};continue;}
+        mapa[d.id]={...semMeta(d),_quem:quem(d),_quando:quando(d)};base.mapa[d.id]=structuredClone(mapa[d.id]);}
     }),erro));
     escutas.push(ouvir('folha_contas',primeira(docs=>{
       contas=docs.map(d=>({...semMeta(d),id:d.id})).sort((a,b)=>a.id.localeCompare(b.id,'pt-BR',{numeric:true}));base.contas=Object.fromEntries(contas.map(c=>[c.id,structuredClone(c)]));
@@ -388,8 +409,8 @@ export function telaFolhaEmpenhos(el){
     }
     const descontados=descontarFolhasProprias(Object.values(arquivos));
     $('#fe-avisos').innerHTML=(descontados.descontados?'<p class="fe-ok">13º e rescisões descontados da folha mensal em '+descontados.descontados+' lotação(ões).</p>':'')+
-      alertas.map(x=>'<p class="fe-alert">'+esc(x)+'</p>').join('')+
-      descontados.arquivos.flatMap(a=>a.avisos||[]).slice(0,18).map(x=>'<p class="fe-alert">'+esc(x)+'</p>').join('');
+      [...new Set([...leituraAtual().alertasAtivos,...descontados.arquivos.flatMap(a=>a.avisos||[])])].slice(0,18)
+        .map(x=>'<p class="fe-alert">'+esc(x)+'</p>').join('');
   }
   function renderContas(pacote){
     const fontes=[...new Set(FICHAS_PESSOAL_2026.flatMap(f=>f.fontes))].sort();
@@ -465,8 +486,13 @@ export function telaFolhaEmpenhos(el){
       '<span>Líquido informado pelo RH: '+dinheiroFolha(p.totalLiquidoRH)+' · Líquido base calculado: '+dinheiroFolha(p.totalLiquidoBase)+' · Diferença: '+dinheiroFolha(p.diferencaTotalRH)+'</span></div>'+
       pacote.maternidade.avisos.map(x=>'<p class="fe-alert">'+esc(x)+'</p>').join('');
     const registros=p.empenhos.filter(e=>filtro==='todos'||filtro==='pendentes'&&e.problemas.length||e.tipo===filtro);
+    const listaFichas=()=>(Number(competencia.slice(0,4))===2026?'<datalist id="fe-fichas-2026">'+FICHAS_PESSOAL_2026.map(f=>'<option value="'+esc(f.ficha)+'" label="'+esc(f.acao)+'"></option>').join('')+'</datalist>':'');
     const opcoesConta=sel=>'<option value="">Escolher conta</option>'+contas.map(c=>'<option value="'+esc(c.id)+'" '+(c.id===sel?'selected':'')+'>'+esc(rotuloConta(c)||c.id)+(c.fonte?' · '+esc(c.fonte):'')+'</option>').join('')+
       (sel&&!contaPorId(sel)?'<option value="'+esc(sel)+'" selected>Conta removida</option>':'');
+    const tabela=$('#fe-tabela');
+    const grade=visao!=='transcrever';
+    tabela.classList.toggle('fe-grade',grade);
+    tabela.tabIndex=grade?0:-1;
     if(visao==='transcrever'){
       /* Um empenho por vez, na ordem em que os campos são digitados no sistema
          da Memory. O quadro grande serve para auditar depois; para digitar, o
@@ -569,8 +595,54 @@ export function telaFolhaEmpenhos(el){
       };
       return;
     }
-    if(visao==='resumo'){
-      $('#fe-tabela').innerHTML='<table><thead><tr><th>Empenho</th><th>Grupo</th><th>Secretaria/unidade</th><th>Vínculo</th><th>Lotação RH</th><th>Lotação orçamentária (ação)</th><th>Ficha</th><th>Natureza da despesa</th><th>Fonte</th><th>Conta</th><th class="fe-money">Bruto</th><th class="fe-money">Saldo da conta depois</th><th class="fe-money">Desconto RH</th><th class="fe-money">INSS extra</th><th class="fe-money">Líquido</th><th>Pendências</th></tr></thead><tbody>'+
+    if(visao==='planilha'){
+      const ops=new Map();
+      for(const x of p.extras){
+        const lista=ops.get(x.empenhoReferencia)||[];
+        lista.push(x);ops.set(x.empenhoReferencia,lista);
+      }
+      const moeda=v=>'<td class="fe-money">'+v+'</td>';
+      const soma=(lista,campo)=>lista.reduce((n,x)=>n+(x[campo]||0),0);
+      const vaga=lista=>moeda(lista.length?dinheiroFolha(soma(lista,'bruto')):'')+
+        moeda(lista.some(x=>x.inss)?dinheiroFolha(soma(lista,'inss')):'');
+      const linhas=registros.map(r=>{
+        const m=mapa[r.id]||mapa[r.lotacao]||{};
+        const extras=ops.get(r.empenho)||[];
+        const input=(campo,rotulo,valor,atributos='')=>'<td><input aria-label="'+rotulo+
+          '" data-ref="'+esc(r.id)+'" data-campo="'+campo+'" value="'+esc(valor||'')+'"'+atributos+'></td>';
+        return '<tr><td>'+esc(tipos[r.tipo])+'</td><td><strong>'+r.empenho+'</strong><br><small>'+esc(r.lotacao)+'</small></td>'+
+          input('secretaria','Secretaria',r.secretaria)+
+          input('ficha','Ficha',r.ficha,' list="fe-fichas-2026"'+
+            (r.fichaSugerida?' class="fe-sugerida" title="'+esc(r.motivoFicha||'')+'"':''))+
+          input('fonte','Fonte',r.fonte,!m.fonte&&r.fonte?' class="fe-sugerida" title="Fonte da ficha sugerida"':'')+
+          input('desdobramento','Desdobramento',r.desdobramento)+
+          '<td><select aria-label="Conta bancária" data-ref="'+esc(r.id)+'" data-campo="contaId">'+opcoesConta(r.contaId)+'</select></td>'+
+          moeda(dinheiroFolha(r.bruto))+moeda(dinheiroFolha(r.descontoAjustado))+
+          '<td>'+extras.map(x=>'<input data-op="'+esc(x.id)+'" aria-label="Número da OP de '+esc(x.tipo)+
+            '" title="'+esc(x.tipo)+'" value="'+esc(numerosOP[x.id]||'')+'">').join(' ')+'</td>'+
+          vaga(extras.slice(0,1))+vaga(extras.slice(1))+moeda(dinheiroFolha(r.liquido+soma(extras,'liquido')))+
+          '<td class="fe-status">'+esc(r.problemas.join(' · '))+'</td></tr>';
+      }).join('');
+      const liquido=p.totalLiquido+p.totalLiquidoExtras;
+      const totais=[
+        ['Bruto geral',p.totalBruto+soma(p.extras,'bruto')],['Líquido geral',liquido],
+        ['Líquido do resumo do RH',p.totalLiquidoResumo],['Diferença',liquido-p.totalLiquidoResumo]
+      ];
+      $('#fe-tabela').innerHTML='<table><thead><tr><th colspan="3"></th><th colspan="6">Empenho orçamentário</th>'+
+        '<th colspan="5">Extraorçamentária</th><th colspan="2"></th></tr><tr>'+
+        ['Grupo','Empenho','Secretaria','Ficha','Fonte','Desdobramento','Conta bancária','Bruto','Desconto da liquidação',
+          'Nº OP','Bruto OP 1','Retenção OP 1','Bruto demais OPs','Retenção demais OPs','Líquido','Pendências']
+          .map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+
+        (linhas||'<tr><td colspan="16">Nenhum empenho neste filtro.</td></tr>')+'</tbody><tfoot>'+
+        totais.map(([rotulo,valor])=>'<tr><th colspan="14" scope="row">'+rotulo+'</th>'+moeda(dinheiroFolha(valor))+'<td></td></tr>').join('')+
+        '</tfoot></table>'+listaFichas();
+      $('#fe-tabela').querySelectorAll('[data-op]').forEach(i=>i.onchange=()=>{
+        const v=i.value.trim();
+        if(v)numerosOP[i.dataset.op]=v;else delete numerosOP[i.dataset.op];
+        persistir();
+      });
+    }else if(visao==='resumo'){
+      tabela.innerHTML='<table class="fe-tabela-fichas"><thead><tr><th>Empenho / lotação</th><th>Ficha</th><th>Fonte</th><th>Conta</th><th class="fe-money">Saldo após empenho</th><th>Detalhes</th></tr></thead><tbody>'+
         registros.map(r=>{
           const m=mapa[r.id]||mapa[r.lotacao]||{};
           const ref=localizarFicha(m.ficha||r.ficha);
@@ -581,29 +653,34 @@ export function telaFolhaEmpenhos(el){
           const avisoFonte=ref&&fontes.length>1&&!m.fonte?'Selecione uma das fontes permitidas: '+fontes.join(', '):ref&&m.fonte&&fontes.length&&!fonteCompativel(m.fonte,fontes)?'A fonte informada não corresponde às fontes cadastradas nesta ficha.':'';
           const avisoConta=avisosDaConta(r,contaPorId(r.contaId)).join('; ');
           const apos=sitContas.apos[r.id];
-          return '<tr><td><strong>'+r.empenho+'</strong></td><td>'+esc(tipos[r.tipo])+'</td>'+
-            '<td><input style="width:170px" data-ref="'+esc(r.id)+'" data-campo="secretaria" value="'+esc(m.secretaria||r.secretaria||'')+'"></td>'+
-            '<td><input style="width:115px" data-ref="'+esc(r.id)+'" data-campo="vinculo" value="'+esc(m.vinculo||r.vinculo||'')+'"></td>'+
-            '<td><strong>'+esc(r.lotacao)+'</strong></td>'+
-            '<td><input style="width:225px" data-ref="'+esc(r.id)+'" data-campo="lotacaoOrcamentaria" value="'+esc(m.lotacaoOrcamentaria||ref?.acao||'')+'"><small style="display:block;color:#526b80">'+esc(ref?.origem||'Edição manual')+'</small></td>'+
-            /* Sugerida aparece no campo e assinalada: fica editável, e dá para
-               ver de onde veio antes de aceitar. Quem digitou a ficha não vê
-               sugestão nenhuma — a escolha manda. */
-            '<td><input style="width:88px" list="fe-fichas-2026" data-ref="'+esc(r.id)+'" data-campo="ficha" value="'+esc(m.ficha||r.ficha||'')+'"'+
+          const campo=(nome,rotulo,valor)=>'<label class="campo"><span>'+rotulo+'</span><input data-ref="'+esc(r.id)+
+            '" data-campo="'+nome+'" value="'+esc(valor||'')+'"></label>';
+          const avisos=[...r.problemas,...(r.avisos||[]),avisoFicha,avisoFonte,avisoNatureza,avisoConta].filter(Boolean);
+          const resumo=avisos.length?avisos.length+' aviso(s)':'Ver detalhes';
+          return '<tr><td><strong>'+r.empenho+'</strong><small>'+esc(r.secretaria||tipos[r.tipo])+'</small>'+
+            '<small>'+esc(r.lotacao)+'</small></td>'+
+            '<td><input aria-label="Ficha do empenho '+r.empenho+'" list="fe-fichas-2026" data-ref="'+esc(r.id)+
+              '" data-campo="ficha" value="'+esc(m.ficha||r.ficha||'')+'"'+
               (r.fichaSugerida?' class="fe-sugerida" title="Sugerida pela lotação: '+esc(r.motivoFicha||'')+'"':'')+'>'+
-              (r.fichaSugerida?'<small style="display:block;color:#7a5b00">sugerida'+(r.confiancaFicha?' · '+esc(r.confiancaFicha):'')+'</small>':'')+
-              (m._quem?'<small style="display:block;color:#526b80" title="Última alteração">'+esc(m._quem)+(m._quando?' · '+esc(m._quando):'')+'</small>':'')+'</td>'+
-            '<td style="min-width:225px"><strong>'+esc(classe.titulo)+'</strong>'+(classe.codigo?'<small style="display:block;color:#526b80">'+esc(classe.codigo)+'</small>':'')+'</td>'+
-            '<td><input style="width:132px" data-ref="'+esc(r.id)+'" data-campo="fonte" value="'+esc(m.fonte||r.fonte||'')+'"'+
+              (r.fichaSugerida?'<small>Sugerida</small>':'')+'</td>'+
+            '<td><input aria-label="Fonte do empenho '+r.empenho+'" list="fe-fontes" data-ref="'+esc(r.id)+
+              '" data-campo="fonte" value="'+esc(m.fonte||r.fonte||'')+'"'+
               (!m.fonte&&r.fonte?' class="fe-sugerida" title="Fonte da ficha sugerida"':'')+'></td>'+
-            '<td><select style="width:190px" data-ref="'+esc(r.id)+'" data-campo="contaId">'+opcoesConta(r.contaId)+'</select></td>'+
-            '<td class="fe-money">'+dinheiroFolha(r.bruto||0)+(r.tipo==='extra'&&r.incentivo?'<small style="display:block;color:#506d82">Incentivo: '+dinheiroFolha(r.incentivo)+'</small>':'')+'</td>'+
+            '<td><select aria-label="Conta do empenho '+r.empenho+'" style="width:150px" data-ref="'+esc(r.id)+
+              '" data-campo="contaId">'+opcoesConta(r.contaId)+'</select></td>'+
             '<td class="fe-money '+(apos<0?'fe-neg':'')+'">'+(apos==null?'—':dinheiroFolha(apos))+'</td>'+
-            '<td class="fe-money">'+dinheiroFolha(r.descontoRH||0)+'</td>'+
-            '<td class="fe-money">'+dinheiroFolha(r.maisInssExtra)+'</td><td class="fe-money"><strong>'+dinheiroFolha(r.liquido||0)+'</strong></td>'+
-            '<td class="fe-status">'+esc([...r.problemas,...(r.avisos||[]),avisoFicha,avisoFonte,avisoNatureza,avisoConta].filter(Boolean).join('; ')||'Pronto para conferir')+'</td></tr>';
-        }).join('')+'</tbody></table>'+
-        (Number(competencia.slice(0,4))===2026?'<datalist id="fe-fichas-2026">'+FICHAS_PESSOAL_2026.map(f=>'<option value="'+esc(f.ficha)+'" label="'+esc(f.acao)+'"></option>').join('')+'</datalist>':'');
+            '<td><details data-detalhes="'+esc(r.id)+'"><summary>'+resumo+'</summary>'+
+              (avisos.length?'<ul class="fe-pend">'+avisos.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':'')+
+              campo('secretaria','Secretaria / unidade',m.secretaria||r.secretaria)+
+              campo('vinculo','Vínculo',m.vinculo||r.vinculo)+
+              campo('lotacaoOrcamentaria','Ação orçamentária',m.lotacaoOrcamentaria||ref?.acao)+
+              '<small>'+esc([classe.codigo,classe.titulo,ref?.origem].filter(Boolean).join(' · '))+'</small>'+
+              '<small>Bruto '+dinheiroFolha(r.bruto)+' · Desconto RH '+dinheiroFolha(r.descontoRH)+
+              ' · INSS extra '+dinheiroFolha(r.maisInssExtra)+' · Líquido '+dinheiroFolha(r.liquido)+'</small>'+
+              (m._quem?'<small>Última alteração: '+esc(m._quem)+(m._quando?' · '+esc(m._quando):'')+'</small>':'')+
+              '</details></td></tr>';
+        }).join('')+(registros.length?'':'<tr><td colspan="6">Nenhum empenho neste filtro.</td></tr>')+
+        '</tbody></table>'+listaFichas();
     }else{
       const cabecalhos=['Empenho','Secretaria / vínculo','Lotação','Bruto','Caixa','Sicoob','Bradesco','Pensão',
         'INSS original','Imposto de Renda','Outros','Soma das rubricas','Desconto do RH','Diferença',
@@ -641,7 +718,9 @@ export function telaFolhaEmpenhos(el){
         mapa[k]={...(mapa[k]||{}),[campo]:campo==='fonte'?normalizarFonte(input.value):input.value.trim()};
         if(campo==='fonte')sugerirConta(k);
       }
-      aprovouMapa=false;persistir();render();
+      aprovouMapa=false;persistir();
+      // Deixa o navegador concluir Tab ou o clique antes de repor os campos calculados.
+      setTimeout(render,0);
     });
     const incentivos=p.empenhos.filter(r=>r.tipo==='extra'&&r.incentivo>0);
     const boxIncentivo=incentivos.map(r=>{
@@ -673,7 +752,63 @@ export function telaFolhaEmpenhos(el){
       '</tbody><tfoot>'+Object.entries(c.totais).map(([d,v])=>'<tr><th colspan="3">Total '+esc(d)+'</th><th class="fe-money">'+dinheiroFolha(v)+'</th></tr>').join('')+'</tfoot></table></div>'+
       (c.pendentes.length?'<p class="fe-alert">'+c.pendentes.length+' desconto(s) sem fonte de recurso no empenho: '+c.pendentes.map(p=>esc(p.empenho+' ('+p.destino+')')).join(', ')+'.</p>':'');
   }
+  function renderRepasses(p){
+    const alvo=$('#fe-repasses');
+    if(!p){alvo.innerHTML='';return;}
+    const r=pagamentosConsignados(p.empenhos);
+    const destinos=r.destinos.filter(d=>d.chave!=='Pensao');
+    if(!destinos.length&&!r.outros.length){alvo.innerHTML='';return;}
+    const linhas=destinos.map(d=>'<tr><th colspan="2">'+esc(d.nome)+' · ficha '+esc(d.fichaExtra)+'</th>'+
+      '<th class="fe-money">'+dinheiroFolha(d.valor)+'</th><th>'+esc(d.forma)+'</th></tr>'+
+      d.porFonte.map(f=>'<tr><td></td><td>'+(f.fonte?esc(f.fonte):'<strong>Fonte a informar</strong>')+'</td>'+
+        '<td class="fe-money">'+dinheiroFolha(f.valor)+'</td><td>'+f.empenhos.map(esc).join(', ')+'</td></tr>').join('')
+    ).join('');
+    const outros=r.outros.length?'<p class="fe-muted">Fora do repasse a terceiro: '+
+      r.outros.map(x=>esc(x.codigo)+' '+esc(x.descricao)+' · '+dinheiroFolha(x.valor)).join(' · ')+'</p>':'';
+    alvo.innerHTML='<section class="fe-card"><h2>Repasses por fonte de recursos</h2>'+
+      '<p class="fe-muted">Cada fonte informada corresponde a uma OP por destino. A pensão é apresentada em OP única no quadro próprio.</p>'+
+      (linhas?'<div class="fe-scroll"><table><thead><tr><th>Destino</th><th>Fonte</th><th class="fe-money">Valor</th><th>Empenhos de origem</th></tr></thead>'+
+        '<tbody>'+linhas+'</tbody></table></div>':'')+outros+'</section>';
+  }
+  function renderPensoes(p){
+    const alvo=$('#fe-pensoes');
+    if(!p){alvo.innerHTML='';return;}
+    const r=pensoesParaOP(p.empenhos,fontesRH.nominal?.pensoes||[],cadastroPensao);
+    if(!r.totalEmpenhado&&!r.op.quantidade){alvo.innerHTML='';return;}
+    const linhas=r.op.liquidacoes.map((l,i)=>'<tr><td>'+esc(l.lotacao)+'</td><td>'+(l.empenho??'—')+'</td>'+
+      '<td>'+esc(l.matricula)+'</td><td>'+esc(l.servidor)+'</td><td>'+esc(l.rubrica)+'</td>'+
+      '<td class="fe-money">'+dinheiroFolha(l.valor)+'</td>'+
+      '<td><input style="width:190px" data-pensao="'+i+'" data-campo="beneficiario" '+
+        'placeholder="quem recebe" aria-label="Beneficiário" '+(l.matricula?'':'disabled ')+'value="'+esc(l.beneficiario)+'"></td>'+
+      '<td><input style="width:150px" data-pensao="'+i+'" data-campo="processo" '+
+        'placeholder="processo (opcional)" aria-label="Processo" '+(l.matricula?'':'disabled ')+'value="'+esc(l.processo)+'"></td></tr>'+
+      '<tr class="fe-historico"><td colspan="8"><span class="fe-muted">Histórico: </span>'+esc(l.historico)+'</td></tr>').join('');
+    alvo.innerHTML='<section class="fe-card"><h2>Pensão alimentícia · OP única · ficha 8 · '+r.op.quantidade+
+      ' liquidaç'+(r.op.quantidade===1?'ão':'ões')+' · '+dinheiroFolha(r.op.total)+'</h2>'+
+      '<p class="fe-muted">Uma ordem de pagamento extraorçamentária, com uma liquidação por pensão. '+
+      'O beneficiário entra no histórico da liquidação e fica guardado por matrícula e rubrica para os próximos meses.</p>'+
+      (r.pendentes.length?'<p class="fe-alert">'+r.pendentes.length+' liquidaç'+(r.pendentes.length===1?'ão':'ões')+
+        ' sem beneficiário informado.</p>':'')+
+      r.avisos.map(a=>'<p class="fe-alert">'+esc(a)+'</p>').join('')+
+      (r.op.quantidade?'<div class="fe-scroll"><table><thead><tr><th>Lotação</th><th>Empenho</th>'+
+        '<th>Matrícula</th><th>Servidor</th><th>Rubrica</th><th>Valor</th><th>Beneficiário</th><th>Processo</th>'+
+        '</tr></thead><tbody>'+linhas+'</tbody></table></div>':'')+'</section>';
+    alvo.querySelectorAll('[data-pensao]').forEach(i=>i.onchange=async()=>{
+      const l=r.op.liquidacoes[Number(i.dataset.pensao)];
+      if(!l)return;
+      const k=chaveCadastro(l.matricula,l.rubrica);
+      if(!l.matricula)return;
+      try{
+        await salvar('folha_mapa',CADASTRO_PENSAO,{beneficiarios:{[k]:{[i.dataset.campo]:i.value.trim()}}});
+      }catch(e){
+        toast('Falha ao salvar o cadastro da pensão: '+(e.message||e),'erro');
+        render();
+      }
+    });
+  }
   function renderConfirmar(pacote,sit){
+    renderRepasses(pacote?.previsao);
+    renderPensoes(pacote?.previsao);
     const confirmada=confirmadaValida(pacote);
     const lista=sit.etapas.map(x=>'<li>'+(x.pronta?'✓ ':'✗ ')+'<strong>'+esc(x.titulo)+'</strong>'+
       (x.pronta?'':'<ul class="fe-pend">'+x.pendencias.map(p=>'<li>'+esc(p)+'</li>').join('')+'</ul>')+'</li>').join('');
@@ -687,7 +822,7 @@ export function telaFolhaEmpenhos(el){
     const irConsig=$('#fe-ir-consig');
     if(irConsig)irConsig.onclick=()=>{try{sessionStorage.setItem('sisdifi-consignacoes-competencia',competencia);}catch(e){}};
     $('#fe-consignados').innerHTML=pacote?'<h2 style="margin-top:18px;font-size:1rem">Consignados e pensões por fonte de recurso'+(confirmada?'':' · prévia')+'</h2>'+
-      '<p class="fe-muted">Valores descontados pelo RH, agrupados pela fonte de cada empenho. Uma linha por banco e fonte: é a OP extraorçamentária.</p>'+
+      '<p class="fe-muted">Valores descontados pelo RH, agrupados pela fonte de cada empenho. Esta distribuição serve para conferir a minuta.</p>'+
       tabelaConsignados(consignadosPorFonte(pacote.previsao.empenhos)):'';
     const cs=pacote?conferirConsignadosFolha(pacote.previsao.empenhos,minutas):[];
     $('#fe-bancos').innerHTML=pacote?'<div class="fe-scroll"><table><thead><tr><th>Banco/desconto</th><th>RH</th><th>Minuta</th><th>Diferença</th><th>Situação</th></tr></thead><tbody>'+
@@ -702,7 +837,17 @@ export function telaFolhaEmpenhos(el){
     const sit=situacaoGeral(pacote);
     renderArquivos();renderPessoas();renderNumeracao(pacote);
     const sitContas=renderContas(pacote);
+    const tabela=$('#fe-tabela'),foco=document.activeElement;
+    const campo=tabela.contains(foco)?foco.dataset:null;
+    const {scrollLeft,scrollTop}=tabela;
+    const detalhesAbertos=new Set([...tabela.querySelectorAll('[data-detalhes][open]')].map(d=>d.dataset.detalhes));
     renderFichas(pacote,sitContas);
+    for(const d of tabela.querySelectorAll('[data-detalhes]'))d.open=detalhesAbertos.has(d.dataset.detalhes);
+    tabela.scrollTo(scrollLeft,scrollTop);
+    if(campo?.ref){
+      const proximo=[...tabela.querySelectorAll('[data-ref]')].find(i=>i.dataset.ref===campo.ref&&i.dataset.campo===campo.campo);
+      proximo?.focus({preventScroll:true});
+    }
     $('#fe-confirmar-mapa').checked=aprovouMapa;
     renderConfirmar(pacote,sit);
     renderPassos(sit,pacote);
@@ -726,6 +871,13 @@ export function telaFolhaEmpenhos(el){
     pessoas=pessoas.filter(p=>!matriculas.has(p.matricula)||p.origem==='Preenchimento manual');
     const chaves=new Set(pessoas.map(p=>p.matricula+'|'+p.lotacao));
     for(const c of candidatos.achados){const k=c.matricula+'|'+c.lotacao;if(!chaves.has(k)){chaves.add(k);pessoas.push(c);}}
+    const rubricasPensao=new Set(RUBRICAS_PENSAO);
+    const {servidores}=varrerServidores(linhas,lotacoesDoResumo(arquivosLista()));
+    const pensoes=servidores.flatMap(s=>{
+      const rubricas=s.rubricas.filter(r=>rubricasPensao.has(r.codigo));
+      return rubricas.length?[{...s,rubricas}]:[];
+    });
+    fontesRH={...fontesRH,nominal:{nome,pensoes}};
     origemIndividual=nome;
     alertas=alertas.filter(x=>!/^Matrícula .*lotação .*sem rubrica 163/.test(x));
     alertas.push(...candidatos.avisos);
@@ -756,6 +908,8 @@ export function telaFolhaEmpenhos(el){
       }else if(tipo==='nominal'){
         if(ehResumo(linhas))throw Error('Este PDF é o Resumo de Verbas, não a Folha de pagamento. O nome do arquivo do RH pode estar trocado: envie-o no campo "Resumo de Verbas".');
         if(!arquivosAtuais().principal)throw Error('Envie primeiro o Resumo de Verbas da folha mensal.');
+        const comp=competenciaNoResumo(linhas);
+        if(comp&&comp!==competencia)throw Error('A folha nominal é de '+comp+'. Importe a folha da competência '+competencia+'.');
         const n=lerMaternidades(linhas,f.name);
         status(n+' servidora(s) com maternidade identificada(s) por matrícula e lotação. Confira os valores e marque Conferi.');
       }else{
@@ -779,7 +933,10 @@ export function telaFolhaEmpenhos(el){
     e.preventDefault();
     const k=b.dataset.removerArquivo;
     if(!window.confirm('Retirar este arquivo da competência?'))return;
-    if(k==='nominal'){pessoas=pessoas.filter(p=>p.origem==='Preenchimento manual');origemIndividual='';}
+    if(k==='nominal'){
+      pessoas=pessoas.filter(p=>p.origem==='Preenchimento manual');origemIndividual='';
+      fontesRH={...fontesRH};delete fontesRH.nominal;
+    }
     else if(k==='principal'){fontesRH={...fontesRH};delete fontesRH.mensal;legado=null;alertas=[];}
     else{fontesRH={...fontesRH};delete fontesRH[k];}
     aprovouMapa=false;persistir();render();
@@ -811,8 +968,8 @@ export function telaFolhaEmpenhos(el){
     if(!Number.isSafeInteger(v)||v<1){toast('Informe número inicial válido.','erro');e.target.value=primeiro??'';return;}
     primeiro=v;persistir();render();
   };
-  $('#fe-filtro').onchange=e=>{filtro=e.target.value;render();};
-  $('#fe-visao').onchange=e=>{visao=e.target.value;render();};
+  $('#fe-filtro').onchange=e=>{filtro=e.target.value;$('#fe-tabela').scrollTo(0,0);render();};
+  $('#fe-visao').onchange=e=>{visao=e.target.value;$('#fe-tabela').scrollTo(0,0);render();};
   $('#fe-confirmar-mapa').onchange=e=>{aprovouMapa=e.target.checked;persistir();render();};
   $('#fe-baixar-mapa').onclick=()=>{
     const linhas=[['Tipo','Lotacao','Ficha','Fonte','Conta','Secretaria','Vinculo','Ordem']];
