@@ -272,9 +272,38 @@ export function descontarFolhasProprias(arquivos=[]){
   const lista=arquivos.filter(Boolean);
   const mensal=lista.find(a=>a.tipo==='principal');
   const proprios=lista.filter(a=>a!==mensal&&(a.tipo==='decimo'||a.tipo==='rescisao'));
-  if(!mensal||!proprios.length)return {arquivos:lista,avisos:[],descontados:0};
+  if(!mensal||!proprios.length)return {arquivos:lista,avisos:[],descontados:0,sobrepostos:null};
   const avisos=[];
+  /* O RH gera o resumo mensal de dois jeitos, e qual deles veio só os dados
+     dizem. Em outubro/2026 a mensal CONTINHA o 13º e as rescisões, e somá-los
+     empenharia duas vezes. Em novembro/2026 veio sem: a lotação
+     002.005.250.00003 tem zero na mensal, 3.233,75 na rescisão e 3.233,75 na
+     folha nominal, que é o mês inteiro — ali deduzir subtrai o que nunca
+     esteve lá, e foi o que encheu a tela de valores negativos.
+
+     Então o modo é descoberto, não presumido: só há sobreposição quando TODA
+     lotação dos arquivos próprios existe na mensal e cabe dentro dela. Uma
+     lotação ausente, ou um valor maior que o da mensal, prova que os arquivos
+     são separados e se somam. */
+  const porLotacao=new Map(mensal.registros.map(r=>[r.lotacao,r]));
+  const foraDaMensal=[],naoCabem=[];
+  for(const a of proprios)for(const r of a.registros){
+    const alvo=porLotacao.get(r.lotacao);
+    if(!alvo){ if(!foraDaMensal.includes(r.lotacao))foraDaMensal.push(r.lotacao); continue; }
+    const soma=proprios.flatMap(x=>x.registros).filter(x=>x.lotacao===r.lotacao)
+      .reduce((n,x)=>n+(x.valores?.bruto||0),0);
+    if(soma>(alvo.valores?.bruto||0)&&!naoCabem.includes(r.lotacao))naoCabem.push(r.lotacao);
+  }
+  if(foraDaMensal.length||naoCabem.length){
+    const quais=[...new Set([...foraDaMensal,...naoCabem])];
+    return {arquivos:lista,descontados:0,sobrepostos:false,
+      avisos:['O resumo mensal veio sem o 13º e as rescisões, então eles se somam a ele em vez de '+
+        'serem deduzidos. Mostra isso a lotação '+quais.slice(0,3).join(', ')+
+        (foraDaMensal.length?', que não existe no resumo mensal':', cujo valor é maior que o da mensal')+
+        (quais.length>3?' (e mais '+(quais.length-3)+')':'')+'.']};
+  }
   const restantes=new Map(mensal.registros.map(r=>[r.lotacao,{...r,valores:{...r.valores},
+    rubricasDesconto:(r.rubricasDesconto||[]).map(d=>({...d})),
     composicao:{...(r.composicao||{})},bancos:{...(r.bancos||{})}}]));
   let descontados=0;
   for(const a of proprios){
@@ -289,13 +318,39 @@ export function descontarFolhasProprias(arquivos=[]){
         const v=r.valores?.[k];
         if(Number.isSafeInteger(v)&&v!==0)alvo.valores[k]=(alvo.valores[k]||0)-v;
       }
-      /* Os descontos por banco/pensão também estão dentro do mensal: o empréstimo
-         quitado na rescisão já aparece na rescisão. Sem tirar daqui, o consignado
-         seria contado duas vezes no total por banco e na OP por fonte. */
-      for(const k of CATEGORIAS_DESCONTOS){
-        const v=r.composicao?.[k];
-        if(Number.isSafeInteger(v)&&v!==0)alvo.composicao[k]=(alvo.composicao[k]||0)-v;
+      /* As rubricas de desconto também saem, senão o consignado da rescisão
+         entra duas vezes e o banco receberia em dobro. Em outubro a rescisão
+         só tinha INSS, então o erro não aparecia nos bancos — mas apareceria
+         na primeira rescisão com empréstimo. */
+      for(const d of r.rubricasDesconto||[]){
+        const i=(alvo.rubricasDesconto||[]).findIndex(x=>x.codigo===d.codigo);
+        if(i<0){
+          avisos.push('Rubrica '+d.codigo+' ('+(d.descricao||'')+') aparece no desconto da '+
+            a.tipo+' da lotação '+r.lotacao+' mas não na folha mensal. Confira antes de pagar o consignado.');
+          continue;
+        }
+        const atual=alvo.rubricasDesconto[i];
+        alvo.rubricasDesconto[i]={...atual,valor:atual.valor-d.valor};
       }
+      if((alvo.rubricasDesconto||[]).length){
+        /* Com as rubricas em mão, a composição é recalculada a partir delas, que
+           é a fonte: o total por banco e a OP por fonte saem daqui. */
+        alvo.rubricasDesconto=alvo.rubricasDesconto.filter(d=>d.valor!==0);
+        alvo.composicao=Object.fromEntries(CATEGORIAS_DESCONTOS.map(k=>[k,0]));
+        for(const d of alvo.rubricasDesconto)alvo.composicao[d.categoria]+=d.valor;
+      }else{
+        /* Registro sem rubricas detalhadas: desconta categoria por categoria,
+           senão o empréstimo quitado na rescisão seria contado duas vezes. */
+        for(const k of CATEGORIAS_DESCONTOS){
+          const v=r.composicao?.[k];
+          if(Number.isSafeInteger(v)&&v!==0)alvo.composicao[k]=(alvo.composicao[k]||0)-v;
+        }
+      }
+      alvo.composicaoTotal=Object.values(alvo.composicao).reduce((n,v)=>n+v,0);
+      alvo.inss=alvo.composicao.INSS;
+      alvo.bancos={Caixa:alvo.composicao.Caixa,Sicoob:alvo.composicao.Sicoob,
+        Bradesco:alvo.composicao.Bradesco,Pensao:alvo.composicao.Pensao};
+      alvo.diferencaComposicao=alvo.valores.desconto==null?null:alvo.valores.desconto-alvo.composicaoTotal;
       descontados++;
     }
   }
@@ -323,7 +378,7 @@ export function descontarFolhasProprias(arquivos=[]){
     sobra.push(r);
   }
   const novoMensal={...mensal,registros:sobra,avisos:[...(mensal.avisos||[]),...avisos]};
-  return {arquivos:lista.map(a=>a===mensal?novoMensal:a),avisos,descontados};
+  return {arquivos:lista.map(a=>a===mensal?novoMensal:a),avisos,descontados,sobrepostos:true};
 }
 
 export function analisarResumoConsolidado(linhas,{nome=''}={}){
@@ -396,13 +451,21 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={},opcoes={})
   // alfabética/heuristicamente trocaria os empenhos de lotação.
   const todas=arquivos.flatMap(a=>(a?.registros||[]).map(r=>({...r,tipo:a.tipo,competencia:a.competencia})));
   const destino=r=>mapa[r.tipo+'|'+r.lotacao]||mapa[r.lotacao]||{};
-  // Grupos sempre nessa ordem; dentro de cada grupo respeita a posição
-  // no PDF do RH, inclusive com vínculo especial ou secretaria específica.
+  /* Blocos sempre nessa ordem; dentro de cada bloco vale a ordem em que os
+     registros chegaram, e sort é estável. Antes isto reordenava por página do
+     PDF, o que desfazia a ordem de digitação da Contabilidade — e a ordem é o
+     que decide o número do empenho. Quem chama ordena (folha-ordem.js); sem
+     ordenação, a ordem de chegada ainda é a do PDF, como antes. */
   const ordem=['principal','extra','decimo','rescisao'];
+  /* Com opcoes.ordem, a posição vem do mapa da Contabilidade e a página do PDF
+     desempata. Sem ele, só o bloco ordena: quem chamou já ordenou com
+     folha-ordem.js, e desempatar por página aqui desfaria aquela ordem — que é
+     justamente o que decide o número do empenho. */
   const ordenadas=todas.sort((a,b)=>{
     const ga=ordem.indexOf(a.tipo),gb=ordem.indexOf(b.tipo);
     if(ga!==gb)return ga-gb;
-    if(ordemContabil&&(a.tipo==='principal'||a.tipo==='extra')){
+    if(!ordemContabil)return 0;
+    if(a.tipo==='principal'||a.tipo==='extra'){
       const pa=ordemContabil[a.tipo+'|'+a.lotacao]??Infinity,pb=ordemContabil[b.tipo+'|'+b.lotacao]??Infinity;
       if(pa!==pb)return pa<pb?-1:1;
     }
@@ -438,7 +501,12 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={},opcoes={})
     const problemas=[];
     if(r.tipoIdentificado===false)problemas.push('Identificar o tipo de folha desta lotação');
     if(!r.secretaria)problemas.push('Classificar secretaria');
-    if(!destino.ficha||!destino.fonte)problemas.push('Informar ficha e fonte de recursos');
+    /* Diz o que de fato falta. A ficha quase sempre vem sugerida e o que fica
+       em aberto é a fonte, nas fichas que admitem mais de uma — pedir "ficha e
+       fonte" ali manda conferir uma coisa que já está resolvida. */
+    if(!destino.ficha&&!destino.fonte)problemas.push('Informar ficha e fonte de recursos');
+    else if(!destino.ficha)problemas.push('Informar a ficha');
+    else if(!destino.fonte)problemas.push('Escolher a fonte de recursos');
     if(bruto==null||desconto==null)problemas.push('Total bruto/desconto ilegível');
     if(!r.classificacaoDescontosIdentificada||r.diferencaComposicao!==0)problemas.push('Composição dos descontos divergente do Resumo de Verbas');
     if(maternidade && !a.confirmado)problemas.push('Conferir servidoras do salário-maternidade e INSS individual');
@@ -470,6 +538,17 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={},opcoes={})
       id:r.tipo+'|'+r.lotacao,empenho:Number(primeiro)+i,tipo:r.tipo,lotacao:r.lotacao,
       secretaria:destino.secretaria||r.secretaria,vinculo:destino.vinculo||r.vinculo,
       ficha:String(destino.ficha||''),fonte:String(destino.fonte||''),conta:String(destino.conta||''),
+      desdobramento:String(destino.desdobramento||''),
+      /* A fonte é decisão do mês: fica estampada com a competência em que foi
+         escolhida, para o mês seguinte não herdá-la calada. */
+      fonteDe:String(destino.fonteDe||''),fonteHerdada:!!destino.fonteHerdada,
+      /* O caminho e as rubricas seguem no empenho porque quem decide o
+         histórico e a ordem precisa deles: o vínculo está no caminho, e a
+         lotação de estágio só se reconhece pela rubrica 370 sozinha. */
+      caminho:r.caminho||[],rubricas:r.rubricas||[],
+      // De onde veio a ficha, para a tela mostrar o que merece conferência.
+      fichaSugerida:!!destino.sugerida,confiancaFicha:String(destino.confiancaFicha||''),
+      motivoFicha:String(destino.motivoFicha||''),
       lotacaoOrcamentaria:String(destino.lotacaoOrcamentaria||''),origemFicha:String(destino.origemFicha||''),
       bruto,brutoRH,incentivo,enfermagemIncluidaNoBruto:decisao||'',
       descontoRH:desconto,descontoAjustado,liquido,maisInssExtra:inssExtra,
@@ -482,14 +561,18 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={},opcoes={})
     };
   });
   const extras=empenhos.flatMap(r=>{
+    /* A ficha da OP é a extra-orçamentária do benefício, não a orçamentária do
+       empenho: ordem de pagamento é despesa extra. O tipo e a ficha saem do
+       mesmo lugar, para não divergirem. */
+    const op=(chave,tipo,bruto,inss=0,problemas=[])=>({
+      id:r.id+'|'+chave,empenhoReferencia:r.empenho,tipo,lotacao:r.lotacao,
+      ficha:FICHAS_EXTRA_OP[tipo]||'',fonte:r.fonte,conta:r.conta,
+      bruto,inss,liquido:bruto-inss,problemas});
     const itens=[];
-    if(r.familia)itens.push({id:r.id+'|familia',empenhoReferencia:r.empenho,tipo:'Salário-família',lotacao:r.lotacao,
-      ficha:r.ficha,fonte:r.fonte,conta:r.conta,bruto:r.familia,inss:0,liquido:r.familia,problemas:[]});
-    if(r.maternidade)itens.push({id:r.id+'|maternidade',empenhoReferencia:r.empenho,tipo:'Salário-maternidade',lotacao:r.lotacao,
-      ficha:r.ficha,fonte:r.fonte,conta:r.conta,bruto:r.maternidade,inss:r.maisInssExtra,liquido:r.maternidade-r.maisInssExtra,
-      problemas:r.problemas.filter(x=>/maternidade|INSS/.test(x))});
-    if(r.natalidade)itens.push({id:r.id+'|natalidade',empenhoReferencia:r.empenho,tipo:'Auxílio-natalidade',lotacao:r.lotacao,
-      ficha:r.ficha,fonte:r.fonte,conta:r.conta,bruto:r.natalidade,inss:0,liquido:r.natalidade,problemas:[]});
+    if(r.familia)itens.push(op('familia','Salário-família',r.familia));
+    if(r.maternidade)itens.push(op('maternidade','Salário-maternidade',r.maternidade,r.maisInssExtra,
+      r.problemas.filter(x=>/maternidade|INSS/.test(x))));
+    if(r.natalidade)itens.push(op('natalidade','Auxílio-natalidade',r.natalidade));
     return itens;
   });
   return {empenhos,extras,primeiro:Number(primeiro),ultimo:Number(primeiro)+empenhos.length-1,
@@ -510,6 +593,82 @@ export function prepararEmpenhos(arquivos,primeiro,mapa={},ajustes={},opcoes={})
         &&Number.isSafeInteger(r.valores?.liquido)
         ?r.valores.bruto-r.valores.desconto-r.valores.liquido:0),0),
     pendentes:empenhos.filter(r=>r.problemas.length)};
+}
+/* Lista de pagamento dos consignados: quanto vai para cada destino e de quais
+   rubricas. A pensão é uma OP só, com uma liquidação por pensão e o
+   beneficiário no histórico de cada uma — por isso sai detalhada, já que um
+   total único de "Pensão" não diz quantas liquidações fazer. Quem é o servidor
+   de cada liquidação vem da folha nominal, em folha-pensoes.js: o resumo de
+   verbas só traz o total da rubrica por lotação. */
+/* Fichas extra-orçamentárias fixas de Frei Inocêncio: são as mesmas todo mês,
+   então ficam aqui em vez de serem digitadas. É por elas que a retenção sai do
+   passivo quando o repasse é feito. */
+export const FICHAS_EXTRA_ORCAMENTARIAS={
+ INSS:'4',Pensao:'8',IRRF:'9',Caixa:'21',Sicoob:'41',Bradesco:'42'
+};
+/* Fichas extra-orçamentárias das ordens de pagamento, pelo tipo de benefício.
+   Também fixas todo mês. Antes a OP levava a ficha ORÇAMENTÁRIA do empenho —
+   56, 173, 174 em outubro — que não serve: ordem de pagamento é extra. */
+export const FICHAS_EXTRA_OP={
+ 'Salário-família':'1','Salário-maternidade':'31','Auxílio-natalidade':'44'
+};
+/* Ordem da lista de repasse: primeiro os tributos, que têm prazo legal, depois
+   a pensão e os bancos. */
+const DESTINOS_PAGAMENTO=[
+ {chave:'INSS',nome:'INSS',forma:'guia da previdência (GPS)'},
+ {chave:'IRRF',nome:'Imposto de Renda retido',forma:'DARF'},
+ {chave:'Pensao',nome:'Pensão alimentícia',
+  forma:'uma OP, com uma liquidação por pensão',detalhar:true},
+ {chave:'Caixa',nome:'Caixa Econômica Federal',forma:'guia do banco'},
+ {chave:'Sicoob',nome:'Sicoob',forma:'guia do banco'},
+ {chave:'Bradesco',nome:'Bradesco',forma:'guia do banco'}
+].map(d=>({...d,fichaExtra:FICHAS_EXTRA_ORCAMENTARIAS[d.chave]||''}));
+/**
+ * Lista de repasse do mês.
+ *
+ * A soma por destino tem de bater, mas a ORDEM DE PAGAMENTO é feita por fonte
+ * de recursos: a retenção sai da fonte em que a despesa foi empenhada. Então a
+ * Caixa com 43 mil pode virar quatro OPs — 20 mil na 1500, 15 mil na 1540, 5
+ * mil na 1621 e 3 mil na 1600. Daí cada destino vir aberto por fonte, e o
+ * número de OPs ser o de pares destino+fonte.
+ *
+ * Empenho sem fonte informada entra numa linha à parte: sem a fonte não há
+ * como emitir a OP, e somar esse valor em outra fonte seria pagar errado.
+ */
+export function pagamentosConsignados(empenhos=[]){
+ const lista=Array.isArray(empenhos)?empenhos:[];
+ const porRubrica=new Map(),porFonte=new Map();
+ for(const e of lista)for(const d of e.rubricasDesconto||[]){
+   const k=d.categoria+'|'+d.codigo;
+   const at=porRubrica.get(k)||{categoria:d.categoria,codigo:d.codigo,descricao:d.descricao||'',valor:0,empenhos:[]};
+   at.valor+=d.valor;
+   if(e.empenho!=null&&!at.empenhos.includes(e.empenho))at.empenhos.push(e.empenho);
+   porRubrica.set(k,at);
+
+   const fonte=String(e.fonte||'');
+   const kf=d.categoria+'|'+fonte;
+   const af=porFonte.get(kf)||{categoria:d.categoria,fonte,valor:0,empenhos:[]};
+   af.valor+=d.valor;
+   if(e.empenho!=null&&!af.empenhos.includes(e.empenho))af.empenhos.push(e.empenho);
+   porFonte.set(kf,af);
+ }
+ const rubricas=[...porRubrica.values()].filter(r=>r.valor!==0);
+ const fontes=[...porFonte.values()].filter(r=>r.valor!==0);
+ const destinos=DESTINOS_PAGAMENTO.map(d=>{
+   const suas=rubricas.filter(r=>r.categoria===d.chave).sort((a,b)=>b.valor-a.valor);
+   const minhasFontes=fontes.filter(r=>r.categoria===d.chave)
+     // Fonte informada primeiro, da maior para a menor; o que falta fonte no fim.
+     .sort((a,b)=>(a.fonte?0:1)-(b.fonte?0:1)||b.valor-a.valor);
+   return {...d,valor:suas.reduce((n,r)=>n+r.valor,0),rubricas:suas,porFonte:minhasFontes};
+ }).filter(d=>d.valor!==0);
+ // O que não é banco, tributo nem pensão não se paga a terceiro: fica para a
+ // Contabilidade ver.
+ const outros=rubricas.filter(r=>r.categoria==='Outros').sort((a,b)=>b.valor-a.valor);
+ const ops=destinos.flatMap(d=>d.porFonte).length;
+ const semFonte=destinos.flatMap(d=>d.porFonte).filter(f=>!f.fonte);
+ return {destinos,outros,fontes,ops,semFonte,
+  total:destinos.reduce((n,d)=>n+d.valor,0),
+  totalSemFonte:semFonte.reduce((n,f)=>n+f.valor,0)};
 }
 export function conferirConsignadosFolha(empenhos,arquivosMinuta){
   const calc={Caixa:0,Sicoob:0,Bradesco:0,Pensao:0};

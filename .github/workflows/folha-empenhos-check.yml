@@ -4,10 +4,21 @@ on:
     paths:
       - 'assets/js/folha-empenhos.js'
       - 'assets/js/folha-orcamento-2026.js'
+      - 'assets/js/folha-servidores.js'
+      - 'assets/js/folha-pensoes.js'
+      - 'assets/js/folha-saldos.js'
+      - 'assets/js/folha-transcrever.js'
+      - 'assets/js/folha-ordem.js'
       - 'assets/js/folha-maternidade.js'
       - 'tests/folha-maternidade.test.mjs'
       - 'tests/folha-extras-resumo.test.mjs'
       - 'tests/folha-tres-resumos.test.mjs'
+      - 'tests/folha-sugestao-ficha.test.mjs'
+      - 'tests/folha-consignados.test.mjs'
+      - 'tests/folha-pensoes.test.mjs'
+      - 'tests/folha-saldos.test.mjs'
+      - 'tests/folha-transcrever.test.mjs'
+      - 'tests/folha-ordem.test.mjs'
       - 'tests/folha-fluxo.test.mjs'
       - 'assets/js/folha-fluxo.js'
       - 'assets/js/folha-ordem.js'
@@ -23,10 +34,21 @@ on:
     paths:
       - 'assets/js/folha-empenhos.js'
       - 'assets/js/folha-orcamento-2026.js'
+      - 'assets/js/folha-servidores.js'
+      - 'assets/js/folha-pensoes.js'
+      - 'assets/js/folha-saldos.js'
+      - 'assets/js/folha-transcrever.js'
+      - 'assets/js/folha-ordem.js'
       - 'assets/js/folha-maternidade.js'
       - 'tests/folha-maternidade.test.mjs'
       - 'tests/folha-extras-resumo.test.mjs'
       - 'tests/folha-tres-resumos.test.mjs'
+      - 'tests/folha-sugestao-ficha.test.mjs'
+      - 'tests/folha-consignados.test.mjs'
+      - 'tests/folha-pensoes.test.mjs'
+      - 'tests/folha-saldos.test.mjs'
+      - 'tests/folha-transcrever.test.mjs'
+      - 'tests/folha-ordem.test.mjs'
       - 'tests/folha-fluxo.test.mjs'
       - 'assets/js/folha-fluxo.js'
       - 'assets/js/folha-ordem.js'
@@ -47,6 +69,11 @@ jobs:
       - run: |
           node --check assets/js/folha-empenhos.js
           node --check assets/js/folha-orcamento-2026.js
+          node --check assets/js/folha-servidores.js
+          node --check assets/js/folha-pensoes.js
+          node --check assets/js/folha-saldos.js
+          node --check assets/js/folha-transcrever.js
+          node --check assets/js/folha-ordem.js
           node --check assets/js/folha-maternidade.js
           node --check assets/js/folha-empenhos-pdf.js
           node --check assets/js/folha-empenhos-store.js
@@ -58,6 +85,12 @@ jobs:
       - run: node tests/folha-maternidade.test.mjs
       - run: node tests/folha-extras-resumo.test.mjs
       - run: node tests/folha-tres-resumos.test.mjs
+      - run: node tests/folha-sugestao-ficha.test.mjs
+      - run: node tests/folha-consignados.test.mjs
+      - run: node tests/folha-pensoes.test.mjs
+      - run: node tests/folha-saldos.test.mjs
+      - run: node tests/folha-transcrever.test.mjs
+      - run: node tests/folha-ordem.test.mjs
       - run: node tests/folha-fluxo.test.mjs
       - name: Conferir planilha XLSX e fórmulas OpenXML
         run: |
