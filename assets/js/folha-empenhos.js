@@ -272,8 +272,36 @@ export function descontarFolhasProprias(arquivos=[]){
   const lista=arquivos.filter(Boolean);
   const mensal=lista.find(a=>a.tipo==='principal');
   const proprios=lista.filter(a=>a!==mensal&&(a.tipo==='decimo'||a.tipo==='rescisao'));
-  if(!mensal||!proprios.length)return {arquivos:lista,avisos:[],descontados:0};
+  if(!mensal||!proprios.length)return {arquivos:lista,avisos:[],descontados:0,sobrepostos:null};
   const avisos=[];
+  /* O RH gera o resumo mensal de dois jeitos, e qual deles veio só os dados
+     dizem. Em outubro/2026 a mensal CONTINHA o 13º e as rescisões, e somá-los
+     empenharia duas vezes. Em novembro/2026 veio sem: a lotação
+     002.005.250.00003 tem zero na mensal, 3.233,75 na rescisão e 3.233,75 na
+     folha nominal, que é o mês inteiro — ali deduzir subtrai o que nunca
+     esteve lá, e foi o que encheu a tela de valores negativos.
+
+     Então o modo é descoberto, não presumido: só há sobreposição quando TODA
+     lotação dos arquivos próprios existe na mensal e cabe dentro dela. Uma
+     lotação ausente, ou um valor maior que o da mensal, prova que os arquivos
+     são separados e se somam. */
+  const porLotacao=new Map(mensal.registros.map(r=>[r.lotacao,r]));
+  const foraDaMensal=[],naoCabem=[];
+  for(const a of proprios)for(const r of a.registros){
+    const alvo=porLotacao.get(r.lotacao);
+    if(!alvo){ if(!foraDaMensal.includes(r.lotacao))foraDaMensal.push(r.lotacao); continue; }
+    const soma=proprios.flatMap(x=>x.registros).filter(x=>x.lotacao===r.lotacao)
+      .reduce((n,x)=>n+(x.valores?.bruto||0),0);
+    if(soma>(alvo.valores?.bruto||0)&&!naoCabem.includes(r.lotacao))naoCabem.push(r.lotacao);
+  }
+  if(foraDaMensal.length||naoCabem.length){
+    const quais=[...new Set([...foraDaMensal,...naoCabem])];
+    return {arquivos:lista,descontados:0,sobrepostos:false,
+      avisos:['O resumo mensal veio sem o 13º e as rescisões, então eles se somam a ele em vez de '+
+        'serem deduzidos. Mostra isso a lotação '+quais.slice(0,3).join(', ')+
+        (foraDaMensal.length?', que não existe no resumo mensal':', cujo valor é maior que o da mensal')+
+        (quais.length>3?' (e mais '+(quais.length-3)+')':'')+'.']};
+  }
   const restantes=new Map(mensal.registros.map(r=>[r.lotacao,{...r,valores:{...r.valores},
     rubricasDesconto:(r.rubricasDesconto||[]).map(d=>({...d}))}]));
   let descontados=0;
@@ -329,7 +357,7 @@ export function descontarFolhasProprias(arquivos=[]){
     sobra.push(r);
   }
   const novoMensal={...mensal,registros:sobra,avisos:[...(mensal.avisos||[]),...avisos]};
-  return {arquivos:lista.map(a=>a===mensal?novoMensal:a),avisos,descontados};
+  return {arquivos:lista.map(a=>a===mensal?novoMensal:a),avisos,descontados,sobrepostos:true};
 }
 
 export function analisarResumoConsolidado(linhas,{nome=''}={}){
