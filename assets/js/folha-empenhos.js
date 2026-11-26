@@ -62,17 +62,22 @@ const VINCULOS=['Comissionados','Efetivos','Contratados','Agentes políticos','I
 /* Extras do rodapé do resumo, por rubrica. O rodapé lista uma linha por tipo:
    são proventos que NÃO entram no "VALOR BRUTO DO EMPENHO", mas entram no
    "TOTAL BRUTO DE PROVENTOS". Conferido nas 93 lotações de outubro/2026. */
-const codBeneficio={familia:'164',maternidade:'163',natalidade:'361',exFolha:'358',enfermagem:'344'};
+/* A 855 apareceu em novembro/2026, nas rescisões, e nunca antes. Ela tem
+   irmãs — 147 primeiro período, 856 terceiro, 857 quarto — mas só a 855 vem
+   também como linha de total no rodapé, e por isso só ela ficava fora do
+   bruto do empenho. As outras já estão dentro. */
+const codBeneficio={familia:'164',maternidade:'163',natalidade:'361',exFolha:'358',enfermagem:'344',
+  feriasVencidas:'855'};
 /* Das extras, estas a Contabilidade SOMA ao empenho orçamentário; as demais
    (família, maternidade, natalidade) viram ordem de pagamento extra-orçamentária. */
-const EXTRAS_NO_EMPENHO=['exFolha','enfermagem'];
+const EXTRAS_NO_EMPENHO=['exFolha','enfermagem','feriasVencidas'];
 const EXTRAS_EM_OP=['familia','maternidade','natalidade'];
 export const EXTRAS_DO_RESUMO=[...EXTRAS_NO_EMPENHO,...EXTRAS_EM_OP];
 export const somaExtras=(valores={},quais=EXTRAS_DO_RESUMO)=>quais.reduce((n,k)=>n+(valores[k]||0),0);
 const ehIncentivoEnfermagem=descricao=>/COMP\s*FED\.?\s*PIS\s*SAL\s*ENFERMAGEM|INCENTIVO\s*(?:DO\s*)?(?:GOVERNO\s*)?FEDERAL|COMPLEMENTA[CÇ][AÃ]O\s*(?:DO\s*)?PISO\s*(?:DA\s*)?ENFERMAGEM|ASSISTENCIA\s*FINANCEIRA\s*COMPLEMENTAR.*ENFERMAGEM/.test(norma(descricao));
 const moeda=/(-?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2})\s*$/;
 const rubrica=/^\s*(\d{2,4})\s+(.+?)\s+(-?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2})\s*$/;
-const resumo=/^\s*(TOTAL BRUTO DE PROVENTOS|TOTAL BRUTO DE DESCONTOS|TOTAL L[IÍ]QUIDO|VALOR BRUTO DO EMPENHO|VALOR DO DESCONTO NA LIQUIDA[CÇ][ÃA]O|VALOR L[IÍ]QUIDO DO EMPENHO|SALARIO FAMILIA|SALARIO MATERNIDADE INSS|COMP FED\.PIS SAL ENFERMAGEM|DIFEREN[CÇ]A SALARIO EX\.FOLHA|AUXILIO NATALIDADE)\.{2,}\s*:\s*([-\d.,]+)\s*$/i;
+const resumo=/^\s*(TOTAL BRUTO DE PROVENTOS|TOTAL BRUTO DE DESCONTOS|TOTAL L[IÍ]QUIDO|VALOR BRUTO DO EMPENHO|VALOR DO DESCONTO NA LIQUIDA[CÇ][ÃA]O|VALOR L[IÍ]QUIDO DO EMPENHO|SALARIO FAMILIA|SALARIO MATERNIDADE INSS|COMP FED\.PIS SAL ENFERMAGEM|DIFEREN[CÇ]A SALARIO EX\.FOLHA|AUXILIO NATALIDADE|FER\. VENCIDAS SEGUNDO PER[IÍ]ODO)\.{2,}\s*:\s*([-\d.,]+)\s*$/i;
 // Códigos e descrições de descontos identificados no Resumo de Verbas.
 // As rubricas de provento (inclusive salário-família, maternidade e diárias)
 // NUNCA são deduções apenas por aparecerem na classificação "2 - OUTRAS".
@@ -130,6 +135,7 @@ export function analisarResumoVerbas(linhas,{tipo='principal',nome=''}={}){
       'SALARIO FAMILIA':'familia','SALARIO MATERNIDADE INSS':'maternidade',
       'COMP FED.PIS SAL ENFERMAGEM':'enfermagem',
       'DIFERENCA SALARIO EX.FOLHA':'exFolha','AUXILIO NATALIDADE':'natalidade',
+      'FER. VENCIDAS SEGUNDO PERIODO':'feriasVencidas',
       'INCENTIVO GOVERNO FEDERAL':'enfermagem',
       'INCENTIVO FEDERAL ENFERMAGEM':'enfermagem'
     };
