@@ -9,11 +9,12 @@
 // 4 · Ficha, fonte e conta de cada empenho, descontando do saldo
 // 5 · Confirmar a folha → consignados e pensões por fonte vão para Consignações por mês
 import {estado,pode} from '../estado.js';
-import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificacaoPessoal,FICHAS_PESSOAL_2026} from '../folha-orcamento-2026.js';
+import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificacaoPessoal,sugerirFichaDaLotacao,fontesParaEscolher,FICHAS_PESSOAL_2026} from '../folha-orcamento-2026.js';
 import {esc,toast} from '../ui.js';
 import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha,tipoDeFolhaCabecalho} from '../folha-empenhos.js?v=3.23.0.40feb3c2';
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
+import {passosDoEmpenho,conferirEmpenho,fichasOPpendentes,modeloDoEmpenho,textoDoModelo,MODELOS_HISTORICO} from '../folha-transcrever.js';
 import {ordemDasLotacoes} from '../folha-ordem.js?v=3.23.0.06d2837c';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js?v=3.23.0.418e5047';
 import {ouvir,ouvirDoc,salvar,substituir,excluir,campoApagado} from '../db.js';
@@ -115,6 +116,17 @@ export function telaFolhaEmpenhos(el){
     '.fe .fe-passo{background:#fff;border:1px solid #dce5ee;border-radius:12px;margin:12px 0}.fe .fe-passo>summary{list-style:none;cursor:pointer;padding:15px 17px;display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}'+
     '.fe .fe-passo>summary::-webkit-details-marker{display:none}.fe .fe-passo>summary .fe-sit{font-size:.8rem;color:#8b5a1e}.fe .fe-passo>summary .fe-sit.ok{color:#265f3f}.fe .fe-passo .fe-corpo{padding:0 17px 17px}'+
     '.fe .fe-continuar{margin-top:14px;display:flex;justify-content:flex-end;gap:10px}.fe .fe-pend{margin:6px 0 0;padding-left:18px;color:#704e21;font-size:.85rem}'+
+    /* Sugerida é diferente de conferida: o campo fica editável, mas marcado,
+       para a conferência na LOA saber onde olhar. */
+    '.fe input.fe-sugerida{border-color:#d0a63c;background:#fffdf4}'+
+    /* Transcrever: fonte maior e menos coisa na tela, porque aqui se lê um
+       campo e se digita noutro sistema, não se audita um quadro. */
+    '.fe .fe-navegar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px}.fe .fe-navegar strong{color:#13466a}'+
+    '.fe .fe-feito{margin-left:auto;display:flex;gap:6px;align-items:center;font-size:.85rem}'+
+    '.fe table.fe-campos{font-size:.95rem}.fe table.fe-campos td{padding:10px 8px}'+
+    '.fe table.fe-campos tr.fe-grupo td{background:#eef4fa;color:#13466a;font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}'+
+    '.fe table.fe-campos tr.fe-pendente td{background:#fff8e9}.fe table.fe-campos tr.fe-rodape td{border-top:2px solid #cfdce7}'+
+    '.fe .fe-valor{font-variant-numeric:tabular-nums;font-size:1.02rem}.fe .fe-valor.fe-destaque{font-weight:700;color:#13466a}'+
     '@media(max-width:900px){.fe .fe-files{grid-template-columns:1fr}}@media(max-width:780px){.fe .fe-grid{grid-template-columns:1fr 1fr}.fe .fe-kpis{grid-template-columns:1fr 1fr}}'+
     '@media(max-width:500px){.fe .fe-grid{grid-template-columns:1fr}}'+
     '</style>';
@@ -162,7 +174,7 @@ export function telaFolhaEmpenhos(el){
       '<div class="fe-actions"><button class="btn btn-sec" id="fe-baixar-mapa" type="button">Baixar modelo CSV</button>'+
       '<label class="btn btn-sec" style="cursor:pointer">Importar mapa CSV <input id="fe-ler-mapa" type="file" accept=".csv,text/csv" style="display:none"></label>'+
       '<label class="campo"><span>Filtrar empenhos</span><select id="fe-filtro"><option value="todos">Todos</option><option value="pendentes">Com pendências</option><option value="principal">Folha principal</option><option value="extra">Folha extra</option><option value="decimo">13º adiantamento</option><option value="rescisao">Rescisões</option></select></label>'+
-      '<label class="campo"><span>Visualização</span><select id="fe-visao"><option value="resumo">Empenhos: ficha, fonte, conta e saldo</option><option value="composicao">Composição dos descontos</option></select></label></div>'+
+      '<label class="campo"><span>Visualização</span><select id="fe-visao"><option value="resumo">Empenhos: ficha, fonte, conta e saldo</option><option value="transcrever">Transcrever: um empenho por vez</option><option value="composicao">Composição dos descontos</option></select></label></div>'+
       '<div id="fe-kpis" class="fe-kpis"></div><div id="fe-pendencias"></div>'+
       '<div class="fe-scroll" id="fe-tabela"></div><div id="fe-extras"></div>'+
       '<p style="margin-top:12px"><label><input type="checkbox" id="fe-confirmar-mapa"> Conferi as fichas e fontes na LOA</label></p>'+
@@ -185,9 +197,29 @@ export function telaFolhaEmpenhos(el){
     const arquivos=arquivosAtuais();
     if(!Object.values(arquivos).some(x=>x?.registros?.length))return null;
     const maternidade=consolidarMaternidade(pessoas,[arquivos.principal].filter(Boolean));
-    const mapaConsulta=Object.fromEntries(Object.entries(mapa).map(([chave,m])=>{
-      const ref=localizarFicha(m.ficha),c=contaPorId(m.contaId);
-      return [chave,{...m,secretaria:m.secretaria||ref?.unidade||'',lotacaoOrcamentaria:m.lotacaoOrcamentaria||ref?.acao||'',conta:c?rotuloConta(c):''}];
+    /* A ficha vem sugerida pela própria lotação: ou é vencimento e vantagem
+       fixa, ou é contratado, e os dois saem do texto que o RH imprime. Sem
+       isto a tela abre com todas as fichas em branco e o mês inteiro é
+       digitado à mão — foi o que aconteceu em novembro, com 66 empenhos.
+       Sugestão não sobrepõe escolha: `mapa[chave].ficha` preenchido manda. */
+    const sugestoes={};
+    for(const a of arquivosLista())for(const r of (a.registros||[])){
+      const chave=a.tipo+'|'+r.lotacao;
+      if(mapa[chave]?.ficha)continue;
+      const s=sugerirFichaDaLotacao(r);
+      if(s.ficha||s.motivo)sugestoes[chave]=s;
+    }
+    const mapaConsulta=Object.fromEntries([...new Set([...Object.keys(mapa),...Object.keys(sugestoes)])].map(chave=>{
+      const m=mapa[chave]||{},sug=sugestoes[chave];
+      const ficha=m.ficha||sug?.ficha||'';
+      const ref=localizarFicha(ficha),c=contaPorId(m.contaId);
+      return [chave,{...m,ficha,
+        fonte:m.fonte||sug?.fonte||'',
+        desdobramento:m.desdobramento||sug?.desdobramento||'',
+        sugerida:!m.ficha&&!!sug?.ficha,
+        confiancaFicha:m.ficha?'':(sug?.confianca||''),
+        motivoFicha:m.ficha?'':(sug?.motivo||''),
+        secretaria:m.secretaria||ref?.unidade||'',lotacaoOrcamentaria:m.lotacaoOrcamentaria||ref?.acao||'',conta:c?rotuloConta(c):''}];
     }));
     const previsao=prepararEmpenhos(arquivosLista(),primeiro||1,mapaConsulta,maternidade.ajustes,{ordem:ordemDasLotacoes(mapa)});
     for(const emp of previsao.empenhos){
@@ -218,9 +250,18 @@ export function telaFolhaEmpenhos(el){
   const limpo=v=>JSON.parse(JSON.stringify(v??null));
   const igual=(a,b)=>JSON.stringify(a??null)===JSON.stringify(b??null);
   const semMeta=o=>Object.fromEntries(Object.entries(o||{}).filter(([k])=>!META.has(k)));
-  const CAMPOS_MES=['primeiro','pessoas','aprovouMapa','origemIndividual','confirmacao','alertas','previstoFolha'];
+  /* O estado da transcrição é do mês: o número de cada OP, a data da
+     liquidação e o que já foi digitado, para retomar de onde parou em vez de
+     recomeçar. Os modelos de histórico e as fichas extra-orçamentárias
+     também ficam aqui, então são escolhidos uma vez por competência. */
+  const CAMPOS_MES=['primeiro','pessoas','aprovouMapa','origemIndividual','confirmacao','alertas','previstoFolha',
+    'numerosOP','dataLiquidacao','transcritos','fichasOP','escolhasHistorico','textosHistorico'];
   let previstoFolha=null;
-  const valoresMes=()=>({primeiro,pessoas,aprovouMapa,origemIndividual,confirmacao,alertas,previstoFolha});
+  /* empenhoAtual, e não `atual`: persistir() já tem uma local com esse nome,
+     e .fe-passos já é a navegação das etapas — daí .fe-campos abaixo. */
+  let numerosOP={},dataLiquidacao='',transcritos=[],fichasOP={},escolhasHistorico={},textosHistorico={},empenhoAtual=0;
+  const valoresMes=()=>({primeiro,pessoas,aprovouMapa,origemIndividual,confirmacao,alertas,previstoFolha,
+    numerosOP,dataLiquidacao,transcritos,fichasOP,escolhasHistorico,textosHistorico});
   function persistir(){
     if(!uid||!ativa||carregando)return Promise.resolve();
     const comp=competencia,ops=[],atual=valoresMes(),mes={};
@@ -280,6 +321,8 @@ export function telaFolhaEmpenhos(el){
       const m=semMeta(d);base.mes=limpo(m);marcar(d);
       primeiro=m.primeiro??null;pessoas=m.pessoas||[];aprovouMapa=!!m.aprovouMapa;origemIndividual=m.origemIndividual||'';
       saldos={...(m.saldos||{})};confirmacao=m.confirmacao||null;alertas=m.alertas||[];previstoFolha=m.previstoFolha||null;
+      numerosOP={...(m.numerosOP||{})};dataLiquidacao=m.dataLiquidacao||'';transcritos=m.transcritos||[];
+      fichasOP={...(m.fichasOP||{})};escolhasHistorico={...(m.escolhasHistorico||{})};textosHistorico={...(m.textosHistorico||{})};
     }),erro));
     escutas.push(ouvir('folha_meses/'+alvo+'/arquivos',primeira(docs=>{
       if(alvo!==competencia)return;
@@ -424,6 +467,108 @@ export function telaFolhaEmpenhos(el){
     const registros=p.empenhos.filter(e=>filtro==='todos'||filtro==='pendentes'&&e.problemas.length||e.tipo===filtro);
     const opcoesConta=sel=>'<option value="">Escolher conta</option>'+contas.map(c=>'<option value="'+esc(c.id)+'" '+(c.id===sel?'selected':'')+'>'+esc(rotuloConta(c)||c.id)+(c.fonte?' · '+esc(c.fonte):'')+'</option>').join('')+
       (sel&&!contaPorId(sel)?'<option value="'+esc(sel)+'" selected>Conta removida</option>':'');
+    if(visao==='transcrever'){
+      /* Um empenho por vez, na ordem em que os campos são digitados no sistema
+         da Memory. O quadro grande serve para auditar depois; para digitar, o
+         que serve é ter na frente só o campo da vez. */
+      const ops=p.extras.reduce((a,x)=>{(a[x.empenhoReferencia]??=[]).push(x);return a;},{});
+      const feitos=new Set(transcritos);
+      empenhoAtual=Math.max(0,Math.min(empenhoAtual,registros.length-1));
+      const r=registros[empenhoAtual];
+      if(!r){$('#fe-tabela').innerHTML='';$('#fe-extras').innerHTML='';return;}
+      const meus=ops[r.empenho]||[];
+      const passos=passosDoEmpenho(r,meus,{dataLiquidacao,competencia,fichasOP,numerosOP,escolhasHistorico,textosHistorico});
+      const conf=conferirEmpenho(r,meus);
+      const pendFichas=fichasOPpendentes(p.extras,fichasOP);
+      let g='';
+      const corpo=passos.map((x,i)=>{
+        const abre=x.grupo!==g;g=x.grupo;
+        const cab=abre?'<tr class="fe-grupo"><td colspan="3">'+esc(x.grupo)+'</td></tr>':'';
+        const valor=x.valor?'<span class="fe-valor'+(x.destaque?' fe-destaque':'')+'">'+esc(x.valor)+'</span>'
+          :'<em class="fe-muted">a informar</em>';
+        const acao=x.chaveOP!=null
+          ?'<input style="width:72px" data-op="'+esc(x.chaveOP)+'" placeholder="nº" value="'+esc(numerosOP[x.chaveOP]||'')+'">'
+          :x.copiavel?'<button type="button" class="btn btn-sec" data-copiar="'+i+'">copiar</button>':'';
+        return cab+'<tr'+(x.faltando||x.informar?' class="fe-pendente"':'')+'>'+
+          '<td>'+esc(x.rotulo)+(x.nota?'<br><small class="fe-muted">'+esc(x.nota)+'</small>':'')+'</td>'+
+          '<td class="fe-money">'+valor+'</td><td>'+acao+'</td></tr>';
+      }).join('');
+      const linhasConf=conf.linhas.map(l=>'<tr'+(l.total?' class="fe-rodape"':'')+'><td>'+esc(l.rotulo)+'</td>'+
+        '<td class="fe-money">'+(l.total?'<strong>':'')+dinheiroFolha(l.valor)+(l.total?'</strong>':'')+'</td><td></td></tr>').join('');
+      const aviso=conf.problemas.map(x=>'<p class="fe-alert">'+esc(x)+'</p>').join('')+
+        conf.pendencias.map(x=>'<p class="fe-muted">Falta preencher: '+esc(x)+'</p>').join('')+
+        (conf.bateu&&!conf.pendencias.length?'<p class="fe-ok">Bateu com a folha.</p>':'');
+      const chaveModelo=modeloDoEmpenho(r,escolhasHistorico);
+      const proprio='proprio:'+r.lotacao;
+      const opcoesModelo=MODELOS_HISTORICO.map(m=>'<option value="'+m.chave+'"'+(m.chave===chaveModelo?' selected':'')+'>'+esc(m.rotulo)+'</option>').join('')+
+        '<option value="'+proprio+'"'+(chaveModelo===proprio?' selected':'')+'>Texto próprio desta lotação</option>';
+      const textoModelo=chaveModelo?(textosHistorico[chaveModelo]||textoDoModelo(chaveModelo)):'';
+      $('#fe-tabela').innerHTML=
+        '<section class="fe-card fe-transcrever">'+
+        '<div class="fe-navegar">'+
+          '<button type="button" class="btn btn-sec" data-andar="-1"'+(empenhoAtual?'':' disabled')+'>&larr; anterior</button>'+
+          '<strong>'+(empenhoAtual+1)+' de '+registros.length+'</strong>'+
+          '<span class="fe-muted">'+feitos.size+' já transcrito'+(feitos.size===1?'':'s')+'</span>'+
+          '<button type="button" class="btn btn-sec" data-andar="1"'+(empenhoAtual<registros.length-1?'':' disabled')+'>próximo &rarr;</button>'+
+          '<label class="fe-feito"><input type="checkbox" data-feito'+(feitos.has(r.id)?' checked':'')+'> transcrito</label>'+
+        '</div>'+
+        '<h3>Empenho '+r.empenho+' · '+esc(r.secretaria||'')+' · '+esc(r.vinculo||'')+'</h3>'+
+        '<p class="fe-muted">Lotação '+esc(r.lotacao)+' · '+esc(tipos[r.tipo]||r.tipo)+'</p>'+
+        '<div class="fe-scroll"><table class="fe-campos"><tbody>'+corpo+
+          '<tr class="fe-grupo"><td colspan="3">Conferência</td></tr>'+linhasConf+'</tbody></table></div>'+
+        aviso+'</section>';
+      $('#fe-extras').innerHTML=
+        '<section class="fe-card"><h3>Vale para todos os empenhos</h3>'+
+        '<label class="campo"><span>Data da liquidação</span>'+
+          '<input id="fe-data-liq" placeholder="dd/mm/aaaa" value="'+esc(dataLiquidacao)+'"></label>'+
+        '<label class="campo"><span>Modelo do histórico deste empenho</span>'+
+          '<select id="fe-modelo-sel">'+(chaveModelo?'':'<option value="" selected>— escolher —</option>')+opcoesModelo+'</select></label>'+
+        (chaveModelo?'<label class="campo"><span>Texto do modelo</span>'+
+          '<input id="fe-modelo-txt" style="width:100%" value="'+esc(textoModelo)+'"></label>'+
+          '<p class="fe-muted">Marcas: {mes} {mes_numero} {ano} {vinculo} {secretaria} {lotacao}. Editar aqui vale para todos os empenhos deste vínculo.</p>'
+          :'<p class="fe-alert">Este empenho está sem modelo de histórico: escolha acima.</p>')+
+        (pendFichas.length?'<p class="fe-alert">Informe a ficha extra-orçamentária de: '+pendFichas.map(esc).join(', ')+'.</p>':'')+
+        [...new Set([...pendFichas,...Object.keys(fichasOP)])].map(t2=>'<label class="campo"><span>Ficha extra · '+esc(t2)+'</span>'+
+          '<input data-ficha-op="'+esc(t2)+'" value="'+esc(fichasOP[t2]||'')+'" placeholder="nº da ficha"></label>').join('')+
+        '</section>';
+      const area=el;
+      area.querySelectorAll('[data-copiar]').forEach(b=>b.onclick=async()=>{
+        try{ await navigator.clipboard.writeText(passos[Number(b.dataset.copiar)].valor); b.textContent='copiado'; }
+        catch{ status('Não foi possível copiar: selecione o valor à mão.'); }
+      });
+      area.querySelectorAll('[data-andar]').forEach(b=>b.onclick=()=>{empenhoAtual+=Number(b.dataset.andar);render();});
+      area.querySelector('[data-feito]').onchange=ev=>{
+        const s2=new Set(transcritos);
+        if(ev.target.checked){s2.add(r.id);if(empenhoAtual<registros.length-1)empenhoAtual++;}
+        else s2.delete(r.id);
+        transcritos=[...s2];persistir();render();
+      };
+      area.querySelectorAll('[data-op]').forEach(i=>i.onchange=()=>{
+        const v=i.value.trim();
+        if(v)numerosOP[i.dataset.op]=v; else delete numerosOP[i.dataset.op];
+        persistir();render();
+      });
+      area.querySelectorAll('[data-ficha-op]').forEach(i=>i.onchange=()=>{
+        const v=i.value.trim();
+        if(v)fichasOP[i.dataset.fichaOp]=v; else delete fichasOP[i.dataset.fichaOp];
+        persistir();render();
+      });
+      $('#fe-data-liq').onchange=ev=>{dataLiquidacao=ev.target.value.trim();persistir();render();};
+      $('#fe-modelo-sel').onchange=ev=>{
+        const v=ev.target.value;
+        if(v)escolhasHistorico[r.lotacao]=v; else delete escolhasHistorico[r.lotacao];
+        persistir();render();
+      };
+      const campoTexto=$('#fe-modelo-txt');
+      if(campoTexto)campoTexto.onchange=ev=>{
+        const chave=modeloDoEmpenho(r,escolhasHistorico);
+        if(!chave)return;
+        const v=ev.target.value.trim();
+        if(v&&v!==textoDoModelo(chave))textosHistorico[chave]=v; else delete textosHistorico[chave];
+        persistir();render();
+      };
+      return;
+    }
     if(visao==='resumo'){
       $('#fe-tabela').innerHTML='<table><thead><tr><th>Empenho</th><th>Grupo</th><th>Secretaria/unidade</th><th>Vínculo</th><th>Lotação RH</th><th>Lotação orçamentária (ação)</th><th>Ficha</th><th>Natureza da despesa</th><th>Fonte</th><th>Conta</th><th class="fe-money">Bruto</th><th class="fe-money">Saldo da conta depois</th><th class="fe-money">Desconto RH</th><th class="fe-money">INSS extra</th><th class="fe-money">Líquido</th><th>Pendências</th></tr></thead><tbody>'+
         registros.map(r=>{
@@ -441,9 +586,16 @@ export function telaFolhaEmpenhos(el){
             '<td><input style="width:115px" data-ref="'+esc(r.id)+'" data-campo="vinculo" value="'+esc(m.vinculo||r.vinculo||'')+'"></td>'+
             '<td><strong>'+esc(r.lotacao)+'</strong></td>'+
             '<td><input style="width:225px" data-ref="'+esc(r.id)+'" data-campo="lotacaoOrcamentaria" value="'+esc(m.lotacaoOrcamentaria||ref?.acao||'')+'"><small style="display:block;color:#526b80">'+esc(ref?.origem||'Edição manual')+'</small></td>'+
-            '<td><input style="width:88px" list="fe-fichas-2026" data-ref="'+esc(r.id)+'" data-campo="ficha" value="'+esc(m.ficha||'')+'">'+(m._quem?'<small style="display:block;color:#526b80" title="Última alteração">'+esc(m._quem)+(m._quando?' · '+esc(m._quando):'')+'</small>':'')+'</td>'+
+            /* Sugerida aparece no campo e assinalada: fica editável, e dá para
+               ver de onde veio antes de aceitar. Quem digitou a ficha não vê
+               sugestão nenhuma — a escolha manda. */
+            '<td><input style="width:88px" list="fe-fichas-2026" data-ref="'+esc(r.id)+'" data-campo="ficha" value="'+esc(m.ficha||r.ficha||'')+'"'+
+              (r.fichaSugerida?' class="fe-sugerida" title="Sugerida pela lotação: '+esc(r.motivoFicha||'')+'"':'')+'>'+
+              (r.fichaSugerida?'<small style="display:block;color:#7a5b00">sugerida'+(r.confiancaFicha?' · '+esc(r.confiancaFicha):'')+'</small>':'')+
+              (m._quem?'<small style="display:block;color:#526b80" title="Última alteração">'+esc(m._quem)+(m._quando?' · '+esc(m._quando):'')+'</small>':'')+'</td>'+
             '<td style="min-width:225px"><strong>'+esc(classe.titulo)+'</strong>'+(classe.codigo?'<small style="display:block;color:#526b80">'+esc(classe.codigo)+'</small>':'')+'</td>'+
-            '<td><input style="width:132px" data-ref="'+esc(r.id)+'" data-campo="fonte" value="'+esc(m.fonte||'')+'"></td>'+
+            '<td><input style="width:132px" data-ref="'+esc(r.id)+'" data-campo="fonte" value="'+esc(m.fonte||r.fonte||'')+'"'+
+              (!m.fonte&&r.fonte?' class="fe-sugerida" title="Fonte da ficha sugerida"':'')+'></td>'+
             '<td><select style="width:190px" data-ref="'+esc(r.id)+'" data-campo="contaId">'+opcoesConta(r.contaId)+'</select></td>'+
             '<td class="fe-money">'+dinheiroFolha(r.bruto||0)+(r.tipo==='extra'&&r.incentivo?'<small style="display:block;color:#506d82">Incentivo: '+dinheiroFolha(r.incentivo)+'</small>':'')+'</td>'+
             '<td class="fe-money '+(apos<0?'fe-neg':'')+'">'+(apos==null?'—':dinheiroFolha(apos))+'</td>'+
