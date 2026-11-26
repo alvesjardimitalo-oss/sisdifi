@@ -18,7 +18,7 @@
 // Os números deste teste vêm da competência outubro/2026 conferida linha a
 // linha contra a planilha da Contabilidade.
 import assert from 'node:assert/strict';
-import { analisarResumoVerbas, prepararEmpenhos, somaExtras, EXTRAS_DO_RESUMO } from '../assets/js/folha-empenhos.js';
+import { analisarResumoVerbas, atualizarFeriasNoResumo, prepararEmpenhos, somaExtras, EXTRAS_DO_RESUMO } from '../assets/js/folha-empenhos.js';
 
 let ok = 0; const falhas = [];
 const t = (nome, fn) => { try { fn(); ok++; } catch (e) { falhas.push(nome + ': ' + e.message); } };
@@ -208,6 +208,23 @@ t('férias vencidas segundo período (855) somam ao empenho', () => {
     'a identidade do rodapé não devia mais acusar a 855');
   // 147, 856 e 857 não têm linha de rodapé: entram só como rubrica.
   assert.equal(g.valores.feriasVencidas, 202625, 'as irmãs não podem somar à 855');
+});
+
+t('restaura a 855 de uma importação antiga e mantém diferenças sem comprovação', () => {
+  const lotacao='002.012.296.00001';
+  const aviso='Lotação '+lotacao+': o total bruto de proventos (R$ 10.823,55) não é o bruto do empenho mais as extras (R$ 8.797,30). Há lançamento no rodapé que o sistema não reconhece — confira antes de empenhar.';
+  const antigo={tipo:'rescisao',registros:[{lotacao,valores:{bruto:879730,proventos:1082355},
+    rubricas:[{codigo:'855',valor:202625}]}],avisos:[aviso,'Outro aviso do RH']};
+  const {arquivo,resolvidos}=atualizarFeriasNoResumo(antigo);
+  assert.equal(arquivo.registros[0].valores.feriasVencidas,202625);
+  assert.equal(arquivo.registros[0].extrasNoEmpenho,202625);
+  assert.equal(antigo.registros[0].valores.feriasVencidas,undefined);
+  const avisoOriginal=[...resolvidos][0];
+  assert.equal(avisoOriginal.replace(/\u00a0/g,' '),aviso);
+  const comAvisoExato={...antigo,avisos:[avisoOriginal,'Outro aviso do RH']};
+  assert.deepEqual(atualizarFeriasNoResumo(comAvisoExato).arquivo.avisos,['Outro aviso do RH']);
+  const insuficiente={...comAvisoExato,registros:[{...antigo.registros[0],rubricas:[{codigo:'855',valor:200000}]}]};
+  assert.equal(atualizarFeriasNoResumo(insuficiente).arquivo,insuficiente);
 });
 
 console.log(`folha-extras-resumo: ${ok} ok, ${falhas.length} falhas`);

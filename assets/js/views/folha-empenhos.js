@@ -11,7 +11,7 @@
 import {estado,pode} from '../estado.js';
 import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificacaoPessoal,sugerirFichaDaLotacao,fontesParaEscolher,FICHAS_PESSOAL_2026} from '../folha-orcamento-2026.js';
 import {esc,toast} from '../ui.js';
-import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha,tipoDeFolhaCabecalho,competenciaNoResumo,pagamentosConsignados} from '../folha-empenhos.js?v=3.23.0.f3bcaf4d';
+import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha,tipoDeFolhaCabecalho,competenciaNoResumo,pagamentosConsignados,atualizarFeriasNoResumo} from '../folha-empenhos.js?v=3.23.0.997c05d0';
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
 import {varrerServidores} from '../folha-servidores.js';
@@ -79,7 +79,18 @@ export function telaFolhaEmpenhos(el){
   let cadastroPensao={};
   let minutas=[],alertas=[],origemIndividual='',filtro='todos',visao='resumo',carregando=false,ativa=true,etapa='arquivos';
   const $=sel=>el.querySelector(sel);
-  const arquivosAtuais=()=>legado||arquivosDoRH(fontesRH);
+  const leituraAtual=()=>{
+    const originais=legado||arquivosDoRH(fontesRH);
+    const arquivos={},resolvidos=new Set(),avisosAtivos=new Set();
+    for(const [tipo,original] of Object.entries(originais)){
+      const atual=atualizarFeriasNoResumo(original);
+      arquivos[tipo]=atual.arquivo;
+      for(const a of atual.resolvidos)resolvidos.add(a);
+      for(const a of atual.arquivo?.avisos||[])avisosAtivos.add(a);
+    }
+    return {arquivos,alertasAtivos:alertas.filter(a=>!avisosAtivos.has(a)&&!resolvidos.has(a))};
+  };
+  const arquivosAtuais=()=>leituraAtual().arquivos;
   const localizarFicha=numero=>consultarFichaOrcamento(numero,Number(competencia.slice(0,4)),estado.fichas||[],estado.secretarias||[]);
   const contaPorId=id=>contas.find(c=>c.id===id)||null;
   const sugerirConta=id=>{
@@ -246,7 +257,7 @@ export function telaFolhaEmpenhos(el){
   const situacaoGeral=pacote=>{
     const arquivos=arquivosAtuais();
     return etapasDaFolha({arquivos,primeiro,contas,saldos,previsao:pacote?.previsao,maternidade:pacote?.maternidade,
-      alertas,avisosArquivos:arquivosLista().flatMap(a=>a.avisos||[]),conferiuFichas:aprovouMapa});
+      alertas:leituraAtual().alertasAtivos,avisosArquivos:[...new Set(arquivosLista().flatMap(a=>a.avisos||[]))],conferiuFichas:aprovouMapa});
   };
   const assinaturaAtual=pacote=>pacote?assinaturaDaFolha(pacote.previsao.empenhos,contas,saldos):'';
   const confirmadaValida=pacote=>!!(confirmacao&&pacote&&confirmacao.assinatura===assinaturaAtual(pacote));
@@ -398,8 +409,8 @@ export function telaFolhaEmpenhos(el){
     }
     const descontados=descontarFolhasProprias(Object.values(arquivos));
     $('#fe-avisos').innerHTML=(descontados.descontados?'<p class="fe-ok">13º e rescisões descontados da folha mensal em '+descontados.descontados+' lotação(ões).</p>':'')+
-      alertas.map(x=>'<p class="fe-alert">'+esc(x)+'</p>').join('')+
-      descontados.arquivos.flatMap(a=>a.avisos||[]).slice(0,18).map(x=>'<p class="fe-alert">'+esc(x)+'</p>').join('');
+      [...new Set([...leituraAtual().alertasAtivos,...descontados.arquivos.flatMap(a=>a.avisos||[])])].slice(0,18)
+        .map(x=>'<p class="fe-alert">'+esc(x)+'</p>').join('');
   }
   function renderContas(pacote){
     const fontes=[...new Set(FICHAS_PESSOAL_2026.flatMap(f=>f.fontes))].sort();

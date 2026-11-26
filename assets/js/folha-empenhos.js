@@ -117,6 +117,41 @@ function selecionarBlocosDeDesconto(blocos,valorRH) {
   candidatos.sort((a,b)=>b.marcadores-a.marcadores||a.blocos-b.blocos||b.termino-a.termino);
   return candidatos[0]?.faixa||[];
 }
+function avisoProventos(lotacao,valores,extras){
+  if(valores.proventos==null||valores.bruto==null||valores.proventos===valores.bruto+extras)return '';
+  return 'Lotação '+lotacao+': o total bruto de proventos ('+dinheiroFolha(valores.proventos)+
+    ') não é o bruto do empenho mais as extras ('+dinheiroFolha(valores.bruto+extras)+
+    '). Há lançamento no rodapé que o sistema não reconhece — confira antes de empenhar.';
+}
+
+/* As importações anteriores à regra da 855 guardavam a rubrica, mas omitiam
+   o valor do rodapé. Só recupera quando a rubrica explica toda a diferença. */
+export function atualizarFeriasNoResumo(arquivo){
+  const resolvidos=new Set();
+  if(!arquivo)return {arquivo,resolvidos};
+  const registros=arquivo.registros.map(r=>{
+    const v=r.valores;
+    if(v?.bruto==null||v.proventos==null)return r;
+    const {feriasVencidas,...semFerias}=v;
+    const extrasAnteriores=somaExtras(semFerias);
+    const aviso=avisoProventos(r.lotacao,v,extrasAnteriores);
+    const rubrica=(r.rubricas||[]).filter(x=>String(x.codigo)===codBeneficio.feriasVencidas)
+      .reduce((total,x)=>total+x.valor,0);
+    const adicional=feriasVencidas??rubrica;
+    if(!aviso||!Number.isSafeInteger(adicional)||adicional<=0||
+      v.bruto+extrasAnteriores+adicional!==v.proventos)return r;
+    resolvidos.add(aviso);
+    if(feriasVencidas!=null)return r;
+    const valores={...v,feriasVencidas:adicional};
+    return {...r,valores,extras:somaExtras(valores),extrasNoEmpenho:somaExtras(valores,EXTRAS_NO_EMPENHO)};
+  });
+  // Se a mesma mensagem também pertence a um registro ainda inconsistente, mantém o aviso.
+  for(const r of registros){
+    if(r.valores)resolvidos.delete(avisoProventos(r.lotacao,r.valores,somaExtras(r.valores)));
+  }
+  return {arquivo:resolvidos.size||registros.some((r,i)=>r!==arquivo.registros[i])?{...arquivo,registros,avisos:(arquivo.avisos||[]).filter(a=>!resolvidos.has(a))}:arquivo,resolvidos};
+}
+
 const possuiTipo=t=>/TIPO C[AÁ]LCULO|RESUMO DE VERBAS/i.test(t);
 export function analisarResumoVerbas(linhas,{tipo='principal',nome=''}={}){
   if(!['principal','extra','decimo','rescisao'].includes(tipo))throw Error('Tipo de folha inválido.');
@@ -165,11 +200,8 @@ export function analisarResumoVerbas(linhas,{tipo='principal',nome=''}={}){
     grupo.extras=extras;
     grupo.extrasNoEmpenho=somaExtras(grupo.valores,EXTRAS_NO_EMPENHO);
     grupo.extrasEmOP=somaExtras(grupo.valores,EXTRAS_EM_OP);
-    if(grupo.valores.proventos!=null&&grupo.valores.bruto!=null
-      &&grupo.valores.proventos!==grupo.valores.bruto+extras)
-      avisos.push('Lotação '+grupo.lotacao+': o total bruto de proventos ('+dinheiroFolha(grupo.valores.proventos)+
-        ') não é o bruto do empenho mais as extras ('+dinheiroFolha(grupo.valores.bruto+extras)+
-        '). Há lançamento no rodapé que o sistema não reconhece — confira antes de empenhar.');
+    const aviso=avisoProventos(grupo.lotacao,grupo.valores,extras);
+    if(aviso)avisos.push(aviso);
     const subtotal=grupo.valores.desconto??grupo.valores.totalDescontos;
     const selecionadas=selecionarBlocosDeDesconto(blocos,subtotal);
     grupo.classificacaoDescontosIdentificada=subtotal===0||selecionadas.length>0;
