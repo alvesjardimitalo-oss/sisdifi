@@ -104,6 +104,10 @@ try {
     solicitacao_id: 'saneada-secretaria', servidor_id: 'servidor-a', secretaria_id: 'sec-a',
     chave_pix: '12345678901'
   }));
+  await assertFails(setDoc(doc(db('secretaria-a'), 'solicitacoes_privado', 'oculta-secretaria'), {
+    solicitacao_id: 'oculta-secretaria', servidor_id: 'servidor-a', secretaria_id: 'sec-a',
+    cpf: '12345678901'
+  }));
 
   // Cadastro público legado também fica oculto ao perfil consulta até a migração.
   await assertFails(getDoc(doc(db('consulta'), 'servidores', 'servidor-legado')));
