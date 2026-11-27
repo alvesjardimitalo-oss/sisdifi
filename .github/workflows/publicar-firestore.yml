@@ -2,15 +2,11 @@ name: Publicar regras do Firestore SISDIFI
 # Publica automaticamente o firestore.rules quando ele muda na main.
 # Também pode ser disparado à mão (aba Actions > este workflow > Run workflow).
 on:
-  push:
-    branches: [main]
-    paths:
-      - firestore.rules
-      - firebase.json
-      - .github/workflows/publicar-firestore.yml
+  # Deploy de produção é sempre deliberado; merge de PR não publica regras automaticamente.
   workflow_dispatch:
 jobs:
   publicar:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     concurrency:
       group: sisdifi-firestore-rules-production
@@ -32,6 +28,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Preparar Java para o emulador Firestore
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - name: Instalar dependências isoladas dos testes de regras
+        run: npm install --no-save @firebase/rules-unit-testing@3.0.4 firebase@10.12.2 firebase-tools@15.34.1
+      - name: Validar regras no emulador antes do deploy
+        run: npx firebase-tools emulators:exec --only firestore --project demo-sisdifi --non-interactive "node tests/firestore-rules.test.mjs"
       - name: Autenticar no Firebase (conta de serviço)
         uses: google-github-actions/auth@v2
         with:
