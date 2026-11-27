@@ -512,7 +512,7 @@ export async function salvarConfiguracaoFiscal(dados, campos, acao, detalhe) {
       registro.antes = { issPadrao: atual.issPadrao ?? null, issPorCodigo: atual.issPorCodigo || {} };
       registro.depois = dados;
     }
-    tx.set(log, { acao, detalhe: registro, uid: sessao.uid, nome: sessao.nome || sessao.email, em: serverTimestamp() });
+    tx.set(log, { acao, detalhe: registro, uid: sessao.uid, nome: String(sessao.nome || sessao.email || sessao.uid), em: serverTimestamp() });
   });
 }
 
