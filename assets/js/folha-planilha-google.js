@@ -4,7 +4,7 @@
 // colunas que a Contabilidade já usa — ver linhasDaPlanilha() em
 // folha-lancamento.js. A chamada sai do navegador para a API do Google com o
 // token da conta que edita a planilha; o SISDIFI não guarda esse token.
-import { COLUNAS_DINHEIRO_PLANILHA } from './folha-lancamento.js';
+import { COLUNAS_DINHEIRO_PLANILHA, INICIO_ITENS_PLANILHA, ROTULOS_ITENS_PLANILHA } from './folha-lancamento.js';
 
 const API = 'https://sheets.googleapis.com/v4/spreadsheets/';
 export const MESES_ABA = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO',
@@ -51,16 +51,71 @@ async function chamar(url, token, opcoes = {}) {
   return r.json();
 }
 
-/** Abas da planilha e quantas linhas a aba do mês já tem preenchidas (coluna B, empenho). */
+const citar = aba => "'" + String(aba).replace(/'/g, "''") + "'";
+const LINHA_CABECALHO = PRIMEIRA_LINHA - 1;
+/** Coluna do histórico (0 = A): V, logo depois do líquido. */
+const COLUNA_HISTORICO = INICIO_ITENS_PLANILHA + ROTULOS_ITENS_PLANILHA.length + 6;
+
+/** Abas da planilha, a do mês, quantos empenhos ela já tem e se já tem as colunas dos itens. */
 export async function situacaoDaPlanilha(token, planilhaId, competencia) {
-  const info = await chamar(API + planilhaId + '?fields=properties.title,sheets.properties.title', token);
-  const titulos = (info.sheets || []).map(s => s.properties.title);
-  const aba = abaDoMes(titulos, competencia);
-  if (!aba) return { titulo: info.properties?.title || '', titulos, aba: '', preenchidas: 0 };
-  const faixa = encodeURIComponent("'" + aba.replace(/'/g, "''") + "'!B" + PRIMEIRA_LINHA + ':B1000');
-  const v = await chamar(API + planilhaId + '/values/' + faixa, token);
-  const preenchidas = (v.values || []).filter(r => String(r[0] || '').trim()).length;
-  return { titulo: info.properties?.title || '', titulos, aba, preenchidas };
+  const info = await chamar(API + planilhaId + '?fields=properties.title,sheets.properties(sheetId,title)', token);
+  const abas = (info.sheets || []).map(s => s.properties);
+  const aba = abaDoMes(abas.map(a => a.title), competencia);
+  const base = { titulo: info.properties?.title || '', titulos: abas.map(a => a.title), aba, sheetId: null, preenchidas: 0, temItens: false };
+  if (!aba) return base;
+  const sheetId = abas.find(a => a.title === aba).sheetId;
+  const fim = letraColuna(INICIO_ITENS_PLANILHA + ROTULOS_ITENS_PLANILHA.length - 1);
+  const q = ['B' + PRIMEIRA_LINHA + ':B1000', letraColuna(INICIO_ITENS_PLANILHA) + LINHA_CABECALHO + ':' + fim + LINHA_CABECALHO]
+    .map(r => 'ranges=' + encodeURIComponent(citar(aba) + '!' + r)).join('&');
+  const v = await chamar(API + planilhaId + '/values:batchGet?' + q, token);
+  const [empenhos, cab] = (v.valueRanges || []).map(x => x.values || []);
+  const preenchidas = (empenhos || []).filter(r => String(r[0] || '').trim()).length;
+  return { ...base, sheetId, preenchidas, temItens: itensNoCabecalho(cab?.[0]) };
+}
+
+/** O cabeçalho já tem INSS, Caixa… logo depois do desconto da liquidação? */
+export function itensNoCabecalho(linha = []) {
+  const n = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase();
+  return ROTULOS_ITENS_PLANILHA.every((r, i) => n(linha[i]) === n(r));
+}
+
+/**
+ * Pedidos para preparar a aba: abre as colunas dos itens do desconto logo
+ * depois do H, escreve o cabeçalho delas e as agrupa, fechadas, com o "+"
+ * antes do grupo — ao lado do desconto da liquidação. Inserir colunas empurra
+ * o resto para a direita, e as fórmulas da aba (totais, "valor bateu") se
+ * ajustam sozinhas.
+ */
+export function pedidosParaItens(sheetId) {
+  const range = { sheetId, dimension: 'COLUMNS', startIndex: INICIO_ITENS_PLANILHA,
+    endIndex: INICIO_ITENS_PLANILHA + ROTULOS_ITENS_PLANILHA.length };
+  return [
+    { insertDimension: { range, inheritFromBefore: true } },
+    { updateCells: { start: { sheetId, rowIndex: LINHA_CABECALHO - 1, columnIndex: INICIO_ITENS_PLANILHA },
+      rows: [{ values: ROTULOS_ITENS_PLANILHA.map(r => ({ userEnteredValue: { stringValue: r } })) }],
+      fields: 'userEnteredValue' } },
+    { addDimensionGroup: { range } },
+    { updateDimensionGroup: { dimensionGroup: { range, depth: 1, collapsed: true }, fields: 'collapsed' } },
+    { updateSheetProperties: { properties: { sheetId, gridProperties: { columnGroupControlAfter: false } },
+      fields: 'gridProperties.columnGroupControlAfter' } },
+    // Depois do líquido: histórico, total líquido do Resumo de Verbas (em R$) e conferência.
+    { updateCells: { start: { sheetId, rowIndex: LINHA_CABECALHO - 1, columnIndex: COLUNA_HISTORICO },
+      rows: [{ values: ['Histórico', 'Resumo RH', 'Conferência'].map(r => ({ userEnteredValue: { stringValue: r },
+        userEnteredFormat: { textFormat: { bold: true } } })) }],
+      fields: 'userEnteredValue,userEnteredFormat.textFormat.bold' } },
+    { repeatCell: { range: { sheetId, startRowIndex: PRIMEIRA_LINHA - 1, endRowIndex: 1000,
+      startColumnIndex: COLUNA_HISTORICO + 1, endColumnIndex: COLUNA_HISTORICO + 2 },
+      cell: { userEnteredFormat: { numberFormat: { type: 'CURRENCY', pattern: '"R$" #,##0.00' } } },
+      fields: 'userEnteredFormat.numberFormat' } }
+  ];
+}
+
+/** Prepara a aba do mês, se ainda não tiver as colunas dos itens. */
+export async function prepararAba(token, planilhaId, sit) {
+  if (sit.temItens) return false;
+  await chamar(API + planilhaId + ':batchUpdate', token,
+    { method: 'POST', body: JSON.stringify({ requests: pedidosParaItens(sit.sheetId) }) });
+  return true;
 }
 
 /** Escreve as linhas a partir de A4. Não apaga nada abaixo delas. */
@@ -68,7 +123,7 @@ export async function escreverNaPlanilha(token, planilhaId, aba, linhas) {
   if (!linhas.length) throw Error('Nenhum empenho para lançar.');
   const ultima = PRIMEIRA_LINHA + linhas.length - 1;
   const largura = Math.max(...linhas.map(l => l.length));
-  const faixa = "'" + aba.replace(/'/g, "''") + "'!A" + PRIMEIRA_LINHA + ':' + letraColuna(largura - 1) + ultima;
+  const faixa = citar(aba) + '!A' + PRIMEIRA_LINHA + ':' + letraColuna(largura - 1) + ultima;
   const r = await chamar(API + planilhaId + '/values/' + encodeURIComponent(faixa) + '?valueInputOption=USER_ENTERED', token,
     { method: 'PUT', body: JSON.stringify({ range: faixa, majorDimension: 'ROWS', values: valoresParaAPI(linhas) }) });
   return { faixa, celulas: r.updatedCells || 0, linhas: linhas.length };

@@ -20,7 +20,7 @@ import {passosDoEmpenho,conferirEmpenho,fichasOPpendentes,modeloDoEmpenho,textoD
 import {ordemDasLotacoes} from '../folha-ordem.js?v=3.23.0.06d2837c';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js?v=3.23.0.418e5047';
 import {linhasDeLancamento,distribuirFontesPorSaldo,COLUNAS_DESCONTO,linhasDaPlanilha,textoParaColar} from '../folha-lancamento.js';
-import {idDaPlanilha,situacaoDaPlanilha,escreverNaPlanilha,PRIMEIRA_LINHA} from '../folha-planilha-google.js';
+import {idDaPlanilha,situacaoDaPlanilha,prepararAba,escreverNaPlanilha,PRIMEIRA_LINHA} from '../folha-planilha-google.js';
 import {ouvir,ouvirDoc,salvar,substituir,excluir,campoApagado,tokenGooglePlanilhas} from '../db.js';
 import {carregarMes,salvarMes} from '../consignacoes-mensal.js?v=3.13.0.357fc820';
 import {saldosDasContas,consignadosPorFonte,etapasDaFolha,avisosDaConta,contaParaFonte,rotuloConta,novaContaId,
@@ -909,7 +909,7 @@ export function telaFolhaEmpenhos(el){
         '<button type="button" class="btn btn-sec" id="fe-lanc-csv">Baixar tabela (Excel)</button></span></div>'+
       '<details class="fe-sub"><summary>Planilha Google da folha</summary>'+
         '<label class="campo"><span>Link da planilha (fica guardado neste navegador)</span><input id="fe-lanc-link" style="width:100%" placeholder="https://docs.google.com/spreadsheets/d/…" value="'+esc(linkPlanilha())+'"></label>'+
-        '<p class="fe-muted">O SISDIFI escreve na aba do mês da competência (ex.: NOVEMBRO), a partir da linha '+PRIMEIRA_LINHA+', nas colunas A a N que vocês já usam; depois delas vêm INSS, Caixa, Sicoob, Bradesco, Pensão, IR, Outros, histórico, resumo do RH e conferência. A aba precisa existir. Não apaga nada abaixo das linhas lançadas. O Google pede para escolher a conta que edita a planilha.</p>'+
+        '<p class="fe-muted">O SISDIFI escreve na aba do mês da competência (ex.: NOVEMBRO), a partir da linha '+PRIMEIRA_LINHA+', no modelo que vocês já usam. Os itens do desconto (INSS, Caixa, Sicoob, Bradesco, Pensão, IR, Outros) ficam logo depois do desconto da liquidação, num grupo que abre no "+"; na primeira vez o SISDIFI abre essas colunas na aba sozinho. No fim vêm histórico, resumo do RH e conferência. A aba precisa existir. Para colar com Ctrl+V, a aba já precisa ter as colunas dos itens depois do H. Não apaga nada abaixo das linhas lançadas. O Google pede para escolher a conta que edita a planilha.</p>'+
       '</details>'+
       '<p class="'+(r.naoBateram?'fe-danger':'fe-ok')+'" style="margin:10px 0"><strong>'+r.bateram+' de '+r.linhas.length+' empenhos bateram</strong> com o Resumo de Verbas'+
         (r.naoBateram?' · '+r.naoBateram+' não bateram (em vermelho)':'')+(r.incompletas?' · '+r.incompletas+' com ficha, fonte ou histórico faltando':'')+'.</p>'+
@@ -935,7 +935,7 @@ export function telaFolhaEmpenhos(el){
     $('#fe-lanc-link').onchange=e=>{try{localStorage.setItem('sisdifi-folha-planilha',e.target.value.trim());}catch(x){}};
     $('#fe-lanc-colar').onclick=async()=>{
       try{await navigator.clipboard.writeText(textoParaColar(paraPlanilha()));
-        toast('Copiado. Na planilha, clique na célula A'+PRIMEIRA_LINHA+' da aba do mês e cole (Ctrl+V).');}
+        toast('Copiado. Na planilha, clique na célula A'+PRIMEIRA_LINHA+' da aba do mês e cole (Ctrl+V). A aba precisa ter as 7 colunas dos itens do desconto depois do H.');}
       catch(e){toast('O navegador não deixou copiar: '+(e.message||e),'erro');}
     };
     $('#fe-lanc-planilha').onclick=async e=>{
@@ -953,6 +953,7 @@ export function telaFolhaEmpenhos(el){
         if(!sit.aba)throw Error('A planilha "'+sit.titulo+'" não tem a aba do mês '+competencia+'. Crie a aba (copie a do mês anterior) e tente de novo.');
         const linhas=paraPlanilha();
         if(sit.preenchidas&&!confirm('A aba '+sit.aba+' já tem '+sit.preenchidas+' empenho(s) preenchido(s). Substituir as linhas '+PRIMEIRA_LINHA+' a '+(PRIMEIRA_LINHA+linhas.length-1)+'?'))return;
+        if(await prepararAba(token,id,sit))toast('Aba '+sit.aba+' preparada: itens do desconto depois do desconto da liquidação, no "+".');
         status('Lançando na aba '+sit.aba+'…');
         const res=await escreverNaPlanilha(token,id,sit.aba,linhas);
         status(res.linhas+' empenhos lançados em '+sit.titulo+' › '+sit.aba+' ('+res.faixa+'), com a conta '+email+'.');

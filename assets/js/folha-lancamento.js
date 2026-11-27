@@ -219,21 +219,26 @@ export function distribuirFontesPorSaldo(empenhos = [], saldos = {}, fichaInfo =
 /* =====================================================================
    Planilha da Contabilidade ("Nova Folha 2026", uma aba por mês)
    =====================================================================
-   Colunas A–N, a partir da linha 4, como a Contabilidade já usa:
+   A partir da linha 4, no modelo que a Contabilidade já usa, com os itens do
+   desconto logo depois do desconto da liquidação do empenho — um grupo de
+   colunas que abre e fecha no "+" da planilha:
    A grupo (só na primeira linha do grupo) · B empenho · C secretaria ·
    D ficha · E fonte · F conta · G bruto · H desconto da liquidação ·
-   I nº da OP · J salário-família bruto · K desconto · L salário-maternidade
-   (e natalidade) bruto · M desconto · N líquido.
-   Conferido em novembro/2026: N = G − H + J − K + L − M.
-   Depois do N vêm as colunas que a planilha ainda não tem: a composição do
-   desconto, o histórico e se bateu com o Resumo de Verbas. */
+   I–O INSS, Caixa, Sicoob, Bradesco, Pensão, IR, Outros (agrupadas) ·
+   P nº da OP · Q salário-família bruto · R desconto · S salário-maternidade
+   (e natalidade) bruto · T desconto · U líquido · V histórico ·
+   W total líquido do Resumo de Verbas · X conferência.
+   Conferido em novembro/2026: líquido = G − H + Q − R + S − T. */
 export const GRUPOS_PLANILHA = {
   principal: 'FOLHA DE PAGAMENTO', extra: 'FOLHA EXTRA',
   decimo: 'ADIANTAMENTO DE 50% 13º SALÁRIO', rescisao: 'RECISÃO CONTRATUAL'
 };
+/** Primeira coluna dos itens do desconto (0 = A): logo depois do H. */
+export const INICIO_ITENS_PLANILHA = 8;
+export const ROTULOS_ITENS_PLANILHA = COLUNAS_DESCONTO.map(c => c.rotulo);
 export const CABECALHO_PLANILHA = ['', 'Empenho', 'Secretaria', 'Ficha', 'Fonte de Recursos', 'Conta Bancária',
-  'Valor Bruto', 'Desconto Liquidação', 'Nº OP', 'Valor Bruto', 'Desconto Liquidação', 'Valor Bruto',
-  'Desconto Liquidação', 'Valor Liquido ', ...COLUNAS_DESCONTO.map(c => c.rotulo), 'Histórico', 'Resumo RH', 'Conferência'];
+  'Valor Bruto', 'Desconto Liquidação', ...ROTULOS_ITENS_PLANILHA, 'Nº OP', 'Valor Bruto', 'Desconto Liquidação',
+  'Valor Bruto', 'Desconto Liquidação', 'Valor Liquido ', 'Histórico', 'Resumo RH', 'Conferência'];
 
 const FICHAS_FUNDEB = new Set(['173', '174', '186', '187', '191', '192', '198', '199']);
 const semAcentoMaiusc = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
@@ -266,21 +271,21 @@ export function linhasDaPlanilha(empenhos = [], lanc = { linhas: [] }) {
     const soma = (xs, k) => xs.reduce((n, o) => n + o[k], 0);
     const rotulo = l.tipo !== grupo ? (GRUPOS_PLANILHA[l.tipo] || String(l.tipo).toUpperCase()) : '';
     grupo = l.tipo;
-    const opValor = v => (v ? v : null);
+    const ou = v => (v ? v : null);
     return [
       rotulo, l.numero ?? '', secretariaDaPlanilha(e.secretaria, l.ficha), l.ficha, l.fonte, e.conta || '',
-      l.bruto, l.desconto || null,
+      l.bruto, ou(l.desconto),
+      ...COLUNAS_DESCONTO.map(c => ou(l.composicao[c.chave])),
       l.ops.map(o => o.numero).filter(Boolean).join(' / '),
-      opValor(soma(fam, 'valor')), opValor(soma(fam, 'desconto')),
-      opValor(soma(mat, 'valor')), opValor(soma(mat, 'desconto')),
-      l.calculado,
-      ...COLUNAS_DESCONTO.map(c => l.composicao[c.chave] || null),
-      l.historico, l.resumo, l.bateu ? 'BATEU' : 'NÃO BATEU: ' + l.diferencas.join(' ')
+      ou(soma(fam, 'valor')), ou(soma(fam, 'desconto')),
+      ou(soma(mat, 'valor')), ou(soma(mat, 'desconto')),
+      l.calculado, l.historico, l.resumo,
+      l.bateu ? 'BATEU' : 'NÃO BATEU: ' + l.diferencas.join(' ')
     ];
   });
 }
 /** Índices (0 = coluna A) das colunas de dinheiro em linhasDaPlanilha. */
-export const COLUNAS_DINHEIRO_PLANILHA = new Set([6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22]);
+export const COLUNAS_DINHEIRO_PLANILHA = new Set([6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 20, 22]);
 
 /** Texto para colar na planilha (Ctrl+V em A4): tabulação e valores em pt-BR. */
 export function textoParaColar(linhas = []) {
