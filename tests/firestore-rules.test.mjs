@@ -65,7 +65,7 @@ try {
 
   // CPF e Pix integrais não ficam acessíveis ao perfil de consulta.
   await assertFails(getDoc(doc(db('consulta'), 'servidores_privado', 'servidor-a')));
-  await assertFails(getDoc(doc(db('consulta'), 'cpfs', '12345678901'));
+  await assertFails(getDoc(doc(db('consulta'), 'cpfs', '12345678901')));
 
   // Contabilidade/RH mantêm acesso funcional; Secretaria só acessa a própria pasta.
   await assertSucceeds(getDoc(doc(db('operador'), 'servidores_privado', 'servidor-a')));
