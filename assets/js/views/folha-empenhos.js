@@ -290,6 +290,11 @@ export function telaFolhaEmpenhos(el){
   /* empenhoAtual, e não `atual`: persistir() já tem uma local com esse nome,
      e .fe-passos já é a navegação das etapas — daí .fe-campos abaixo. */
   let numerosOP={},dataLiquidacao='',transcritos=[],fichasOP={},escolhasHistorico={},textosHistorico={},empenhoAtual=0;
+  /* Quem está preenchendo cada empenho e quais já foram lançados, para duas ou
+     mais pessoas trabalharem ao mesmo tempo. Grava só a chave daquele empenho
+     (salvar com merge), então uma pessoa não apaga a marcação da outra; por
+     isso fica fora de CAMPOS_MES, que grava o campo inteiro. */
+  let preenchimento={},assistente=null;
   const valoresMes=()=>({primeiro,pessoas,aprovouMapa,origemIndividual,confirmacao,alertas,previstoFolha,
     numerosOP,dataLiquidacao,transcritos,fichasOP,escolhasHistorico,textosHistorico});
   function persistir(){
@@ -352,6 +357,7 @@ export function telaFolhaEmpenhos(el){
       primeiro=m.primeiro??null;pessoas=m.pessoas||[];aprovouMapa=!!m.aprovouMapa;origemIndividual=m.origemIndividual||'';
       saldos={...(m.saldos||{})};confirmacao=m.confirmacao||null;alertas=m.alertas||[];previstoFolha=m.previstoFolha||null;
       numerosOP={...(m.numerosOP||{})};dataLiquidacao=m.dataLiquidacao||'';transcritos=m.transcritos||[];
+      preenchimento={...(m.preenchimento||{})};
       fichasOP={...(m.fichasOP||{})};escolhasHistorico={...(m.escolhasHistorico||{})};textosHistorico={...(m.textosHistorico||{})};
     }),erro));
     escutas.push(ouvir('folha_meses/'+alvo+'/arquivos',primeira(docs=>{
@@ -860,6 +866,25 @@ export function telaFolhaEmpenhos(el){
     const propria=fontes.includes('1500')?fonteDaFicha({fontes:['1500'],unidade:ref.unidade,acao:ref.acao}):'';
     return {fontes,propria};
   };
+  const eu=()=>({uid:estado.sessao?.uid||'',nome:String(estado.sessao?.nome||estado.sessao?.email||'').split(/[ @]/)[0]});
+  const lancadoNoMes=id=>preenchimento[id]?.estado==='lancado'||transcritos.includes(id);
+  function marcarPreenchimento(id,situacao){
+    const v=situacao?{estado:situacao,...eu(),em:new Date().toISOString()}:null;
+    preenchimento={...preenchimento,[id]:v};
+    if(uid)salvar('folha_meses',competencia,{preenchimento:{[id]:v}}).catch(e=>toast('Não foi possível gravar o andamento: '+(e.message||e),'erro'));
+    render();
+  }
+  function abrirPreenchimento(p,inicio=null){
+    assistente=abrirAssistente({empenhos:p.empenhos,extras:p.extras,inicio,eu:eu(),
+      estado:{competencia,dataLiquidacao,numerosOP,transcritos,preenchimento,fichasOP,escolhasHistorico,textosHistorico},
+      aoMarcar:marcarPreenchimento,
+      aoMudar:m=>{
+        if('dataLiquidacao' in m)dataLiquidacao=m.dataLiquidacao;
+        if(m.numerosOP)numerosOP=m.numerosOP;
+        if(m.escolhasHistorico)escolhasHistorico=m.escolhasHistorico;
+        persistir();render();
+      }});
+  }
   function renderLancamento(pacote){
     const alvo=$('#fe-lancamento');
     if(!pacote){alvo.innerHTML='<h2>Lançamento · uma linha por empenho</h2><p class="fe-muted">Envie o Resumo de Verbas na etapa 1 e a tabela aparece aqui.</p>';return;}
@@ -883,9 +908,12 @@ export function telaFolhaEmpenhos(el){
       const ops=l.ops.map(o=>'<div class="op"><strong>'+esc(o.tipo)+'</strong> · ficha '+cp(o.ficha||'?')+'<br>'+
         'OP nº <input data-op-lanc="'+esc(o.id)+'" style="width:64px" value="'+esc(o.numero)+'" aria-label="Número da OP"> '+din(o.valor)+
         (o.desconto?' · desconto (INSS) '+din(o.desconto):'')+'<br><small class="hist">'+cp(o.historico)+'</small></div>').join('');
-      const lancado=transcritos.includes(l.id);
+      const lancado=lancadoNoMes(l.id),quem=preenchimento[l.id],n=p.empenhos.findIndex(e=>e.id===l.id);
+      const situ=lancado?'<small class="ok">✓ lançado'+(quem?.nome?' · '+esc(quem.nome):'')+'</small>'
+        :quem?.estado==='preenchendo'?'<small class="mudou">✎ '+(quem.uid===eu().uid?'você':esc(quem.nome||'em preenchimento'))+'</small>'
+        :'<button type="button" class="cpb" data-preencher="'+n+'" title="Abrir o assistente neste empenho">▶ preencher</button>';
       return cab+'<tr class="'+(l.bateu?'':'nb ')+(l.falta.length?'falta':'')+'">'+
-        '<td><strong>'+cp(String(l.numero),l.empenhoAno)+'</strong>'+(lancado?'<br><small class="ok">✓ lançado</small>':'')+'</td>'+
+        '<td><strong>'+cp(String(l.numero),l.empenhoAno)+'</strong><br>'+situ+'</td>'+
         '<td>'+(l.ficha?cp(l.ficha):'<span class="ruim">falta</span>')+'</td>'+
         '<td>'+fonte+sugere+'</td>'+
         '<td class="n">'+din(l.bruto)+'</td>'+
@@ -971,15 +999,11 @@ export function telaFolhaEmpenhos(el){
         if(!cancelou)toast('Não foi possível lançar na planilha: '+(err.message||err),'erro');
       }finally{botao.disabled=false;}
     };
-    $('#fe-lanc-assistente').onclick=()=>abrirAssistente({empenhos:p.empenhos,extras:p.extras,
-      estado:{competencia,dataLiquidacao,numerosOP,transcritos,fichasOP,escolhasHistorico,textosHistorico},
-      aoMudar:m=>{
-        if('dataLiquidacao' in m)dataLiquidacao=m.dataLiquidacao;
-        if(m.numerosOP)numerosOP=m.numerosOP;
-        if(m.transcritos)transcritos=m.transcritos;
-        if(m.escolhasHistorico)escolhasHistorico=m.escolhasHistorico;
-        persistir();render();
-      }});
+    $('#fe-lanc-assistente').onclick=()=>abrirPreenchimento(p);
+    alvo.querySelectorAll('[data-preencher]').forEach(b=>b.onclick=()=>abrirPreenchimento(p,Number(b.dataset.preencher)));
+    // Mudança de outra pessoa chega aqui: o assistente aberto acompanha.
+    if(assistente?.aberto())assistente.atualizar({empenhos:p.empenhos,extras:p.extras,
+      estado:{competencia,dataLiquidacao,numerosOP,transcritos,preenchimento,fichasOP,escolhasHistorico,textosHistorico}});
     $('#fe-lanc-csv').onclick=()=>{
       const cab=['Empenho','Ficha','Fonte','Bruto','Histórico','Desconto',...COLUNAS_DESCONTO.map(c=>c.rotulo),
         'OP tipo','OP ficha','OP nº','OP valor','OP desconto','OP histórico','Resumo RH','Calculado','Diferença','Situação'];

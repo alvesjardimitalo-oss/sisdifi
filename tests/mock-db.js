@@ -70,7 +70,11 @@ export async function protegerDadosServidores(lista, prog) {
 export async function salvar(c, id, dados) {
   if (c === 'servidores') { id = id || ('id' + (contador++)); gravarServidorMock(id, dados); return id; }
   const m = garantir(c); id = id || ('id' + (contador++));
-  m.set(id, { ...(m.get(id) || {}), ...structuredClone(dados) });
+  // Como o Firestore com merge: true, mapas aninhados são mesclados chave a chave.
+  const mesclar = (a, b) => { const r = { ...(a || {}) };
+    for (const [k, v] of Object.entries(b)) r[k] = v && typeof v === 'object' && !Array.isArray(v) && r[k] && typeof r[k] === 'object' && !Array.isArray(r[k]) ? mesclar(r[k], v) : v;
+    return r; };
+  m.set(id, mesclar(m.get(id), structuredClone(dados)));
   if (c === 'usuarios' && usuarios.has(id)) Object.assign(usuarios.get(id), dados);
   notificar(c); return id;
 }

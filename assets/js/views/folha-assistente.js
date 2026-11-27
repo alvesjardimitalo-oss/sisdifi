@@ -1,7 +1,10 @@
 // Assistente de preenchimento da folha.
 //
-// "Iniciar preenchimento" abre uma janela por cima da tela com UM empenho por
-// vez e, nele, os campos na ordem em que a Contabilidade digita no sistema
+// "Iniciar preenchimento" abre uma janela por cima da tela. Primeiro, a LISTA
+// dos empenhos, para cada pessoa escolher onde começar — duas ou mais pessoas
+// preenchem ao mesmo tempo, e a lista mostra quem está em qual empenho e quais
+// já foram lançados (o estado é compartilhado pela folha, em tempo real).
+// Escolhido o empenho, a janela mostra UM empenho por vez e, nele, os campos na ordem em que a Contabilidade digita no sistema
 // contábil (passosDoEmpenho): número, ficha, fonte, desdobramento, bruto,
 // histórico; data e valor do desconto na liquidação; a distribuição do
 // desconto (INSS, IR, consignados) com a ficha extra de cada um; e as ordens
@@ -39,6 +42,13 @@ const ESTILO = `
 .fa-pe button{border-radius:8px;padding:10px 16px;font-weight:700;cursor:pointer;border:1px solid #94a3b8;background:transparent;color:inherit}
 .fa-pe .fa-prox{background:#16a34a;color:#fff;border-color:#16a34a}
 .fa-dica{font-size:.8rem;color:#64748b}
+.fa-filtro{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:4px 0 8px;font-size:.9rem}
+.fa-filtro input[type=search]{flex:1;min-width:180px;padding:7px 9px;border:1px solid #94a3b8;border-radius:8px}
+.fa-item{display:grid;grid-template-columns:64px 1fr auto 150px;gap:10px;align-items:center;width:100%;text-align:left;padding:8px 10px;margin-bottom:4px;border-radius:10px;border:1px solid rgba(148,163,184,.35);background:transparent;color:inherit;cursor:pointer;font:inherit}
+.fa-item:hover{border-color:#2563eb;background:rgba(37,99,235,.06)}.fa-item b{font-size:1.05rem}
+.fa-item small{display:block;color:#64748b;font-size:.75rem}.fa-v{font-variant-numeric:tabular-nums;font-weight:600}
+.fa-item.feito{opacity:.55}.fa-item.ocupado{background:rgba(245,158,11,.08)}
+.fa-st{font-size:.8rem;font-weight:700;text-align:right}.fa-st.ok{color:#16a34a}.fa-st.eu{color:#2563eb}.fa-st.outro{color:#b45309}.fa-st.livre{color:#64748b;font-weight:500}
 @media(max-width:600px){.fa-campo{grid-template-columns:1fr auto}.fa-rot{grid-column:1/-1}}
 @media(prefers-color-scheme:dark){.fa{--fundo:#0f172a;--texto:#e2e8f0}.fa-campo input{background:#1e293b;color:#e2e8f0}}
 `;
@@ -50,13 +60,18 @@ const ESTILO = `
  * textosHistorico. `aoMudar(patch)` recebe o que mudou ({dataLiquidacao},
  * {numerosOP}, {transcritos}) para a tela gravar.
  */
-export function abrirAssistente({ empenhos = [], extras = [], estado = {}, inicio = null, aoMudar = () => {} }) {
-  if (!empenhos.length) { toast('Envie o Resumo de Verbas antes de iniciar o preenchimento.', 'erro'); return; }
-  let st = { ...estado, numerosOP: { ...(estado.numerosOP || {}) }, transcritos: [...(estado.transcritos || [])] };
-  const feitos = () => new Set(st.transcritos);
-  // Começa no primeiro empenho ainda não lançado.
-  let i = inicio ?? Math.max(0, empenhos.findIndex(e => !feitos().has(e.id)));
-  if (i < 0) i = 0;
+export function abrirAssistente({ empenhos: _e = [], extras: _x = [], estado = {}, inicio = null, eu = {},
+  aoMudar = () => {}, aoMarcar = () => {} }) {
+  let empenhos = _e, extras = _x;
+  if (!empenhos.length) { toast('Envie o Resumo de Verbas antes de iniciar o preenchimento.', 'erro'); return null; }
+  let st = { ...estado, numerosOP: { ...(estado.numerosOP || {}) }, transcritos: [...(estado.transcritos || [])],
+    preenchimento: { ...(estado.preenchimento || {}) } };
+  // Lançado: pelo assistente novo (preenchimento) ou pela marcação antiga (transcritos).
+  const lancado = id => st.preenchimento[id]?.estado === 'lancado' || st.transcritos.includes(id);
+  const quemPreenche = id => { const p = st.preenchimento[id]; return p?.estado === 'preenchendo' ? p : null; };
+  const lancados = () => empenhos.filter(e => lancado(e.id)).length;
+  // Sem empenho escolhido, abre na lista. Nunca começa sozinho no primeiro.
+  let i = inicio, modo = inicio == null ? 'lista' : 'empenho', filtro = 'pendentes';
   let copiados = new Set(), atual = 0;
   const opsDe = e => extras.filter(x => x.empenhoReferencia === e.empenho);
 
@@ -68,7 +83,11 @@ export function abrirAssistente({ empenhos = [], extras = [], estado = {}, inici
   document.body.appendChild(fundo);
   const anteriorFoco = document.activeElement;
 
-  const fechar = () => { document.removeEventListener('keydown', teclas, true); fundo.remove(); anteriorFoco?.focus?.(); };
+  // Ao sair de um empenho sem lançá-lo, ele volta a ficar livre para os outros.
+  const soltar = () => { if (modo === 'empenho' && i != null && !lancado(empenhos[i].id)) aoMarcar(empenhos[i].id, null); };
+  const pegar = () => { const id = empenhos[i].id; if (!lancado(id)) { st.preenchimento[id] = { estado: 'preenchendo', nome: eu.nome || '', uid: eu.uid || '' }; aoMarcar(id, 'preenchendo'); } };
+  let aberto = true;
+  const fechar = () => { soltar(); aberto = false; document.removeEventListener('keydown', teclas, true); fundo.remove(); anteriorFoco?.focus?.(); };
   const copiar = async (texto, k) => {
     try { await navigator.clipboard.writeText(texto); }
     catch (e) { toast('O navegador não deixou copiar.', 'erro'); return; }
@@ -76,15 +95,67 @@ export function abrirAssistente({ empenhos = [], extras = [], estado = {}, inici
     toast('Copiado: ' + (texto.length > 50 ? texto.slice(0, 50) + '…' : texto));
     desenhar(k + 1);
   };
-  const ir = (n) => { i = Math.max(0, Math.min(empenhos.length - 1, n)); copiados = new Set(); desenhar(0); fundo.scrollTop = 0; };
+  const abrir = (n) => {
+    soltar();
+    i = Math.max(0, Math.min(empenhos.length - 1, n)); modo = 'empenho'; copiados = new Set();
+    const outro = quemPreenche(empenhos[i].id);
+    if (outro && outro.uid && outro.uid !== eu.uid) toast((outro.nome || 'Outra pessoa') + ' está preenchendo este empenho.', 'erro');
+    pegar(); desenhar(0); fundo.scrollTop = 0;
+  };
+  const lista = () => { soltar(); modo = 'lista'; desenhar(); fundo.scrollTop = 0; };
+  // Próximo livre: depois deste, o primeiro não lançado e que ninguém está preenchendo.
+  const proximoLivre = () => {
+    for (let k = 1; k <= empenhos.length; k++) {
+      const n = (i + k) % empenhos.length, e = empenhos[n], q = quemPreenche(e.id);
+      if (!lancado(e.id) && (!q || q.uid === eu.uid)) return n;
+    }
+    return -1;
+  };
   const marcarLancado = () => {
-    const f = feitos(); f.add(empenhos[i].id);
-    st.transcritos = [...f]; aoMudar({ transcritos: st.transcritos });
-    if (i < empenhos.length - 1) ir(i + 1);
-    else { toast('Todos os empenhos foram lançados.'); desenhar(atual); }
+    const id = empenhos[i].id;
+    st.preenchimento[id] = { estado: 'lancado', nome: eu.nome || '', uid: eu.uid || '' };
+    aoMarcar(id, 'lancado');
+    const n = proximoLivre();
+    if (n >= 0) { modo = 'lista-off'; abrir(n); }
+    else { toast('Todos os empenhos foram lançados.'); modo = 'lista'; desenhar(); }
   };
 
+  function desenharLista() {
+    const total = empenhos.length, feitos = lancados();
+    const nomes = { principal: 'Folha mensal', extra: 'Folha extra', decimo: 'Adiantamento do 13º', rescisao: 'Rescisões' };
+    let grupo = '';
+    const linhas = empenhos.map((e, n) => {
+      const ok = lancado(e.id), q = quemPreenche(e.id), meu = q && q.uid === eu.uid;
+      if (filtro === 'pendentes' && ok) return '';
+      const cab = e.tipo !== grupo ? '<div class="fa-grupo">' + esc(nomes[e.tipo] || e.tipo) + '</div>' : ''; grupo = e.tipo;
+      const sit = ok ? '<span class="fa-st ok">✓ lançado' + (st.preenchimento[e.id]?.nome ? ' · ' + esc(st.preenchimento[e.id].nome) : '') + '</span>'
+        : q ? '<span class="fa-st ' + (meu ? 'eu' : 'outro') + '">✎ ' + (meu ? 'você' : esc(q.nome || 'outra pessoa')) + '</span>'
+        : '<span class="fa-st livre">livre</span>';
+      return cab + '<button type="button" class="fa-item' + (ok ? ' feito' : '') + (q && !meu ? ' ocupado' : '') + '" data-abrir="' + n + '">' +
+        '<b>' + esc(String(e.empenho)) + '</b><span>' + esc(e.secretaria || '') + '<small>' + esc(e.vinculo || '') + ' · ficha ' + esc(e.ficha || '—') + '</small></span>' +
+        '<span class="fa-v">' + dinheiroFolha(e.bruto || 0) + '</span>' + sit + '</button>';
+    }).join('');
+    fundo.innerHTML = '<div class="fa" role="dialog" aria-modal="true" aria-label="Escolher empenho">' +
+      '<div class="fa-topo"><h2>Escolha o empenho para preencher<small>' + feitos + ' de ' + total + ' lançados · ' +
+        'cada pessoa pode começar num empenho diferente; quem está em cada um aparece aqui</small></h2>' +
+        '<button type="button" data-fechar>✕ Fechar</button></div>' +
+      '<div class="fa-barra"><i style="width:' + Math.round(feitos / total * 100) + '%"></i></div>' +
+      '<div class="fa-corpo"><div class="fa-filtro"><label><input type="radio" name="fa-f" value="pendentes"' + (filtro === 'pendentes' ? ' checked' : '') + '> Só os que faltam</label>' +
+        '<label><input type="radio" name="fa-f" value="todos"' + (filtro === 'todos' ? ' checked' : '') + '> Todos</label>' +
+        '<input type="search" data-busca placeholder="Buscar nº do empenho ou secretaria"></div>' +
+        (linhas || '<p>Todos os empenhos foram lançados. ✓</p>') + '</div></div>';
+    fundo.querySelector('[data-fechar]').onclick = fechar;
+    fundo.querySelectorAll('[data-abrir]').forEach(b => b.onclick = () => abrir(Number(b.dataset.abrir)));
+    fundo.querySelectorAll('input[name="fa-f"]').forEach(r => r.onchange = () => { filtro = r.value; desenharLista(); });
+    const busca = fundo.querySelector('[data-busca]');
+    busca.oninput = () => {
+      const t = busca.value.trim().toUpperCase();
+      fundo.querySelectorAll('.fa-item').forEach(b => { b.hidden = !!t && !b.textContent.toUpperCase().includes(t); });
+    };
+  }
+
   function desenhar(proximo = atual) {
+    if (modo !== 'empenho') { desenharLista(); return; }
     const e = empenhos[i], ops = opsDe(e);
     const passos = passosDoEmpenho(e, ops, st);
     const conf = conferirEmpenho(e, ops);
@@ -92,7 +163,8 @@ export function abrirAssistente({ empenhos = [], extras = [], estado = {}, inici
     const fila = passos.map((p, k) => ({ ...p, k })).filter(p => p.valor || p.chaveOP != null || p.informar);
     const copiaveis = fila.filter(p => p.valor && p.chaveOP == null).map(p => p.k);
     atual = copiaveis.find(k => k >= proximo && !copiados.has(k)) ?? copiaveis.find(k => !copiados.has(k)) ?? -1;
-    const total = empenhos.length, lancados = feitos().size;
+    const total = empenhos.length, nLancados = lancados();
+    const outro = quemPreenche(e.id), ocupado = outro && outro.uid && outro.uid !== eu.uid;
     let grupo = '';
     const linhas = fila.map(p => {
       const cab = p.grupo !== grupo ? '<div class="fa-grupo">' + esc(p.grupo) + '</div>' : ''; grupo = p.grupo;
@@ -119,14 +191,15 @@ export function abrirAssistente({ empenhos = [], extras = [], estado = {}, inici
     const tabela = conf.linhas.map(l => '<tr><td>' + (l.total ? '<strong>' : '') + esc(l.rotulo) + (l.total ? '</strong>' : '') +
       '</td><td>' + (l.total ? '<strong>' : '') + dinheiroFolha(l.valor) + (l.total ? '</strong>' : '') + '</td></tr>').join('') +
       (conf.daFolha != null ? '<tr><td>Resumo de Verbas (RH)</td><td>' + dinheiroFolha(conf.daFolha) + '</td></tr>' : '');
-    const jaLancado = feitos().has(e.id);
+    const jaLancado = lancado(e.id);
     fundo.innerHTML = '<div class="fa" role="dialog" aria-modal="true" aria-label="Assistente de preenchimento">' +
       '<div class="fa-topo"><h2>Empenho ' + esc(String(e.empenho)) + '/' + esc(String(st.competencia || '').slice(0, 4)) +
-        '<small>' + esc(e.secretaria || '') + ' · ' + esc(e.vinculo || '') + ' · ' + (i + 1) + ' de ' + total + ' · ' + lancados + ' lançado' + (lancados === 1 ? '' : 's') +
-        (jaLancado ? ' · este já foi lançado' : '') + '</small></h2>' +
+        '<small>' + esc(e.secretaria || '') + ' · ' + esc(e.vinculo || '') + ' · ' + (i + 1) + ' de ' + total + ' · ' + nLancados + ' lançado' + (nLancados === 1 ? '' : 's') +
+        (jaLancado ? ' · este já foi lançado' : '') + (ocupado ? ' · ⚠ ' + esc(outro.nome || 'outra pessoa') + ' também está neste' : '') + '</small></h2>' +
+        '<button type="button" data-lista title="Voltar à lista de empenhos">☰ Lista</button>' +
         '<button type="button" data-ir="-1" title="Empenho anterior">←</button><button type="button" data-ir="1" title="Próximo empenho">→</button>' +
         '<button type="button" data-fechar title="Fechar (Esc)">✕ Fechar</button></div>' +
-      '<div class="fa-barra"><i style="width:' + Math.round(lancados / total * 100) + '%"></i></div>' +
+      '<div class="fa-barra"><i style="width:' + Math.round(nLancados / total * 100) + '%"></i></div>' +
       '<div class="fa-corpo">' +
         (st.dataLiquidacao ? '' : '<div class="fa-campo atual"><div class="fa-rot">Data da liquidação<small>vale para todos os empenhos</small></div>' +
           '<div><input data-liq placeholder="dd/mm/aaaa"></div><div></div></div>') +
@@ -136,14 +209,15 @@ export function abrirAssistente({ empenhos = [], extras = [], estado = {}, inici
       '</div>' +
       '<div class="fa-pe"><span class="fa-dica">Enter copia o campo destacado e passa para o próximo · Esc fecha</span>' +
         '<span><button type="button" data-ir="-1">← Anterior</button> ' +
-        '<button type="button" class="fa-prox" data-lancado>' + (i < total - 1 ? 'Lançado ✓ — próximo empenho →' : 'Lançado ✓') + '</button></span></div>' +
+        '<button type="button" class="fa-prox" data-lancado>Lançado ✓ — próximo livre →</button></span></div>' +
     '</div>';
 
     fundo.querySelectorAll('.fa-copiar').forEach(b => b.onclick = () => {
       // Dinheiro vai sem o "R$": no sistema contábil se digita só o número.
       const p = passos[Number(b.dataset.k)]; copiar(String(p.valor).replace(/^-?R\$\s*/u, m => m.startsWith('-') ? '-' : ''), Number(b.dataset.k));
     });
-    fundo.querySelectorAll('[data-ir]').forEach(b => b.onclick = () => ir(i + Number(b.dataset.ir)));
+    fundo.querySelectorAll('[data-ir]').forEach(b => b.onclick = () => abrir(i + Number(b.dataset.ir)));
+    fundo.querySelector('[data-lista]').onclick = lista;
     fundo.querySelector('[data-fechar]').onclick = fechar;
     fundo.querySelector('[data-lancado]').onclick = marcarLancado;
     fundo.querySelectorAll('[data-op]').forEach(inp => inp.onchange = () => {
@@ -165,12 +239,32 @@ export function abrirAssistente({ empenhos = [], extras = [], estado = {}, inici
   function teclas(ev) {
     if (ev.key === 'Escape') { ev.preventDefault(); fechar(); return; }
     if (ev.target.tagName === 'INPUT') return;
-    if (ev.key === 'Enter' && atual >= 0) {
+    if (modo === 'empenho' && ev.key === 'Enter' && atual >= 0) {
       ev.preventDefault();
       fundo.querySelector('.fa-copiar[data-k="' + atual + '"]')?.click();
     }
   }
   fundo.addEventListener('click', ev => { if (ev.target === fundo) fechar(); });
   document.addEventListener('keydown', teclas, true);
+  if (modo === 'empenho') { pegar(); }
   desenhar(0);
+  /* A tela chama atualizar() quando chega mudança de outra pessoa: a lista e
+     o empenho aberto refletem na hora quem está em cada empenho. */
+  return {
+    atualizar(novo = {}) {
+      if (!aberto) return;
+      if (novo.empenhos) empenhos = novo.empenhos;
+      if (novo.extras) extras = novo.extras;
+      const e = novo.estado || {};
+      st = { ...st, ...e, numerosOP: { ...(e.numerosOP || st.numerosOP) }, transcritos: [...(e.transcritos || st.transcritos)],
+        preenchimento: { ...(e.preenchimento || st.preenchimento) } };
+      if (modo === 'empenho' && !document.activeElement?.closest?.('.fa-campo')) desenhar(atual);
+      else if (modo !== 'empenho') {
+        const t = fundo.querySelector('[data-busca]')?.value || '';
+        desenharLista();
+        const b = fundo.querySelector('[data-busca]'); if (b && t) { b.value = t; b.oninput(); }
+      }
+    },
+    aberto: () => aberto
+  };
 }

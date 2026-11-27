@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { linhaDeLancamento, linhasDeLancamento, composicaoDaLiquidacao,
   distribuirFontesPorSaldo, linhasDaPlanilha, textoParaColar, secretariaDaPlanilha } from '../assets/js/folha-lancamento.js';
-import { idDaPlanilha, abaDoMes, valoresParaAPI, letraColuna, itensNoCabecalho, pedidosParaModelo, modeloDaAba, pedidosDeFormato } from '../assets/js/folha-planilha-google.js';
+import { idDaPlanilha, abaDoMes, valoresParaAPI, letraColuna, itensNoCabecalho, pedidosParaModelo, modeloDaAba, pedidosDeFormato, pedidosDeCores, CORES_SECRETARIA } from '../assets/js/folha-planilha-google.js';
 
 let ok = 0; const falhas = [];
 const t = (nome, fn) => { try { fn(); ok++; } catch (e) { falhas.push(nome + ': ' + e.message); } };
@@ -254,6 +254,22 @@ t('linhas lançadas: cor da secretaria, R$, histórico à esquerda, conferência
   assert.equal(hist.repeatCell.cell.userEnteredFormat.wrapStrategy, 'CLIP');
   const conf = p.find(x => x.repeatCell?.range.startColumnIndex === 23);
   assert.equal(conf.repeatCell.cell.userEnteredFormat.textFormat.bold, true);
+});
+
+t('cada secretaria tem uma cor só, em toda a linha, e linhas seguidas vão juntas', () => {
+  const p = pedidosDeCores(9, ['FAZENDA', 'FAZENDA', 'FUNDEB', 'SECRETARIA X', 'FAZENDA']);
+  assert.equal(p.length, 4);
+  const r = p.map(x => x.repeatCell.range);
+  assert.deepEqual(r.map(x => [x.startRowIndex, x.endRowIndex]), [[3, 5], [5, 6], [6, 7], [7, 8]]);
+  assert.ok(r.every(x => x.startColumnIndex === 1 && x.endColumnIndex === 24));
+  // A mesma secretaria tem sempre a mesma cor.
+  assert.deepEqual(p[0].repeatCell.cell.userEnteredFormat.backgroundColor, p[3].repeatCell.cell.userEnteredFormat.backgroundColor);
+  assert.notDeepEqual(p[0].repeatCell.cell.userEnteredFormat.backgroundColor, p[1].repeatCell.cell.userEnteredFormat.backgroundColor);
+  // Toda secretaria que a planilha usa tem cor própria, e nenhuma se repete.
+  const nomes = ['GABINETE DO PREFEITO', 'ADMINISTRAÇÃO', 'CULTURA', 'FAZENDA', 'ESPORTE E LAZER', 'TRANSPORTES', 'AGRICULTURA',
+    'OBRAS PUBLICAS', 'MEIO AMBIENTE', 'LIMPEZA URBANA', 'SEC. EDUCAÇÃO', 'FUNDEB', 'SECRETARIA DE SAÚDE', 'HOSPITAL MUNICIPAL', 'SEC. AÇÃO SOCIAL'];
+  assert.ok(nomes.every(n => CORES_SECRETARIA[n]));
+  assert.equal(new Set(Object.values(CORES_SECRETARIA)).size, Object.keys(CORES_SECRETARIA).length);
 });
 
 console.log(`folha-lancamento: ${ok} ok, ${falhas.length} falhas`);

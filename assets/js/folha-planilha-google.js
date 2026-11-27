@@ -150,6 +150,38 @@ export async function prepararAba(token, planilhaId, sit) {
   return true;
 }
 
+/* Cor de cada secretaria: uma só, suave, a mesma em todas as colunas da linha
+   e em todos os meses. A planilha manual tinha destaques soltos (amarelo,
+   verde-limão, vermelho) e a mesma secretaria em cores diferentes. */
+const rgb = h => ({ red: parseInt(h.slice(0, 2), 16) / 255, green: parseInt(h.slice(2, 4), 16) / 255, blue: parseInt(h.slice(4, 6), 16) / 255 });
+export const CORES_SECRETARIA = {
+  'GABINETE DO PREFEITO': 'dbe7f5', 'ADMINISTRAÇÃO': 'fde6d2', 'CULTURA': 'ece2f6', 'FAZENDA': 'd9efd9',
+  'ESPORTE E LAZER': 'fbe0ec', 'TRANSPORTES': 'fff4cc', 'AGRICULTURA': 'e6eedc', 'OBRAS PUBLICAS': 'f2e8d8',
+  'MEIO AMBIENTE': 'd6f1e4', 'LIMPEZA URBANA': 'd8eef6', 'SEC. EDUCAÇÃO': 'fde2de', 'FUNDEB': 'e4e2fa',
+  'SECRETARIA DE SAÚDE': 'd8f0ee', 'HOSPITAL MUNICIPAL': 'f8dcdc', 'SEC. AÇÃO SOCIAL': 'ffe9cf'
+};
+const COR_OUTRA = 'eef0f3';
+const corDa = secretaria => rgb(CORES_SECRETARIA[String(secretaria || '').trim().toUpperCase()] || COR_OUTRA);
+
+/**
+ * Pinta cada linha com a cor da secretaria (coluna C), de B até X, e deixa o
+ * texto preto — sobrescreve as cores soltas. Linhas seguidas da mesma
+ * secretaria vão num pedido só. A conferência (X) continua verde/vermelha
+ * pela formatação condicional, que fica por cima.
+ */
+export function pedidosDeCores(sheetId, secretarias = []) {
+  const pedidos = [];
+  for (let k = 0; k < secretarias.length;) {
+    let fim = k + 1;
+    while (fim < secretarias.length && String(secretarias[fim] || '').trim().toUpperCase() === String(secretarias[k] || '').trim().toUpperCase()) fim++;
+    pedidos.push({ repeatCell: { range: { sheetId, startRowIndex: PRIMEIRA_LINHA - 1 + k, endRowIndex: PRIMEIRA_LINHA - 1 + fim, startColumnIndex: 1, endColumnIndex: X + 1 },
+      cell: { userEnteredFormat: { backgroundColor: corDa(secretarias[k]), textFormat: { foregroundColor: { red: 0.1, green: 0.1, blue: 0.12 } } } },
+      fields: 'userEnteredFormat.backgroundColor,userEnteredFormat.textFormat.foregroundColor' } });
+    k = fim;
+  }
+  return pedidos;
+}
+
 /** Escreve as linhas a partir de A4. Não apaga nada abaixo delas. */
 export async function escreverNaPlanilha(token, planilhaId, aba, linhas, sheetId = null) {
   if (!linhas.length) throw Error('Nenhum empenho para lançar.');
@@ -160,7 +192,8 @@ export async function escreverNaPlanilha(token, planilhaId, aba, linhas, sheetId
     { method: 'PUT', body: JSON.stringify({ range: faixa, majorDimension: 'ROWS', values: valoresParaAPI(linhas) }) });
   if (sheetId != null)
     await chamar(API + planilhaId + ':batchUpdate', token,
-      { method: 'POST', body: JSON.stringify({ requests: pedidosDeFormato(sheetId, linhas.length) }) });
+      { method: 'POST', body: JSON.stringify({ requests: [...pedidosDeFormato(sheetId, linhas.length),
+        ...pedidosDeCores(sheetId, linhas.map(l => l[2]))] }) });
   return { faixa, celulas: r.updatedCells || 0, linhas: linhas.length };
 }
 
