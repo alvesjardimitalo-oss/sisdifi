@@ -375,8 +375,8 @@ export async function criarSolicitacoes(lista) {
     const novaRef = doc(collection(fs, 'solicitacoes'));
     const servidorOriginal = dados.servidor || {};
     const servidorPublico = { ...servidorOriginal };
-    const cpf = String(servidorPublico.cpf || '').replace(/\\D/g, '');
-    const cpfAnterior = String(servidorPublico.cpf_anterior || '').replace(/\\D/g, '');
+    const cpf = String(servidorPublico.cpf || '').replace(/\D/g, '');
+    const cpfAnterior = String(servidorPublico.cpf_anterior || '').replace(/\D/g, '');
     const chavePix = String(servidorPublico.chave_pix || '');
     if (cpf && cpf.length !== 11) throw Error('O CPF do servidor está incompleto ou inválido. Confira o cadastro antes de criar a solicitação.');
     if (cpfAnterior && cpfAnterior.length !== 11) throw Error('O CPF anterior está inválido. Confira o cadastro antes de criar a solicitação.');
@@ -541,8 +541,8 @@ export async function protegerDadosSolicitacoes(progresso) {
     const migradosAntes = migrados;
     for (const item of lote) {
       const dados = item.data(), servidor = { ...(dados.servidor || {}) };
-      const cpf = String(servidor.cpf || '').replace(/\\D/g, '');
-      const cpfAnterior = String(servidor.cpf_anterior || '').replace(/\\D/g, '');
+      const cpf = String(servidor.cpf || '').replace(/\D/g, '');
+      const cpfAnterior = String(servidor.cpf_anterior || '').replace(/\D/g, '');
       const chavePix = String(servidor.chave_pix || '');
       const servidorId = String(dados.servidor_id || '');
       if ((cpf && cpf.length !== 11) || (cpfAnterior && cpfAnterior.length !== 11)
