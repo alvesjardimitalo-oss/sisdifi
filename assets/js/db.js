@@ -186,6 +186,8 @@ export function ouvir(colecao, cb, onErro, filtro = null) {
   // Regras do Firestore não filtram documentos. A consulta precisa declarar o marcador
   // de migração para que o perfil consulta nunca tente ler snapshots históricos com PII.
   if (['solicitacoes', 'servidores'].includes(colecao) && sessao?.perfil === 'consulta') filtros.push(['privacidade_migrada', true]);
+  if (colecao === 'servidores' && sessao?.perfil === 'secretaria'
+      && filtros.some(([campo, valor]) => campo === 'motorista' && valor === true)) filtros.push(['privacidade_migrada', true]);
   const alvo = filtros.length ? query(collection(fs, colecao), ...filtros.map(([c, v]) => where(c, '==', v))) : collection(fs, colecao);
   return onSnapshot(alvo,
     snap => { hidratarLista(colecao, snap.docs.map(d => ({ id: d.id, ...d.data() }))).then(cb).catch(e => onErro && onErro(e)); },
