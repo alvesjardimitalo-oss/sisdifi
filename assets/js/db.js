@@ -436,7 +436,7 @@ export async function lancarRetencoes(ano, lista, meta = {}) {
     tx.set(logRef, {
       acao: 'retencoes.lancar',
       detalhe: { ano: Number(ano), origem: String(meta.origem || 'manual'), quantidade: saida.length, total_centavos: saida.reduce((s, r) => s + Number(r.centavos || 0), 0), numeros: saida.map(r => r.numero) },
-      uid: sessao.uid, nome: sessao.nome || sessao.email, em: serverTimestamp()
+      uid: sessao.uid, nome: String(sessao.nome || sessao.email || sessao.uid), em: serverTimestamp()
     });
     return saida;
   });
@@ -458,7 +458,7 @@ export async function renumerarRetencoes(ano, calcular) {
       tx.set(logRef, {
         acao: 'retencoes.renumerar',
         detalhe: { ano: Number(ano), quantidade: n },
-        uid: sessao.uid, nome: sessao.nome || sessao.email, em: serverTimestamp()
+        uid: sessao.uid, nome: String(sessao.nome || sessao.email || sessao.uid), em: serverTimestamp()
       });
     }
     return n;
