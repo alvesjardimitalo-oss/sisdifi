@@ -351,6 +351,7 @@ export async function criarSolicitacoes(lista) {
 export async function lancarRetencoes(ano, lista) {
   if (!sessao || !['admin', 'operador'].includes(sessao.perfil)) throw Error('Acesso restrito à Contabilidade e ADM.');
   const ref = doc(fs, 'retencoes_anos', String(ano));
+  const logRef = doc(collection(fs, 'logs'));
   return runTransaction(fs, async tx => {
     const atual = await tx.get(ref);
     let seq = atual.exists() ? Number(atual.data().ultimo || 0) : 0;
@@ -364,26 +365,37 @@ export async function lancarRetencoes(ano, lista) {
       saida.push({ id, ...novos[id] });
     }
     tx.set(ref, { ano: Number(ano), ultimo: seq, lancamentos: novos, atualizado_em: serverTimestamp(), atualizado_por: autor() }, { merge: true });
+    tx.set(logRef, {
+      acao: 'retencoes.lancar',
+      detalhe: { ano: Number(ano), quantidade: saida.length, numeros: saida.map(r => r.numero) },
+      uid: sessao.uid, nome: sessao.nome || sessao.email, em: serverTimestamp()
+    });
     return saida;
   });
 }
-
 /**
  * Renumera as retenções do ano (em transação). calcular(lancamentos) devolve { mudancas: { id: { seq, numero } }, ultimo }.
  */
 export async function renumerarRetencoes(ano, calcular) {
   if (!sessao || !['admin', 'operador'].includes(sessao.perfil)) throw Error('Acesso restrito à Contabilidade e ADM.');
   const ref = doc(fs, 'retencoes_anos', String(ano));
+  const logRef = doc(collection(fs, 'logs'));
   return runTransaction(fs, async tx => {
     const atual = await tx.get(ref);
     if (!atual.exists()) return 0;
     const { mudancas, ultimo } = calcular(atual.data().lancamentos || {});
     const n = Object.keys(mudancas).length;
-    if (n) tx.set(ref, { ultimo, lancamentos: mudancas, atualizado_em: serverTimestamp(), atualizado_por: autor() }, { merge: true });
+    if (n) {
+      tx.set(ref, { ultimo, lancamentos: mudancas, atualizado_em: serverTimestamp(), atualizado_por: autor() }, { merge: true });
+      tx.set(logRef, {
+        acao: 'retencoes.renumerar',
+        detalhe: { ano: Number(ano), quantidade: n },
+        uid: sessao.uid, nome: sessao.nome || sessao.email, em: serverTimestamp()
+      });
+    }
     return n;
   });
 }
-
 /** Gravação em lote (importação). operacoes = [{ colecao, id, dados }] */
 export async function gravarEmLote(operacoes, progresso) {
   const falhas = [];
