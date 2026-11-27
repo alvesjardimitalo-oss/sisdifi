@@ -3,7 +3,7 @@
 // Contabilidade (Assistência Social por servidor, Custeio SUS e FUNDEB por
 // fonte, Atenção Básica por ficha). Nomes fictícios.
 import assert from 'node:assert/strict';
-import { lerPodePagar, mesmoServidor, quadroDaFolha, coberturaPorConta } from '../assets/js/folha-cobertura.js';
+import { lerPodePagar, mesmoServidor, quadroDaFolha, coberturaPorConta, ehDeAgente, fontesDaConta, previsaoDaFolha } from '../assets/js/folha-cobertura.js';
 
 let ok = 0; const falhas = [];
 const t = (nome, fn) => { try { fn(); ok++; } catch (e) { falhas.push(nome + ': ' + e.message); } };
@@ -119,6 +119,45 @@ t('nome da lista que não está na folha, ou que é de mais de um servidor, vai 
   const contas = [{ id: 'x', nome: 'Farmácia', fonte: '1621', saldo: 100, podePagar: 'Zélia, Ana' }];
   const r = coberturaPorConta([], contas, info, QUADRO);
   assert.deepEqual(r.conferencia.map(c => [c.nome, c.achados.length]), [['Zélia', 0], ['Ana', 2]]);
+});
+
+t('conta com mais de uma fonte', () => {
+  assert.deepEqual(fontesDaConta('1600, 1604'), ['1600', '1604']);
+  assert.deepEqual(fontesDaConta('1.600.000.0000'), ['1600']);
+  assert.deepEqual(fontesDaConta('1600 e 1604'), ['1600', '1604']);
+});
+
+t('agentes de endemias têm prioridade no saldo do Custeio SUS, na fonte 1604', () => {
+  const contas = [{ id: 'sus', nome: 'Custeio SUS', fonte: '1600, 1604', saldo: 1000000 }];
+  const ab = emp(1, '227', '1500', 700000, 'AB-EFETIVOS');
+  const agentes = { ...emp(2, '226', '1500', 600000, 'AB-AGENTES'), caminho: ['SECRETARIA MUNIC. DE SAUDE', 'ATENCAO BASICA', 'AGENTES DE ENDEMIAS'] };
+  assert.ok(ehDeAgente(agentes));
+  assert.ok(!ehDeAgente(ab));
+  const r = coberturaPorConta([ab, agentes], contas, info, null);
+  // Os agentes vêm depois na folha, mas usam o saldo primeiro.
+  assert.deepEqual(r.propostas.map(p => [p.empenho, p.fonte]), [[1, '1002'], [2, '1604']]);
+  assert.match(r.propostas[1].motivo, /prioridade dos agentes/);
+  assert.deepEqual(r.uso[0].empenhos, [2]);
+  assert.equal(r.uso[0].sobra, 400000);
+});
+
+t('a 1604 não é oferecida a quem não é agente, e agente já na 1604 fica nela', () => {
+  const contas = [{ id: 'sus', nome: 'Custeio SUS', fonte: '1600, 1604', saldo: 1000000 }];
+  const r = coberturaPorConta([emp(1, '226', '1604', 300000, 'X'), emp(2, '226', '1500', 300000, 'Y')], contas, info, null);
+  assert.deepEqual(r.propostas.map(p => p.fonte), ['1604', '1600']);
+});
+
+t('previsão: quanto sai das contas e quanto do recurso próprio', () => {
+  const contas = [{ id: 'sus', nome: 'Custeio SUS', fonte: '1600, 1604', saldo: 1000000 }];
+  const es = [emp(1, '227', '1500', 700000, 'AB'), { ...emp(2, '226', '1500', 600000, 'AGT'), caminho: ['AGENTES DE ENDEMIAS'] },
+    emp(3, '65', '1500', 200000, 'ADM')];
+  const r = coberturaPorConta(es, contas, info, null);
+  const p = previsaoDaFolha(es, r.propostas);
+  assert.equal(p.total, 1500000);
+  assert.equal(p.contas, 600000);       // agentes na 1604
+  assert.equal(p.propria, 900000);      // atenção básica (1002) e administração (1500)
+  assert.equal(p.pctContas, 40);
+  assert.deepEqual(p.porFonte.map(x => [x.fonte, x.valor]), [['1604', 600000], ['1002', 700000], ['1500', 200000]]);
 });
 
 console.log(`folha-cobertura: ${ok} ok, ${falhas.length} falhas`);

@@ -20,7 +20,7 @@ import { telaParametros, telaUsuarios, telaImportar, telaAuditoria, telaConta } 
 import { telaImprimir } from './views/imprimir.js';
 import { telaConferencia } from './views/conferencia.js';
 import { telaRelatorio } from './views/relatorio.js';
-import { telaConsignacoes } from './views/consignacoes.js?v=3.13.2.b70908ba';
+import { telaConsignacoes } from './views/consignacoes.js?v=3.13.2.e926d9a2';
 import { telaDuodecimo } from './views/duodecimo.js?v=3.14.1.8bb0c6f0';
 import { telaRetencoes } from './views/retencoes.js?v=3.22.0.1b476131';
 import { telaCopasa } from './views/copasa.js?v=3.22.0.b19a4d74';
@@ -28,7 +28,7 @@ import { telaCopasa } from './views/copasa.js?v=3.22.0.b19a4d74';
 function telaFolhaEmpenhos(elemento, contexto) {
   let ativa = true, encerrarModulo = null;
   elemento.innerHTML = '<div class="carregando-tela"><div class="spinner"></div><p>Abrindo folha de pagamentos…</p></div>';
-  import('./views/folha-empenhos.js?v=3.22.0.6ea5df9d').then(modulo => {
+  import('./views/folha-empenhos.js?v=3.22.0.9860bdb9').then(modulo => {
     if (!ativa || !elemento.isConnected) return;
     const retorno = modulo.telaFolhaEmpenhos(elemento, contexto);
     if (typeof retorno?.limpar === 'function') encerrarModulo = retorno.limpar;

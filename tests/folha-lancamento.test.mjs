@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { linhaDeLancamento, linhasDeLancamento, composicaoDaLiquidacao,
   distribuirFontesPorSaldo, linhasDaPlanilha, textoParaColar, secretariaDaPlanilha } from '../assets/js/folha-lancamento.js';
-import { idDaPlanilha, abaDoMes, valoresParaAPI, letraColuna, itensNoCabecalho, pedidosParaModelo, modeloDaAba, pedidosDeFormato, pedidosDeCores, CORES_SECRETARIA, pedidosDeGrupos } from '../assets/js/folha-planilha-google.js';
+import { idDaPlanilha, abaDoMes, valoresParaAPI, letraColuna, itensNoCabecalho, pedidosParaModelo, modeloDaAba, pedidosDeFormato, pedidosDeCores, CORES_SECRETARIA, pedidosDeGrupos, pedidoDeMarcaRecurso, ehMarcaRecurso } from '../assets/js/folha-planilha-google.js';
 
 let ok = 0; const falhas = [];
 const t = (nome, fn) => { try { fn(); ok++; } catch (e) { falhas.push(nome + ': ' + e.message); } };
@@ -287,6 +287,15 @@ t('cada secretaria tem uma cor só, em toda a linha, e linhas seguidas vão junt
     'OBRAS PUBLICAS', 'MEIO AMBIENTE', 'LIMPEZA URBANA', 'SEC. EDUCAÇÃO', 'FUNDEB', 'SECRETARIA DE SAÚDE', 'HOSPITAL MUNICIPAL', 'SEC. AÇÃO SOCIAL'];
   assert.ok(nomes.every(n => CORES_SECRETARIA[n]));
   assert.equal(new Set(Object.values(CORES_SECRETARIA)).size, Object.keys(CORES_SECRETARIA).length);
+});
+
+t('empenho fora do recurso próprio: nº e fonte em verde, por formatação condicional', () => {
+  const p = pedidoDeMarcaRecurso(42).addConditionalFormatRule.rule;
+  assert.deepEqual(p.ranges.map(r => [r.startColumnIndex, r.startRowIndex]), [[1, 3], [4, 3]]);
+  const f = p.booleanRule.condition.values[0].userEnteredValue;
+  assert.equal(f, '=AND(LEN($E4)>0;$E4&""<>"1500";$E4&""<>"1001";$E4&""<>"1002")');
+  assert.ok(!f.includes(','), 'planilha em português: separador ";"');
+  assert.ok(ehMarcaRecurso(p));
 });
 
 console.log(`folha-lancamento: ${ok} ok, ${falhas.length} falhas`);

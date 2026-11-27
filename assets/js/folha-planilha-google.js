@@ -80,8 +80,8 @@ export const itensNoCabecalho = (itens = []) => ROTULOS_ITENS_PLANILHA.every((r,
 
 /** Abas da planilha, a do mês, quantos empenhos ela já tem, o cabeçalho e os grupos de colunas. */
 export async function situacaoDaPlanilha(token, planilhaId, competencia) {
-  const info = await chamar(API + planilhaId + '?fields=properties.title,sheets(properties(sheetId,title),columnGroups)', token);
-  const abas = (info.sheets || []).map(s => ({ ...s.properties, grupos: s.columnGroups || [] }));
+  const info = await chamar(API + planilhaId + '?fields=properties.title,sheets(properties(sheetId,title),columnGroups,conditionalFormats)', token);
+  const abas = (info.sheets || []).map(s => ({ ...s.properties, grupos: s.columnGroups || [], regras: s.conditionalFormats || [] }));
   const aba = abaDoMes(abas.map(a => a.title), competencia);
   const base = { titulo: info.properties?.title || '', titulos: abas.map(a => a.title), aba, sheetId: null, preenchidas: 0,
     modelo: '', cabecalho: [], grupos: [] };
@@ -93,7 +93,8 @@ export async function situacaoDaPlanilha(token, planilhaId, competencia) {
   const [empenhos, cab] = (v.valueRanges || []).map(x => x.values || []);
   const preenchidas = (empenhos || []).filter(r => String(r[0] || '').trim()).length;
   const cabecalho = cab?.[0] || [];
-  return { ...base, sheetId: dados.sheetId, preenchidas, cabecalho, grupos: dados.grupos, modelo: modeloDaAba(cabecalho) };
+  return { ...base, sheetId: dados.sheetId, preenchidas, cabecalho, grupos: dados.grupos, modelo: modeloDaAba(cabecalho),
+    temMarcaRecurso: dados.regras.some(r => ehMarcaRecurso(r)) };
 }
 
 const larguras = (sheetId, colunas) => colunas.map(([c0, c1, px]) => ({ updateDimensionProperties: {
@@ -173,6 +174,21 @@ export function pedidosDeGrupos(sheetId, grupos = []) {
   return pedidos;
 }
 
+/* Empenho pago por conta estadual/federal (fonte que não é recurso próprio):
+   o nº do empenho (B) e a fonte (E) ficam em verde e negrito. É formatação
+   condicional, então acompanha se a fonte for trocada à mão na planilha.
+   A planilha é em português: os argumentos da fórmula vão separados por
+   ";" — com "," o Google recusa. */
+const FORMULA_MARCA_RECURSO = '=AND(LEN($E' + PRIMEIRA_LINHA + ')>0;' +
+  ['1500', '1001', '1002'].map(f => '$E' + PRIMEIRA_LINHA + '&""<>"' + f + '"').join(';') + ')';
+export const ehMarcaRecurso = r => (r?.booleanRule?.condition?.values || []).some(v => /1500/.test(v.userEnteredValue || '') && /1001/.test(v.userEnteredValue || ''));
+export function pedidoDeMarcaRecurso(sheetId) {
+  const coluna = c => ({ sheetId, startRowIndex: PRIMEIRA_LINHA - 1, endRowIndex: 1000, startColumnIndex: c, endColumnIndex: c + 1 });
+  return { addConditionalFormatRule: { index: 0, rule: { ranges: [coluna(1), coluna(D + 1)],
+    booleanRule: { condition: { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: FORMULA_MARCA_RECURSO }] },
+      format: { backgroundColor: { red: 0.2, green: 0.62, blue: 0.35 }, textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } } } } } } };
+}
+
 /** Põe a aba do mês no modelo atual e cria os grupos que faltam. */
 export async function prepararAba(token, planilhaId, sit) {
   const lote = pedidos => chamar(API + planilhaId + ':batchUpdate', token, { method: 'POST', body: JSON.stringify({ requests: pedidos }) });
@@ -185,6 +201,7 @@ export async function prepararAba(token, planilhaId, sit) {
     grupos = (info.sheets || []).find(s => s.properties?.sheetId === sit.sheetId)?.columnGroups || [];
   }
   const g = pedidosDeGrupos(sit.sheetId, grupos);
+  if (!sit.temMarcaRecurso) g.push(pedidoDeMarcaRecurso(sit.sheetId));
   if (g.length) await lote(g);
   return colunas.length > 0 || g.length > 0;
 }

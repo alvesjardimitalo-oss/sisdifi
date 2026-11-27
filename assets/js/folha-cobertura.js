@@ -28,10 +28,20 @@ import { dinheiroFolha } from './folha-empenhos.js';
 import { ESPELHO_RECURSO_PROPRIO, codigoFonte } from './folha-saldos.js';
 
 const PROPRIAS = ['1500', '1001', '1002'];
-/* 1604 paga só agente comunitário de saúde e 1605 só o piso da enfermagem:
-   ficam onde a Contabilidade as pôs, consumindo o saldo, e não são oferecidas
-   a outros empenhos. */
+/* 1604 paga os agentes (comunitários de saúde e de endemias) e 1605 o piso da
+   enfermagem: não são oferecidas a outros empenhos. Os agentes são pagos pela
+   mesma conta do Custeio SUS (conta com fontes "1600, 1604"), e TÊM
+   PRIORIDADE no saldo dela — o recurso vem para custear o pagamento deles —:
+   os empenhos dos agentes são cobertos primeiro, e o que sobra vai para os
+   outros empenhos da Atenção Básica. */
 const DE_CATEGORIA = ['1604', '1605'];
+/* Empenho de agente: o RH lota os agentes à parte (a lotação é por
+   modalidade/categoria). Vale também quando a Contabilidade já pôs 1604. */
+export const ehDeAgente = e => codigoFonte(e.fonte) === '1604' ||
+  /ENDEMIA|AGENTES?\s+(COMUNIT|DE\s+(SAUDE|ENDEMIAS|COMBATE))|\bACS\b|\bACE\b/.test(semAcentoTexto([...(e.caminho || []), e.lotacaoNome || '', e.vinculo || ''].join(' ')));
+const semAcentoTexto = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+/** Fontes de uma conta: "1600, 1604" ou "1.600.000.0000". A primeira é a principal. */
+export const fontesDaConta = f => String(f || '').split(/[,;/]|\s+e\s+/).map(codigoFonte).filter(x => x && x.length === 4);
 const num = v => (Number.isSafeInteger(v) ? v : 0);
 
 const semAcento = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
@@ -103,7 +113,8 @@ export function quadroDaFolha(servidores = [], codigosDesconto = new Set()) {
 export function coberturaPorConta(empenhos = [], contas = [], fichaInfo = () => null, quadro = null) {
   const peso = c => (c.regra?.nomes.length ? 0 : c.regra?.fichas.size ? 1 : 2);
   const lista = (contas || [])
-    .map((c, k) => ({ ...c, k, fonte: codigoFonte(c.fonte), saldo: Number(c.saldo), regra: lerPodePagar(c.podePagar) }))
+    .map((c, k) => { const fontes = fontesDaConta(c.fonte);
+      return { ...c, k, fontes, fonte: fontes[0] || '', saldo: Number(c.saldo), regra: lerPodePagar(c.podePagar) }; })
     .filter(c => c.fonte && !PROPRIAS.includes(c.fonte) && Number.isFinite(c.saldo))
     .sort((a, b) => peso(a) - peso(b) || a.k - b.k)
     .map(c => ({ ...c, restante: c.saldo, usado: 0, empenhos: [] }));
@@ -114,51 +125,52 @@ export function coberturaPorConta(empenhos = [], contas = [], fichaInfo = () => 
 
   const servidoresDe = e => (temQuadro ? quadro[e.lotacao] || null : null);
   // A conta pode pagar este empenho inteiro? E, se não, quem dele ela pagaria?
-  const avaliar = (c, e, admitidas) => {
-    if (c.fonte !== codigoFonte(e.fonte) && !admitidas.includes(c.fonte)) return { pode: false };
-    if (DE_CATEGORIA.includes(c.fonte) && codigoFonte(e.fonte) !== c.fonte) return { pode: false };
+  /* Fonte com que a conta pagaria o empenho: a de categoria (1604) só para o
+     empenho daquela categoria; as outras, se a ficha admite. */
+  const fonteParaEmpenho = (c, e, admitidas, categoria) => categoria
+    ? (c.fontes.includes(categoria) && (admitidas.includes(categoria) || codigoFonte(e.fonte) === categoria) ? categoria : '')
+    : c.fontes.find(f => !DE_CATEGORIA.includes(f) && (admitidas.includes(f) || codigoFonte(e.fonte) === f)) || '';
+  const avaliar = (c, e, admitidas, categoria = '') => {
+    const fonte = fonteParaEmpenho(c, e, admitidas, categoria);
+    if (!fonte) return { pode: false };
     const r = c.regra;
-    if (!r) return { pode: true };
-    if (r.fichas.size && r.fichas.has(String(e.ficha))) return { pode: true };
+    if (!r) return { pode: true, fonte };
+    if (r.fichas.size && r.fichas.has(String(e.ficha))) return { pode: true, fonte };
     if (!r.nomes.length) return { pode: false };
     const servidores = servidoresDe(e);
     if (!servidores?.length) return { pode: false };
     const deles = servidores.filter(([nome]) => r.nomes.some(n => mesmoServidor(n.palavras, nome)));
-    return { pode: deles.length === servidores.length, parte: deles, total: servidores.length };
+    return { pode: deles.length === servidores.length, parte: deles, total: servidores.length, fonte };
   };
   const usar = (c, e) => { c.restante -= num(e.bruto); c.usado += num(e.bruto); c.empenhos.push(e.empenho); };
 
-  const propostas = (empenhos || []).map(e => {
+  const decidir = (e, categoria) => {
     const atual = { ficha: String(e.ficha || ''), fonte: codigoFonte(e.fonte) };
     const igual = (motivo, conta = '') => ({ id: e.id, empenho: e.empenho, ...atual, conta, motivo, mudou: false });
     const bruto = num(e.bruto);
     if (!atual.ficha || bruto <= 0) return igual('');
     const info = fichaInfo(atual.ficha) || {};
     const admitidas = (info.fontes || []).map(codigoFonte);
-
-    // Fonte de categoria já escolhida fica, e gasta o saldo da conta dela.
-    if (DE_CATEGORIA.includes(atual.fonte)) {
-      const c = lista.find(x => x.fonte === atual.fonte && avaliar(x, e, admitidas).pode);
-      if (c) { usar(c, e); if (c.restante < 0) avisos.push('Empenho ' + e.empenho + ': a conta ' + c.nome + ' não tem saldo para ele.'); }
-      return igual('fonte ' + atual.fonte + ' mantida (só paga esta categoria)', c?.id || '');
-    }
-
-    const avaliadas = lista.map(c => ({ c, a: avaliar(c, e, admitidas) }));
+    const avaliadas = lista.map(c => ({ c, a: avaliar(c, e, admitidas, categoria) }));
     const cabe = avaliadas.find(({ c, a }) => a.pode && c.restante >= bruto);
     if (cabe) {
       usar(cabe.c, e);
-      return { id: e.id, empenho: e.empenho, ficha: atual.ficha, fonte: cabe.c.fonte, conta: cabe.c.id,
-        motivo: 'conta ' + (cabe.c.nome || cabe.c.fonte) + ' (' + cabe.c.fonte + ')', mudou: cabe.c.fonte !== atual.fonte };
+      return { id: e.id, empenho: e.empenho, ficha: atual.ficha, fonte: cabe.a.fonte, conta: cabe.c.id,
+        motivo: (categoria ? 'prioridade dos agentes: ' : '') + 'conta ' + (cabe.c.nome || cabe.c.fonte) + ' (' + cabe.a.fonte + ')',
+        mudou: cabe.a.fonte !== atual.fonte };
     }
     // Conta que pagaria só parte da lotação: sugestão ao RH.
     for (const { c, a } of avaliadas)
       if (!a.pode && a.parte?.length)
-        sugestoes.push({ conta: c.id, contaNome: c.nome || c.fonte, fonte: c.fonte, empenho: e.empenho, lotacao: e.lotacao,
+        sugestoes.push({ conta: c.id, contaNome: c.nome || c.fonte, fonte: a.fonte, empenho: e.empenho, lotacao: e.lotacao,
           secretaria: e.secretaria || '', vinculo: e.vinculo || '', servidores: a.parte.map(([nome, b]) => ({ nome, bruto: b })),
           valor: a.parte.reduce((n, [, b]) => n + b, 0), outros: a.total - a.parte.length });
     // Conta que pagaria o empenho inteiro, mas o saldo não dá.
     const semSaldo = avaliadas.filter(({ a }) => a.pode).map(({ c }) => c.nome || c.fonte);
+    if (categoria && !semSaldo.length && !lista.some(c => c.fontes.includes(categoria)))
+      return igual(atual.fonte === categoria ? 'fonte ' + categoria + ' mantida (só paga esta categoria; nenhuma conta com ' + categoria + ' informada)' : '');
     const motivo = semSaldo.length ? 'saldo de ' + semSaldo.join(', ') + ' não cobre ' + dinheiroFolha(bruto) + ': recurso próprio' : '';
+    if (categoria && semSaldo.length) avisos.push('Empenho ' + e.empenho + ' (agentes, ' + categoria + '): o saldo de ' + semSaldo.join(', ') + ' não cobre ' + dinheiroFolha(bruto) + '.');
     const espelho = ESPELHO_RECURSO_PROPRIO[atual.ficha];
     if (semSaldo.length && espelho)
       return { id: e.id, empenho: e.empenho, ficha: espelho.ficha, fonte: '1001', conta: '', motivo: motivo + ' (ficha ' + espelho.ficha + ')',
@@ -166,7 +178,19 @@ export function coberturaPorConta(empenhos = [], contas = [], fichaInfo = () => 
     if (semSaldo.length && info.propria)
       return { id: e.id, empenho: e.empenho, ficha: atual.ficha, fonte: info.propria, conta: '', motivo, mudou: info.propria !== atual.fonte };
     return igual(motivo);
-  });
+  };
+  /* Primeiro os empenhos de categoria (agentes na 1604, piso na 1605), que
+     têm prioridade no saldo da conta que os paga; depois os demais, na ordem
+     da folha. As propostas voltam na ordem da folha. */
+  const categoriaDe = e => {
+    const f = codigoFonte(e.fonte);
+    if (DE_CATEGORIA.includes(f)) return f;
+    return ehDeAgente(e) ? '1604' : '';
+  };
+  const porId = new Map();
+  for (const e of empenhos || []) { const cat = categoriaDe(e); if (cat) porId.set(e.id, decidir(e, cat)); }
+  for (const e of empenhos || []) if (!porId.has(e.id)) porId.set(e.id, decidir(e, ''));
+  const propostas = (empenhos || []).map(e => porId.get(e.id));
 
   // Nomes da lista que não aparecem na folha, ou que aparecem em mais de um servidor.
   const conferencia = [];
@@ -180,7 +204,33 @@ export function coberturaPorConta(empenhos = [], contas = [], fichaInfo = () => 
   for (const s of sugestoes) s.cabe = (lista.find(c => c.id === s.conta)?.restante ?? 0) >= s.valor;
 
   return { propostas, avisos, sugestoes, conferencia,
-    uso: lista.map(c => ({ id: c.id, nome: c.nome, fonte: c.fonte, saldo: c.saldo, usado: c.usado, sobra: c.restante,
+    uso: lista.map(c => ({ id: c.id, nome: c.nome, fonte: c.fontes.join(', '), saldo: c.saldo, usado: c.usado, sobra: c.restante,
       empenhos: c.empenhos, regra: c.regra ? (c.regra.nomes.length ? 'servidores' : 'fichas') : 'livre' })),
     mudancas: propostas.filter(p => p.mudou).length };
+}
+
+/**
+ * Previsão do mês: quanto da folha (bruto dos empenhos) sai das contas
+ * vinculadas e quanto do recurso próprio, e a divisão por fonte — depois da
+ * cobertura, com a fonte que cada empenho teria pela proposta.
+ * O salário-família e a maternidade ficam de fora: são OP extraorçamentária.
+ */
+export function previsaoDaFolha(empenhos = [], propostas = []) {
+  const porId = new Map((propostas || []).map(p => [p.id, p]));
+  const fontes = new Map();
+  let total = 0, propria = 0, contas = 0, semFonte = 0;
+  for (const e of empenhos || []) {
+    const bruto = num(e.bruto);
+    if (bruto <= 0) continue;
+    total += bruto;
+    const f = codigoFonte(porId.get(e.id)?.fonte || e.fonte);
+    if (!f) { semFonte += bruto; continue; }
+    if (PROPRIAS.includes(f)) propria += bruto; else contas += bruto;
+    const x = fontes.get(f) || { fonte: f, valor: 0, empenhos: 0, propria: PROPRIAS.includes(f) };
+    x.valor += bruto; x.empenhos++;
+    fontes.set(f, x);
+  }
+  const pct = v => (total ? Math.round(v / total * 1000) / 10 : 0);
+  return { total, contas, propria, semFonte, pctContas: pct(contas), pctPropria: pct(propria),
+    porFonte: [...fontes.values()].sort((a, b) => Number(a.propria) - Number(b.propria) || b.valor - a.valor).map(x => ({ ...x, pct: pct(x.valor) })) };
 }

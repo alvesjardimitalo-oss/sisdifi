@@ -9,13 +9,13 @@
 // 4 · Ficha, fonte e conta de cada empenho, descontando do saldo
 // 5 · Confirmar a folha → consignados e pensões por fonte vão para Consignações por mês
 import {estado,pode} from '../estado.js';
-import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificacaoPessoal,sugerirFichaDaLotacao,fontesParaEscolher,FICHAS_PESSOAL_2026,fonteDaFicha,codigoCurto} from '../folha-orcamento-2026.js';
+import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificacaoPessoal,sugerirFichaDaLotacao,fontesParaEscolher,FICHAS_PESSOAL_2026,fonteDaFicha,codigoCurto,nomeDaFonte} from '../folha-orcamento-2026.js';
 import {esc,toast} from '../ui.js';
 import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha,tipoDeFolhaCabecalho,competenciaNoResumo,pagamentosConsignados,atualizarFeriasNoResumo,emitirTextoCSV} from '../folha-empenhos.js?v=3.23.0.997c05d0';
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
 import {varrerServidores,codigosDeDesconto} from '../folha-servidores.js';
-import {coberturaPorConta,quadroDaFolha} from '../folha-cobertura.js';
+import {coberturaPorConta,quadroDaFolha,previsaoDaFolha} from '../folha-cobertura.js';
 import {pensoesParaOP,chaveCadastro,RUBRICAS_PENSAO} from '../folha-pensoes.js?v=3.26.0.6d3bdba8';
 import {passosDoEmpenho,conferirEmpenho,fichasOPpendentes,modeloDoEmpenho,textoDoModelo,MODELOS_HISTORICO} from '../folha-transcrever.js';
 import {ordemDasLotacoes} from '../folha-ordem.js?v=3.23.0.06d2837c';
@@ -26,7 +26,7 @@ import {idDaPlanilha,situacaoDaPlanilha,prepararAba,escreverNaPlanilha,PRIMEIRA_
 import {ouvir,ouvirDoc,salvar,substituir,excluir,campoApagado,tokenGooglePlanilhas} from '../db.js';
 import {carregarMes,salvarMes} from '../consignacoes-mensal.js?v=3.13.0.357fc820';
 import {saldosDasContas,consignadosPorFonte,etapasDaFolha,avisosDaConta,contaParaFonte,rotuloConta,novaContaId,
-  normalizarFonte,assinaturaDaFolha,previstoParaConsignacoes} from '../folha-fluxo.js?v=3.23.0.d0b07bba';
+  normalizarFonte,assinaturaDaFolha,previstoParaConsignacoes} from '../folha-fluxo.js?v=3.23.0.b39bf8aa';
 
 const CADASTRO_PENSAO='pensoes-beneficiarios';
 const tipos={principal:'Folha principal',extra:'Folha extra · incentivo federal (dia 10)',decimo:'Adiantamento de 50% do 13º',rescisao:'Rescisões'};
@@ -437,7 +437,7 @@ export function telaFolhaEmpenhos(el){
     $('#fe-contas').innerHTML='<table><thead><tr><th>Nome da conta</th><th>Banco / agência / conta</th><th>Fonte de recurso</th><th class="fe-money">Saldo em '+esc(competencia.slice(5)+'/'+competencia.slice(0,4))+'</th><th>Pode pagar</th><th class="fe-money">Folha nesta conta</th><th class="fe-money">Saldo depois</th><th></th></tr></thead><tbody>'+
       (contas.length?sit.contas.map(c=>'<tr><td><input style="width:190px" data-conta="'+esc(c.id)+'" data-campo="nome" value="'+esc(c.nome||'')+'" placeholder="Ex.: FUNDEB 70%"></td>'+
         '<td><input style="width:190px" data-conta="'+esc(c.id)+'" data-campo="numero" value="'+esc(c.numero||'')+'" placeholder="Ex.: BB 1234-5 / 6789-0"></td>'+
-        '<td><input style="width:150px" list="fe-fontes" data-conta="'+esc(c.id)+'" data-campo="fonte" value="'+esc(c.fonte||'')+'" placeholder="1.540.000.0000"></td>'+
+        '<td><input style="width:150px" list="fe-fontes" data-conta="'+esc(c.id)+'" data-campo="fonte" value="'+esc(c.fonte||'')+'" placeholder="1540 · ou várias: 1600, 1604"></td>'+
         '<td class="fe-money"><input style="width:130px;text-align:right" inputmode="decimal" data-conta="'+esc(c.id)+'" data-campo="saldo" value="'+(c.saldo==null?'':formato(c.saldo))+'" placeholder="0,00"></td>'+
         '<td><textarea rows="2" style="width:260px;font-size:.85rem" data-conta="'+esc(c.id)+'" data-campo="podePagar" placeholder="Vazio: qualquer lotação da fonte. Ou nomes dos servidores, ou nº das fichas, separados por vírgula">'+esc(c.podePagar||'')+'</textarea></td>'+
         '<td class="fe-money">'+dinheiroFolha(c.utilizado)+'</td>'+
@@ -450,7 +450,7 @@ export function telaFolhaEmpenhos(el){
       const c=contaPorId(i.dataset.conta);if(!c)return;
       try{
         if(i.dataset.campo==='saldo'){const v=lerValor(i.value);if(v!=null&&v<0)throw Error('O saldo não pode ser negativo.');if(v==null)delete saldos[c.id];else saldos[c.id]=v;}
-        else if(i.dataset.campo==='fonte')c.fonte=normalizarFonte(i.value);
+        else if(i.dataset.campo==='fonte')c.fonte=i.value.split(/[,;/]|\s+e\s+/).map(x=>normalizarFonte(x.trim())).filter(Boolean).join(', ');
         else c[i.dataset.campo]=i.value.trim();
         persistir();render();
       }catch(e){toast(e.message,'erro');render();}
@@ -732,7 +732,7 @@ export function telaFolhaEmpenhos(el){
       else if(campo==='contaId'){
         const c=contaPorId(input.value);
         mapa[k]={...(mapa[k]||{}),contaId:input.value};
-        if(c?.fonte&&!mapa[k].fonte)mapa[k].fonte=c.fonte;
+        if(c?.fonte&&!mapa[k].fonte)mapa[k].fonte=c.fonte.split(',')[0].trim();
       }else{
         mapa[k]={...(mapa[k]||{}),[campo]:campo==='fonte'?normalizarFonte(input.value):input.value.trim()};
         if(campo==='fonte')sugerirConta(k);
@@ -860,7 +860,7 @@ export function telaFolhaEmpenhos(el){
   const linkPlanilha=()=>{try{return localStorage.getItem('sisdifi-folha-planilha')||'';}catch(e){return '';}};
   const somenteValor=c=>(c/100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
   /* Saldo por fonte, das contas da etapa 3, na ordem das contas. */
-  const contasComSaldo=()=>contas.filter(c=>c.fonte&&saldos[c.id]!=null).map(c=>({id:c.id,nome:c.nome||rotuloConta(c),fonte:codigoCurto(c.fonte),saldo:saldos[c.id],podePagar:c.podePagar||''}));
+  const contasComSaldo=()=>contas.filter(c=>c.fonte&&saldos[c.id]!=null).map(c=>({id:c.id,nome:c.nome||rotuloConta(c),fonte:c.fonte,saldo:saldos[c.id],podePagar:c.podePagar||''}));
   const fichaInfo=ficha=>{
     const ref=localizarFicha(ficha);
     if(!ref)return null;
@@ -936,7 +936,18 @@ export function telaFolhaEmpenhos(el){
     /* Cobertura das contas: quanto de cada saldo a folha usa, o que vai para o
        recurso próprio e o que o RH poderia separar para usar melhor o saldo. */
     const tipoRegra={servidores:'servidores pelo nome',fichas:'fichas',livre:'qualquer lotação da fonte'};
-    const usoSaldo=rateio.uso.length?'<details class="fe-sub" open><summary><strong>Cobertura das contas</strong> · saldo informado na etapa 3, comparado com o bruto de cada empenho</summary>'+
+    /* Previsão do mês com a cobertura aplicada: contas × recurso próprio. */
+    const prev=previsaoDaFolha(p.empenhos,rateio.propostas);
+    const barra='<div style="display:flex;height:14px;border-radius:7px;overflow:hidden;margin:6px 0;background:#e5e7eb">'+
+      '<div style="width:'+prev.pctContas+'%;background:#16a34a" title="Contas"></div><div style="width:'+prev.pctPropria+'%;background:#f59e0b" title="Recurso próprio"></div></div>';
+    const previsao='<div class="fe-card" style="margin:8px 0;padding:10px 12px"><strong>Previsão do mês</strong> · bruto dos empenhos '+dinheiroFolha(prev.total)+barra+
+      '<span style="color:#15803d"><strong>'+dinheiroFolha(prev.contas)+'</strong> das contas estaduais e federais ('+prev.pctContas.toLocaleString('pt-BR')+'%)</span> · '+
+      '<span style="color:#b45309"><strong>'+dinheiroFolha(prev.propria)+'</strong> de recurso próprio ('+prev.pctPropria.toLocaleString('pt-BR')+'%)</span>'+
+      (prev.semFonte?' · <span class="ruim">'+dinheiroFolha(prev.semFonte)+' sem fonte</span>':'')+
+      '<div class="fe-scroll"><table style="margin-top:6px"><thead><tr><th>Fonte</th><th></th><th class="n">Valor</th><th class="n">%</th><th class="n">Empenhos</th></tr></thead><tbody>'+
+      prev.porFonte.map(x=>'<tr><td>'+esc(x.fonte)+'</td><td>'+esc(nomeDaFonte(x.fonte)||'')+(x.propria?' <small class="fe-muted">(próprio)</small>':'')+'</td><td class="n">'+somenteValor(x.valor)+'</td><td class="n">'+x.pct.toLocaleString('pt-BR')+'%</td><td class="n">'+x.empenhos+'</td></tr>').join('')+
+      '</tbody></table></div><small class="fe-muted">Já com as fontes propostas pela cobertura das contas. Salário-família e maternidade ficam de fora: são OP extraorçamentária.</small></div>';
+    const usoSaldo=rateio.uso.length?'<details class="fe-sub" open><summary><strong>Cobertura das contas</strong> · saldo informado na etapa 3, comparado com o bruto de cada empenho</summary>'+previsao+
         '<div class="fe-scroll"><table style="margin:8px 0"><thead><tr><th>Conta</th><th>Fonte</th><th>Paga</th><th class="n">Saldo</th><th class="n">Usado pela folha</th><th class="n">Sobra</th><th>Empenhos</th></tr></thead><tbody>'+
         rateio.uso.map(u=>'<tr><td>'+esc(u.nome||'')+'</td><td>'+esc(u.fonte)+'</td><td>'+esc(tipoRegra[u.regra])+'</td><td class="n">'+somenteValor(u.saldo)+'</td>'+
           '<td class="n">'+somenteValor(u.usado)+'</td><td class="n'+(u.sobra<0?' ruim':'')+'">'+somenteValor(u.sobra)+'</td><td>'+(u.empenhos.join(', ')||'—')+'</td></tr>').join('')+

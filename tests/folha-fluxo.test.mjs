@@ -168,5 +168,15 @@ t('a folha mensal segue a ordem da planilha da Contabilidade, não a do RH', () 
   assert.equal(new Set(ORDEM_FOLHA_MENSAL).size, 92);
 });
 
+import { contaTemFonte, avisosDaConta as avisosConta2, contaParaFonte as contaParaFonte2 } from '../assets/js/folha-fluxo.js';
+t('conta com duas fontes (Custeio SUS: 1600 e 1604 dos agentes)', () => {
+  const sus = { id: 's', fonte: '1.600.000.0000, 1.604.000.0000' };
+  assert.ok(contaTemFonte(sus, '1604'));
+  assert.ok(contaTemFonte(sus, '1.600.000.0000'));
+  assert.ok(!contaTemFonte(sus, '1500'));
+  assert.deepEqual(avisosConta2({ contaId: 's', fonte: '1604' }, sus), []);
+  assert.equal(contaParaFonte2([sus, { id: 'r', fonte: '1500' }], '1604')?.id, 's');
+});
+
 if (falhas.length) { console.error(falhas.join('\n')); process.exit(1); }
 console.log(`folha-fluxo: ${ok} ok, 0 falhas`);

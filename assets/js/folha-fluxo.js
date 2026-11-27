@@ -75,18 +75,23 @@ export function saldosDasContas(contas = [], saldos = {}, empenhos = []) {
 }
 
 /** Avisos da conta escolhida para um empenho (não altera nada). */
+/* Uma conta pode pagar mais de uma fonte: o Custeio SUS paga a 1600 e a dos
+   agentes, 1604 ("1600, 1604"). */
+export const fontesDaContaTexto = f => String(f || '').split(/[,;/]|\s+e\s+/).map(x => x.trim()).filter(Boolean);
+export const contaTemFonte = (conta, fonte) => fontesDaContaTexto(conta?.fonte).some(f => mesmaFonte(f, fonte));
+
 export function avisosDaConta(empenho, conta) {
   if (!empenho.contaId) return ['Escolher a conta bancária'];
   if (!conta) return ['A conta escolhida não está mais cadastrada'];
   const avisos = [];
-  if (conta.fonte && empenho.fonte && !mesmaFonte(conta.fonte, empenho.fonte))
+  if (conta.fonte && empenho.fonte && !contaTemFonte(conta, empenho.fonte))
     avisos.push('A fonte do empenho (' + empenho.fonte + ') é diferente da fonte da conta (' + conta.fonte + ')');
   return avisos;
 }
 
 /** Conta sugerida para uma fonte: só quando existe exatamente uma conta com ela. */
 export function contaParaFonte(contas = [], fonte) {
-  const achadas = contas.filter(c => mesmaFonte(c.fonte, fonte));
+  const achadas = contas.filter(c => contaTemFonte(c, fonte));
   return achadas.length === 1 ? achadas[0] : null;
 }
 
