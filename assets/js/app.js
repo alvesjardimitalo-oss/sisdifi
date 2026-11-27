@@ -294,7 +294,7 @@ let protegeuDados = false;
 function protegerDadosAntigos(publicos) {
   if (protegeuDados || !pode.contabil()) return;
   protegeuDados = true;
-  const comDado = publicos.filter(s => 'cpf' in s || 'chave_pix' in s);
+  const comDado = publicos.filter(s => 'cpf' in s || 'cpf_anterior' in s || 'chave_pix' in s || s.privacidade_migrada !== true);
   if (comDado.length) db.protegerDadosServidores(comDado).then(() => db.registrarLog('servidores.proteger_dados', { quantidade: comDado.length }))
     .catch(() => { protegeuDados = false; });
 }
