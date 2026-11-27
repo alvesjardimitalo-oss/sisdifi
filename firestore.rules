@@ -227,7 +227,7 @@ service cloud.firestore {
       allow get: if ativo() && exists(/databases/$(database)/documents/solicitacoes/$(id))
         && (perfil() in ['admin', 'operador']
           || (rh() && solicitacaoPai().data.interna == false)
-          || (secretaria() && solicitacaoPai().data.secretaria_id == minhaSecretaria()));
+          || (secretaria() && solicitacaoPai().data.secretaria_id == minhaSecretaria() && solicitacaoPai().data.visivel_secretaria == true));
       allow list: if false;
       allow create: if solicitante()
         && request.resource.data.keys().hasOnly(['solicitacao_id', 'servidor_id', 'secretaria_id', 'cpf', 'cpf_anterior', 'chave_pix'])
