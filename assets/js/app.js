@@ -284,8 +284,9 @@ function completarSecretariaNosValores(base, valores) {
   if (ops.length) db.gravarEmLote(ops).catch(() => { completouSecretaria = false; });
 }
 
-// CPF e Pix: Contabilidade, consulta e RH leem todos; a Secretaria, os da própria pasta; o Controle Interno não lê.
-const lePrivado = () => pode.verValores() || ehRH() || ehSecretaria();
+// CPF e Pix: Admin/Contabilidade e RH leem todos; a Secretaria lê apenas os da própria pasta.
+// O perfil consulta trabalha com CPF mascarado e indicadores públicos.
+const lePrivado = () => pode.contabil() || ehRH() || ehSecretaria();
 
 // Migração LGPD (uma vez): a Contabilidade/admin move CPF e Pix que ainda estão no cadastro público para a área privada,
 // e marca a visibilidade das solicitações antigas.
