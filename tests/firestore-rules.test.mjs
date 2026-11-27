@@ -96,6 +96,8 @@ try {
   await assertSucceeds(getDoc(doc(db('secretaria-a'), 'solicitacoes_privado', 'antiga-com-dados')));
   await assertFails(getDoc(doc(db('secretaria-a'), 'solicitacoes_privado', 'outra-secretaria')));
   await assertFails(getDoc(doc(db('secretaria-a'), 'solicitacoes_privado', 'oculta-secretaria')));
+  await assertSucceeds(getDoc(doc(db('secretaria-a'), 'solicitacoes_privado', 'solicitacao-sem-snapshot')));
+  await assertFails(getDocs(collection(db('operador'), 'solicitacoes_privado')));
   await assertSucceeds(setDoc(doc(db('operador'), 'solicitacoes_privado', 'antiga-saneada'), {
     solicitacao_id: 'antiga-saneada', servidor_id: 'servidor-a', secretaria_id: 'sec-a',
     cpf: '12345678901'
@@ -124,6 +126,8 @@ try {
 
   // CPF e Pix integrais não ficam acessíveis ao perfil de consulta.
   await assertFails(getDoc(doc(db('consulta'), 'servidores_privado', 'servidor-a')));
+  await assertSucceeds(getDoc(doc(db('secretaria-a'), 'servidores_privado', 'privado-inexistente')));
+  await assertSucceeds(getDoc(doc(db('secretaria-a'), 'cpfs', '00000000000')));
   await assertFails(getDoc(doc(db('consulta'), 'cpfs', '12345678901')));
 
   // Contabilidade/RH mantêm acesso funcional; Secretaria só acessa a própria pasta.
