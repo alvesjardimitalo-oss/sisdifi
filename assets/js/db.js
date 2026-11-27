@@ -477,7 +477,7 @@ export async function gravarEmLote(operacoes, progresso) {
     if (auditaveis.length) incluirLogNaGravacao(b, 'financeiro.lote', {
       colecoes: [...new Set(auditaveis.map(op => op.colecao))],
       quantidade: auditaveis.length,
-      documentos: auditaveis.map(op => op.id).slice(0, 100)
+      documentos: auditaveis.map(op => String(op.id || '')).slice(0, 100)
     });
     try {
       await b.commit();
@@ -488,7 +488,7 @@ export async function gravarEmLote(operacoes, progresso) {
           const b1 = writeBatch(fs);
           for (const [ref, d] of expandir(op)) b1.set(ref, d, { merge: true });
           if (COLECOES_COM_AUDITORIA_ATOMICA.has(op.colecao)) incluirLogNaGravacao(b1, 'financeiro.lote', {
-            colecoes: [op.colecao], quantidade: 1, documentos: [op.id]
+            colecoes: [op.colecao], quantidade: 1, documentos: [String(op.id || '')]
           });
           await b1.commit();
         } catch (e2) { falhas.push({ colecao: op.colecao, id: op.id, nome: op.dados.nome || op.dados.numero || op.id, erro: e2.code || e2.message }); }
