@@ -959,7 +959,10 @@ export function telaFolhaEmpenhos(el){
         '</tbody></table></div>'+
       (rateio.mudancas?'<p>'+rateio.mudancas+' empenho(s) mudam de fonte pela cobertura (em azul na coluna Fonte). <button type="button" class="btn" id="fe-aplicar-saldo">Usar as fontes pelo saldo</button></p>':'<p class="fe-muted">As fontes já estão de acordo com a cobertura das contas.</p>')+
       (rateio.sugestoes.length?'<div class="fe-alert"><strong>Sugestões para pedir ao RH</strong> — nestas lotações a conta pode pagar só parte dos servidores, então o empenho inteiro foi para o recurso próprio. Separando esses servidores numa lotação própria, <em>da mesma modalidade</em>, o valor abaixo sairia da conta e não do recurso próprio:<ul>'+
-        rateio.sugestoes.map(x=>'<li>Empenho <strong>'+x.empenho+'</strong> · '+esc(x.secretaria)+(x.vinculo?' · '+esc(x.vinculo):'')+' (lotação '+esc(x.lotacao)+'): '+
+        rateio.sugestoes.map(x=>x.motivo==='agentes de endemias'
+          ?'<li>Empenho <strong>'+x.empenho+'</strong> · '+esc(x.secretaria)+(x.vinculo?' · '+esc(x.vinculo):'')+' (lotação '+esc(x.lotacao)+'): os agentes de endemias '+
+            x.servidores.map(v=>esc(v.nome)+' ('+somenteValor(v.bruto)+')').join(', ')+' estão junto com '+x.outros+' servidor(es) de outros cargos. Separados numa lotação própria, <strong>'+dinheiroFolha(x.valor)+'</strong> iriam na fonte 1604, com prioridade no saldo da conta '+esc(x.contaNome)+'.</li>'
+          :'<li>Empenho <strong>'+x.empenho+'</strong> · '+esc(x.secretaria)+(x.vinculo?' · '+esc(x.vinculo):'')+' (lotação '+esc(x.lotacao)+'): '+
           x.servidores.map(v=>esc(v.nome)+' ('+somenteValor(v.bruto)+')').join(', ')+' → <strong>'+dinheiroFolha(x.valor)+'</strong> na conta '+esc(x.contaNome)+' ('+esc(x.fonte)+')'+
           (x.cabe?'':' <em>— a conta não tem saldo para tudo este mês</em>')+'; ficariam '+x.outros+' servidor(es) na lotação atual.</li>').join('')+'</ul></div>':'')+
       (rateio.conferencia.length?'<p class="fe-alert">Confira os nomes do "pode pagar": '+rateio.conferencia.map(c=>esc(c.nome)+' ('+esc(c.conta)+') '+

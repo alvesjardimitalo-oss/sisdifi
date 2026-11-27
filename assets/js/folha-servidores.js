@@ -70,6 +70,16 @@ export function extrairNome(s) {
   return nome.trim();
 }
 
+/* Cargo: o texto depois do nível ("1_20 / 0073 - AGENTE DE ENDEMIAS
+   01/01/2026 CONTRATADO"), até a data de admissão. É por ele que se sabe quem
+   é agente de endemias (fonte 1604) dentro da Atenção Básica. */
+export function extrairCargo(s) {
+  const bruto = String(s || '');
+  const m = bruto.match(NIVEL);
+  if (!m) return '';
+  return bruto.slice(m.index + m[0].length).replace(/\s+\d{2}\/\d{2}\/\d{4}.*$/, '').trim();
+}
+
 /** Rubrica da linha, com o valor da última coluna preenchida. */
 export function valoresRubrica(l) {
   const v = String(l || '').match(verba);
@@ -140,7 +150,7 @@ export function varrerServidores(linhas = [], conhecidas = null) {
       fechar();
       emCabecalho = false;
       pessoa = null;
-      pessoa = { matricula: cab[1], nome: extrairNome(cab[2]), lotacao: lotacaoAtual,
+      pessoa = { matricula: cab[1], nome: extrairNome(cab[2]), cargo: extrairCargo(cab[2]), lotacao: lotacaoAtual,
         pagina: pagina(item), rubricas: [] };
       if (!lotacaoAtual && ultimoPrefixo) pessoa.lotacaoPendente = ultimoPrefixo;
       continue;

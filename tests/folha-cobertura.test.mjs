@@ -3,7 +3,8 @@
 // Contabilidade (Assistência Social por servidor, Custeio SUS e FUNDEB por
 // fonte, Atenção Básica por ficha). Nomes fictícios.
 import assert from 'node:assert/strict';
-import { lerPodePagar, mesmoServidor, quadroDaFolha, coberturaPorConta, ehDeAgente, fontesDaConta, previsaoDaFolha } from '../assets/js/folha-cobertura.js';
+import { extrairCargo } from '../assets/js/folha-servidores.js';
+import { lerPodePagar, mesmoServidor, quadroDaFolha, coberturaPorConta, ehDeAgente, fontesDaConta, previsaoDaFolha, cargoDeAgente } from '../assets/js/folha-cobertura.js';
 
 let ok = 0; const falhas = [];
 const t = (nome, fn) => { try { fn(); ok++; } catch (e) { falhas.push(nome + ': ' + e.message); } };
@@ -39,7 +40,7 @@ t('nome da lista casa com o nome completo, sem acento e sem ligações', () => {
 t('bruto por servidor sem descontos e sem as OPs', () => {
   const q = quadroDaFolha([{ nome: 'ANA LIMA', lotacao: 'L1', rubricas: [
     { codigo: '100', valor: 200000 }, { codigo: '164', valor: 6754 }, { codigo: '201', valor: 15000 }] }], new Set(['201']));
-  assert.deepEqual(q, { L1: [['ANA LIMA', 200000]] });
+  assert.deepEqual(q, { L1: [['ANA LIMA', 200000, '']] });
 });
 
 const QUADRO = {
@@ -168,6 +169,35 @@ t('previsão: quanto sai das contas e quanto do recurso próprio', () => {
   assert.equal(p.propria, 900000);      // atenção básica (1002) e administração (1500)
   assert.equal(p.pctContas, 40);
   assert.deepEqual(p.porFonte.map(x => [x.fonte, x.valor]), [['1604', 600000], ['1002', 700000], ['1500', 200000]]);
+});
+
+t('agente de endemias pelo CARGO na folha nominal', () => {
+  assert.ok(cargoDeAgente('AGENTE DE ENDEMIAS'));
+  assert.ok(cargoDeAgente('AGENTE DE COMBATE AS ENDEMIAS'));
+  assert.ok(!cargoDeAgente('AGENTE COMUNITARIO DE SAUDE'));
+  assert.ok(!cargoDeAgente('ENFERMEIRO'));
+  const contas = [{ id: 'sus', nome: 'Custeio SUS', fonte: '1600, 1604', saldo: 1000000 }];
+  const quadro = {
+    AGT: [['PEDRO', 300000, 'AGENTE DE ENDEMIAS'], ['RUI', 300000, 'AGENTE DE ENDEMIAS']],
+    MISTA: [['SARA', 200000, 'ENFERMEIRA'], ['TITO', 150000, 'AGENTE DE ENDEMIAS']],
+    AB: [['UGO', 500000, 'MEDICO']]
+  };
+  const es = [emp(1, '227', '1500', 500000, 'AB'), emp(2, '226', '1500', 350000, 'MISTA'), emp(3, '226', '1500', 600000, 'AGT')];
+  const r = coberturaPorConta(es, contas, info, quadro);
+  // Agentes (lotação só de agentes) primeiro, na 1604; depois a Atenção Básica na 1600 até o saldo.
+  assert.deepEqual(r.propostas.map(p => [p.empenho, p.fonte]), [[1, '1002'], [2, '1600'], [3, '1604']]);
+  assert.deepEqual(r.uso[0].empenhos, [3, 2]);
+  // Lotação mista: sugestão de separar os agentes.
+  const sug = r.sugestoes.find(x => x.motivo === 'agentes de endemias');
+  assert.equal(sug.empenho, 2);
+  assert.deepEqual(sug.servidores, [{ nome: 'TITO', bruto: 150000 }]);
+  assert.equal(sug.outros, 1);
+});
+
+t('cargo lido da linha do servidor na folha nominal', () => {
+  assert.equal(extrairCargo('JOAO DA SILVA 1_20 / 0073 - AGENTE DE ENDEMIAS 03/02/2020 EFETIVO'), 'AGENTE DE ENDEMIAS');
+  assert.equal(extrairCargo('ANA LIMA II /0032 - MONITOR (SALA DE AULA) 01/01/2026 CONTRATADO'), 'MONITOR (SALA DE AULA)');
+  assert.equal(extrairCargo('SEM NIVEL'), '');
 });
 
 console.log(`folha-cobertura: ${ok} ok, ${falhas.length} falhas`);

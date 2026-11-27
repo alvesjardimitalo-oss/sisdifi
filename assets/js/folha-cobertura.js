@@ -23,7 +23,7 @@
 // mesma modalidade da de origem, e a sugestão leva o vínculo.
 //
 // Quem são os servidores de cada lotação, e o bruto de cada um, vem da folha
-// nominal (etapa 1), resumida em `quadro`: { lotação: [[nome, bruto], …] }.
+// nominal (etapa 1), resumida em `quadro`: { lotação: [[nome, bruto, cargo], …] }.
 import { dinheiroFolha } from './folha-empenhos.js';
 import { ESPELHO_RECURSO_PROPRIO, codigoFonte } from './folha-saldos.js';
 
@@ -35,10 +35,19 @@ const PROPRIAS = ['1500', '1001', '1002'];
    os empenhos dos agentes são cobertos primeiro, e o que sobra vai para os
    outros empenhos da Atenção Básica. */
 const DE_CATEGORIA = ['1604', '1605'];
-/* Empenho de agente: o RH lota os agentes à parte (a lotação é por
-   modalidade/categoria). Vale também quando a Contabilidade já pôs 1604. */
-export const ehDeAgente = e => codigoFonte(e.fonte) === '1604' ||
-  /ENDEMIA|AGENTES?\s+(COMUNIT|DE\s+(SAUDE|ENDEMIAS|COMBATE))|\bACS\b|\bACE\b/.test(semAcentoTexto([...(e.caminho || []), e.lotacaoNome || '', e.vinculo || ''].join(' ')));
+/* Quem é agente de endemias (fonte 1604) é o CARGO, na folha nominal. Os
+   demais cargos da Atenção Básica são 1600. */
+export const cargoDeAgente = cargo => /ENDEMIA/.test(semAcentoTexto(cargo));
+/**
+ * Empenho de agentes: a lotação inteira é de agentes de endemias (pelo cargo
+ * na folha nominal). Sem a folha nominal, vale a lotação dizer "endemias" ou a
+ * Contabilidade já ter posto 1604. `servidores` são as tuplas do quadro.
+ */
+export const ehDeAgente = (e, servidores = null) => {
+  if (codigoFonte(e.fonte) === '1604') return true;
+  if (servidores?.length && servidores.every(s => s[2] !== undefined)) return servidores.every(s => cargoDeAgente(s[2]));
+  return /ENDEMIA/.test(semAcentoTexto([...(e.caminho || []), e.vinculo || ''].join(' ')));
+};
 const semAcentoTexto = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
 /** Fontes de uma conta: "1600, 1604" ou "1.600.000.0000". A primeira é a principal. */
 export const fontesDaConta = f => String(f || '').split(/[,;/]|\s+e\s+/).map(codigoFonte).filter(x => x && x.length === 4);
@@ -93,7 +102,7 @@ export function quadroDaFolha(servidores = [], codigosDesconto = new Set()) {
   for (const s of servidores || []) {
     if (!s.lotacao) continue;
     const bruto = (s.rubricas || []).filter(r => !fora.has(String(r.codigo))).reduce((n, r) => n + (Number(r.valor) || 0), 0);
-    (quadro[s.lotacao] ??= []).push([String(s.nome || '').trim(), Math.round(bruto)]);
+    (quadro[s.lotacao] ??= []).push([String(s.nome || '').trim(), Math.round(bruto), String(s.cargo || '').trim()]);
   }
   return quadro;
 }
@@ -185,8 +194,23 @@ export function coberturaPorConta(empenhos = [], contas = [], fichaInfo = () => 
   const categoriaDe = e => {
     const f = codigoFonte(e.fonte);
     if (DE_CATEGORIA.includes(f)) return f;
-    return ehDeAgente(e) ? '1604' : '';
+    return ehDeAgente(e, servidoresDe(e)) ? '1604' : '';
   };
+  /* Lotação mista: agentes de endemias junto com outros cargos. O empenho não
+     se divide, então segue como os demais; a sugestão é o RH separar os
+     agentes numa lotação própria, da mesma modalidade, para irem na 1604. */
+  const conta1604 = lista.find(c => c.fontes.includes('1604'));
+  if (conta1604)
+    for (const e of empenhos || []) {
+      const ss = servidoresDe(e);
+      if (!ss?.length || codigoFonte(e.fonte) === '1604') continue;
+      const agentes = ss.filter(x => cargoDeAgente(x[2]));
+      if (agentes.length && agentes.length < ss.length)
+        sugestoes.push({ conta: conta1604.id, contaNome: conta1604.nome || '1604', fonte: '1604', empenho: e.empenho, lotacao: e.lotacao,
+          secretaria: e.secretaria || '', vinculo: e.vinculo || '', motivo: 'agentes de endemias',
+          servidores: agentes.map(([nome, b]) => ({ nome, bruto: b })), valor: agentes.reduce((n, [, b]) => n + b, 0),
+          outros: ss.length - agentes.length });
+    }
   const porId = new Map();
   for (const e of empenhos || []) { const cat = categoriaDe(e); if (cat) porId.set(e.id, decidir(e, cat)); }
   for (const e of empenhos || []) if (!porId.has(e.id)) porId.set(e.id, decidir(e, ''));
