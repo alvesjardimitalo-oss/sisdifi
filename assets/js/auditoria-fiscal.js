@@ -75,6 +75,7 @@ export function auditoriaNota({doc={},cadastro=null,resultado=null,contexto={},p
   if (ehServico) {
     if (resultado?.simples === false && !resultado?.mei
         && resultado?.iss?.fonteConfiguracao === 'unica'
+        && resultado.iss.aliquotaAnexoII != null
         && Number.isFinite(Number(resultado.iss.aliquotaAnexoII))
         && Math.abs(Number(resultado.iss.aliquotaBaseMunicipal) - Number(resultado.iss.aliquotaAnexoII)) > 0.001) {
       adicionar('iss_aliquota_unica','Alíquota única do ISS diverge da referência do Anexo II',
