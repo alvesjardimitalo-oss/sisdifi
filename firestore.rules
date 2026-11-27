@@ -149,10 +149,10 @@ service cloud.firestore {
     // Índice de CPF: só responde a perfis que precisam evitar duplicidade ou administrar o cadastro; ninguém lista.
     // O documento contém apenas o ID do servidor, mas o CPF integra o caminho e continua sendo dado pessoal.
     match /cpfs/{cpf} {
-      // O CPF integra o caminho do documento: leitura unitária apenas por quem precisa
-      // validar duplicidade/cadastro. Listagem do índice é sempre vedada.
+      // O CPF integra o caminho do documento: leitura unitária, sem listagem.
       allow get: if ativo() && (
         perfil() in ['admin', 'operador', 'rh']
+        || (secretaria() && resource == null)
         || (secretaria()
           && exists(/databases/$(database)/documents/servidores_privado/$(resource.data.servidor_id))
           && get(/databases/$(database)/documents/servidores_privado/$(resource.data.servidor_id)).data.secretaria_id == minhaSecretaria())
