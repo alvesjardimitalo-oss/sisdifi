@@ -135,9 +135,29 @@ service cloud.firestore {
     match /cpfs/{cpf} {
       // O CPF integra o caminho do documento: leitura unitária apenas por quem precisa
       // validar duplicidade/cadastro. Listagem do índice é sempre vedada.
-      allow get: if ativo() && (perfil() in ['admin', 'operador', 'rh'] || (secretaria()\n        && exists(/databases/$(database)/documents/servidores_privado/$(resource.data.servidor_id))\n        && get(/databases/$(database)/documents/servidores_privado/$(resource.data.servidor_id)).data.secretaria_id == minhaSecretaria()));
+      allow get: if ativo() && (
+        perfil() in ['admin', 'operador', 'rh']
+        || (secretaria()
+          && exists(/databases/$(database)/documents/servidores_privado/$(resource.data.servidor_id))
+          && get(/databases/$(database)/documents/servidores_privado/$(resource.data.servidor_id)).data.secretaria_id == minhaSecretaria())
+      );
       allow list: if false;
-      allow create: if cpf.matches('^[0-9]{11}
+      allow create: if cpf.matches('^[0-9]{11}$')
+        && request.resource.data.keys().hasOnly(['servidor_id'])
+        && request.resource.data.servidor_id is string
+        && request.resource.data.servidor_id.size() > 0
+        && (operador() || (secretaria()
+          && existsAfter(/databases/$(database)/documents/servidores_privado/$(request.resource.data.servidor_id))
+          && getAfter(/databases/$(database)/documents/servidores_privado/$(request.resource.data.servidor_id)).data.secretaria_id == minhaSecretaria()));
+      allow update: if (operador() || (secretaria()
+          && request.resource.data.servidor_id == resource.data.servidor_id
+          && exists(/databases/$(database)/documents/servidores_privado/$(resource.data.servidor_id))
+          && get(/databases/$(database)/documents/servidores_privado/$(resource.data.servidor_id)).data.secretaria_id == minhaSecretaria()))
+        && cpf.matches('^[0-9]{11}$')
+        && request.resource.data.keys().hasOnly(['servidor_id'])
+        && request.resource.data.servidor_id is string;
+      allow delete: if operador();
+    }
 
     match /solicitacoes/{id} {
       // Contabilidade/admin/consulta: tudo. Secretaria: só as da própria pasta visíveis para ela (sem lançamento interno
