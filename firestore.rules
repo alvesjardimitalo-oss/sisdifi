@@ -216,7 +216,7 @@ service cloud.firestore {
           || (secretaria() && solicitacaoPai().data.secretaria_id == minhaSecretaria()));
       allow list: if false;
       allow create: if solicitante()
-        && request.resource.data.keys().hasOnly(['solicitacao_id', 'servidor_id', 'secretaria_id', 'cpf', 'chave_pix'])
+        && request.resource.data.keys().hasOnly(['solicitacao_id', 'servidor_id', 'secretaria_id', 'cpf', 'cpf_anterior', 'chave_pix'])
         && request.resource.data.solicitacao_id == id
         && request.resource.data.servidor_id is string
         && request.resource.data.servidor_id.size() > 0
@@ -225,6 +225,7 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/solicitacoes/$(id)).data.secretaria_id == request.resource.data.secretaria_id
         && (operador() || (secretaria() && request.resource.data.secretaria_id == minhaSecretaria()))
         && (!('cpf' in request.resource.data) || (request.resource.data.cpf is string && request.resource.data.cpf.matches('^[0-9]{11}$')))
+        && (!('cpf_anterior' in request.resource.data) || (request.resource.data.cpf_anterior is string && request.resource.data.cpf_anterior.matches('^[0-9]{11}$')))
         && (!('chave_pix' in request.resource.data) || (request.resource.data.chave_pix is string && request.resource.data.chave_pix.size() <= 140));
       allow update, delete: if operador();
     }
