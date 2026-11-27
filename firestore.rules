@@ -91,7 +91,7 @@ service cloud.firestore {
         && (perfil() != 'consulta' || resource.data.privacidade_migrada == true)
         && (!secretaria()
           || resource.data.secretaria_id == minhaSecretaria()
-          || resource.data.motorista == true);
+          || (resource.data.motorista == true && resource.data.privacidade_migrada == true));
       // Secretaria completa o cadastro: cargo quando está em branco (ou servidor da própria pasta) e o indicador de Pix.
       allow update: if secretaria()
         && (resource.data.get('secretaria_id', '') == minhaSecretaria() || resource.data.get('motorista', false) == true)
