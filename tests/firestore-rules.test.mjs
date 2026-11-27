@@ -43,6 +43,10 @@ try {
       servidor_id: 'servidor-a', secretaria_id: 'sec-a', interna: false, visivel_secretaria: true,
       servidor: { nome: 'Servidor A', cpf_mascara: '***.***.***-01' }
     });
+    await setDoc(doc(db, 'solicitacoes', 'saneada-secretaria'), {
+      servidor_id: 'servidor-a', secretaria_id: 'sec-a', interna: false, visivel_secretaria: true,
+      servidor: { nome: 'Servidor A', cpf_mascara: '***.***.***-01' }
+    });
     await setDoc(doc(db, 'solicitacoes_privado', 'antiga-com-dados'), {
       solicitacao_id: 'antiga-com-dados', servidor_id: 'servidor-a', secretaria_id: 'sec-a',
       cpf: '12345678901', chave_pix: '12345678901'
