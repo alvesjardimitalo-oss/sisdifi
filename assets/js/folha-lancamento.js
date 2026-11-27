@@ -243,17 +243,28 @@ export const CABECALHO_PLANILHA = ['', 'Empenho', 'Secretaria', 'Ficha', 'Fonte 
 const FICHAS_FUNDEB = new Set(['173', '174', '186', '187', '191', '192', '198', '199']);
 const semAcentoMaiusc = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
 /** Nome curto da secretaria, como a planilha escreve. */
+const FICHAS_HOSPITAL = new Set(['266', '267']);
+const FICHAS_TRANSPORTE_ESCOLAR = new Set(['179', '180']);
 export function secretariaDaPlanilha(secretaria = '', ficha = '') {
   const s = semAcentoMaiusc(secretaria);
-  if (/HOSPITAL/.test(s)) return 'HOSPITAL MUNICIPAL';
+  // A ficha decide antes do nome: o RH lança o hospital dentro da Saúde e o
+  // transporte escolar dentro da Educação, e a planilha os separa.
+  if (/HOSPITAL/.test(s) || FICHAS_HOSPITAL.has(String(ficha))) return 'HOSPITAL MUNICIPAL';
+  if (FICHAS_TRANSPORTE_ESCOLAR.has(String(ficha))) return 'TRANSPORTES';
   if (/EDUCA|ENSINO|FUNDEB/.test(s)) return FICHAS_FUNDEB.has(String(ficha)) ? 'FUNDEB' : 'SEC. EDUCAÇÃO';
-  const mapa = [[/GABINETE|PREFEITO/, 'GABINETE DO PREFEITO'], [/ADMINISTRA/, 'ADMINISTRAÇÃO'], [/CULTURA|TURISMO/, 'CULTURA'],
-    [/FAZENDA/, 'FAZENDA'], [/ESPORTE/, 'ESPORTE E LAZER'], [/TRANSPORTE/, 'TRANSPORTES'], [/AGRICULTURA/, 'AGRICULTURA'],
+  // AGRICULTURA antes de CULTURA: uma palavra contém a outra.
+  const mapa = [[/AGRICULTURA/, 'AGRICULTURA'], [/GABINETE|PREFEITO/, 'GABINETE DO PREFEITO'], [/ADMINISTRA/, 'ADMINISTRAÇÃO'],
+    [/\bCULTURA|TURISMO/, 'CULTURA'], [/FAZENDA/, 'FAZENDA'], [/ESPORTE/, 'ESPORTE E LAZER'], [/TRANSPORTE/, 'TRANSPORTES'],
     [/OBRAS/, 'OBRAS PUBLICAS'], [/MEIO AMBIENTE/, 'MEIO AMBIENTE'], [/LIMPEZA/, 'LIMPEZA URBANA'],
     [/SAUDE/, 'SECRETARIA DE SAÚDE'], [/ACAO SOCIAL|ASSISTENCIA/, 'SEC. AÇÃO SOCIAL']];
   for (const [re, nome] of mapa) if (re.test(s)) return nome;
   return String(secretaria || '').toUpperCase();
 }
+
+/* A fonte vai no código curto, como a planilha sempre usou: "1.500.000.0000"
+   numa planilha em português vira o número 15.000.000.000. A conta vai só
+   pelo nome ("REC PROPRIO"), sem banco/agência/número, para caber na coluna. */
+const contaCurta = c => String(c || '').split(' · ')[0].trim();
 
 /**
  * Linhas da planilha, na ordem dos empenhos. Valores em centavos; quem
@@ -273,7 +284,7 @@ export function linhasDaPlanilha(empenhos = [], lanc = { linhas: [] }) {
     grupo = l.tipo;
     const ou = v => (v ? v : null);
     return [
-      rotulo, l.numero ?? '', secretariaDaPlanilha(e.secretaria, l.ficha), l.ficha, l.fonte, e.conta || '',
+      rotulo, l.numero ?? '', secretariaDaPlanilha(e.secretaria, l.ficha), l.ficha, codigoFonte(l.fonte), contaCurta(e.conta),
       l.bruto, ou(l.desconto),
       ...COLUNAS_DESCONTO.map(c => ou(l.composicao[c.chave])),
       l.ops.map(o => o.numero).filter(Boolean).join(' / '),

@@ -119,12 +119,44 @@ export async function prepararAba(token, planilhaId, sit) {
 }
 
 /** Escreve as linhas a partir de A4. Não apaga nada abaixo delas. */
-export async function escreverNaPlanilha(token, planilhaId, aba, linhas) {
+export async function escreverNaPlanilha(token, planilhaId, aba, linhas, sheetId = null) {
   if (!linhas.length) throw Error('Nenhum empenho para lançar.');
   const ultima = PRIMEIRA_LINHA + linhas.length - 1;
   const largura = Math.max(...linhas.map(l => l.length));
   const faixa = citar(aba) + '!A' + PRIMEIRA_LINHA + ':' + letraColuna(largura - 1) + ultima;
   const r = await chamar(API + planilhaId + '/values/' + encodeURIComponent(faixa) + '?valueInputOption=USER_ENTERED', token,
     { method: 'PUT', body: JSON.stringify({ range: faixa, majorDimension: 'ROWS', values: valoresParaAPI(linhas) }) });
+  if (sheetId != null)
+    await chamar(API + planilhaId + ':batchUpdate', token,
+      { method: 'POST', body: JSON.stringify({ requests: pedidosDeFormato(sheetId, linhas.length) }) });
   return { faixa, celulas: r.updatedCells || 0, linhas: linhas.length };
+}
+
+/**
+ * Formato das linhas lançadas: dinheiro em R$ (as linhas que vinham da
+ * planilha antiga como texto ficavam "2875,23"), fonte e ficha como texto
+ * simples, e o histórico cortado na largura da coluna em vez de quebrar a
+ * linha em várias alturas.
+ */
+export function pedidosDeFormato(sheetId, quantidade) {
+  const linhas = { sheetId, startRowIndex: PRIMEIRA_LINHA - 1, endRowIndex: PRIMEIRA_LINHA - 1 + quantidade };
+  const faixa = (a, b) => ({ ...linhas, startColumnIndex: a, endColumnIndex: b });
+  const moeda = { numberFormat: { type: 'CURRENCY', pattern: '"R$" #,##0.00' } };
+  const pedidos = [];
+  for (const [a, b] of blocosDeDinheiro())
+    pedidos.push({ repeatCell: { range: faixa(a, b), cell: { userEnteredFormat: moeda }, fields: 'userEnteredFormat.numberFormat' } });
+  pedidos.push({ repeatCell: { range: faixa(1, 5), cell: { userEnteredFormat: { numberFormat: { type: 'TEXT' } } },
+    fields: 'userEnteredFormat.numberFormat' } });
+  pedidos.push({ repeatCell: { range: faixa(COLUNA_HISTORICO, COLUNA_HISTORICO + 1),
+    cell: { userEnteredFormat: { wrapStrategy: 'CLIP' } }, fields: 'userEnteredFormat.wrapStrategy' } });
+  return pedidos;
+}
+/** Colunas de dinheiro em blocos contíguos [início, fim). */
+function blocosDeDinheiro() {
+  const cols = [...COLUNAS_DINHEIRO_PLANILHA].sort((a, b) => a - b), blocos = [];
+  for (const c of cols) {
+    const u = blocos[blocos.length - 1];
+    if (u && u[1] === c) u[1] = c + 1; else blocos.push([c, c + 1]);
+  }
+  return blocos;
 }

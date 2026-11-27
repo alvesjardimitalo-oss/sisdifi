@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { linhaDeLancamento, linhasDeLancamento, composicaoDaLiquidacao,
   distribuirFontesPorSaldo, linhasDaPlanilha, textoParaColar, secretariaDaPlanilha } from '../assets/js/folha-lancamento.js';
-import { idDaPlanilha, abaDoMes, valoresParaAPI, letraColuna, itensNoCabecalho, pedidosParaItens } from '../assets/js/folha-planilha-google.js';
+import { idDaPlanilha, abaDoMes, valoresParaAPI, letraColuna, itensNoCabecalho, pedidosParaItens, pedidosDeFormato } from '../assets/js/folha-planilha-google.js';
 
 let ok = 0; const falhas = [];
 const t = (nome, fn) => { try { fn(); ok++; } catch (e) { falhas.push(nome + ': ' + e.message); } };
@@ -196,6 +196,35 @@ t('link e aba da planilha', () => {
   assert.equal(abaDoMes(['Janeiro'], '2026-12'), '');
   assert.equal(letraColuna(0), 'A');
   assert.equal(letraColuna(22), 'W');
+});
+
+/* Novembro/2026, primeiro lançamento real: a fonte saiu 15.000.000.000, a
+   Agricultura virou Cultura e o Hospital virou Saúde. */
+t('fonte no código curto e conta só pelo nome', () => {
+  const emp = empenho({ id: 'p|1', secretaria: 'SECRETARIA MUNIC. DE ADMINISTRACAO', fonte: '1.500.000.0000',
+    conta: 'REC PROPRIO · BB/0166-X/26538-1' });
+  const [l] = linhasDaPlanilha([emp], linhasDeLancamento({ empenhos: [emp], extras: [] }, { competencia: '2026-11' }));
+  assert.equal(l[4], '1500');
+  assert.equal(l[5], 'REC PROPRIO');
+});
+
+t('Agricultura não vira Cultura; hospital e transporte escolar pela ficha', () => {
+  assert.equal(secretariaDaPlanilha('SECRETARIA MUNIC. DE AGRICULTURA'), 'AGRICULTURA');
+  assert.equal(secretariaDaPlanilha('SECRETARIA DE TURISMO E CULTURA'), 'CULTURA');
+  assert.equal(secretariaDaPlanilha('SECRETARIA MUNIC. DE SAUDE', '266'), 'HOSPITAL MUNICIPAL');
+  assert.equal(secretariaDaPlanilha('SECRETARIA MUNIC. DE SAUDE', '227'), 'SECRETARIA DE SAÚDE');
+  assert.equal(secretariaDaPlanilha('SECRETARIA MUNIC. DE EDUCACAO', '179'), 'TRANSPORTES');
+});
+
+t('linhas lançadas ficam em R$, com fonte como texto e histórico sem quebrar linha', () => {
+  const p = pedidosDeFormato(7, 3);
+  const moeda = p.filter(x => x.repeatCell?.cell.userEnteredFormat.numberFormat?.type === 'CURRENCY');
+  // G–O (bruto, desconto e itens), Q–U (OPs e líquido) e W (resumo RH)
+  assert.deepEqual(moeda.map(x => [x.repeatCell.range.startColumnIndex, x.repeatCell.range.endColumnIndex]), [[6, 15], [16, 21], [22, 23]]);
+  assert.equal(moeda[0].repeatCell.range.startRowIndex, 3);
+  assert.equal(moeda[0].repeatCell.range.endRowIndex, 6);
+  assert.ok(p.some(x => x.repeatCell?.cell.userEnteredFormat.numberFormat?.type === 'TEXT'));
+  assert.ok(p.some(x => x.repeatCell?.cell.userEnteredFormat.wrapStrategy === 'CLIP' && x.repeatCell.range.startColumnIndex === 21));
 });
 
 console.log(`folha-lancamento: ${ok} ok, ${falhas.length} falhas`);

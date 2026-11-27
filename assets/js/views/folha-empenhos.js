@@ -955,7 +955,7 @@ export function telaFolhaEmpenhos(el){
         if(sit.preenchidas&&!confirm('A aba '+sit.aba+' já tem '+sit.preenchidas+' empenho(s) preenchido(s). Substituir as linhas '+PRIMEIRA_LINHA+' a '+(PRIMEIRA_LINHA+linhas.length-1)+'?'))return;
         if(await prepararAba(token,id,sit))toast('Aba '+sit.aba+' preparada: itens do desconto depois do desconto da liquidação, no "+".');
         status('Lançando na aba '+sit.aba+'…');
-        const res=await escreverNaPlanilha(token,id,sit.aba,linhas);
+        const res=await escreverNaPlanilha(token,id,sit.aba,linhas,sit.sheetId);
         status(res.linhas+' empenhos lançados em '+sit.titulo+' › '+sit.aba+' ('+res.faixa+'), com a conta '+email+'.');
         toast(res.linhas+' empenhos lançados na aba '+sit.aba+'.');
         if(sit.preenchidas>linhas.length)toast('A aba tinha '+sit.preenchidas+' linhas e foram lançadas '+linhas.length+': confira e apague as que sobraram.','erro');
