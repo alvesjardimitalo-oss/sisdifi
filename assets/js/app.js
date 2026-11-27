@@ -364,7 +364,8 @@ function iniciarDados() {
     estado.servidores = svPublico.map(s => svPrivado[s.id] ? { ...s, cpf: svPrivado[s.id].cpf ?? s.cpf, chave_pix: svPrivado[s.id].chave_pix ?? s.chave_pix } : s)
       .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
     pronto('servidores');
-    protegerDadosAntigos(svPublico);
+    // Migração automática suspensa até auditoria e backup dos dados privados.
+    // protegerDadosAntigos(svPublico);
     marcarMotoristas(svPublico);
   };
   if (ehSecretaria()) {

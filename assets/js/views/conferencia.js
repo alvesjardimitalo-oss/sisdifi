@@ -1,5 +1,5 @@
 // SISDIFI — Conferência: aponta possíveis erros nos lançamentos (duplicidades, distâncias divergentes, CPF inválido, empenho pendente)
-import { cpfOk, cpfExibir } from '../privacidade.js';
+import { cpfSituacao, cpfExibir } from '../privacidade.js';
 import { estado, ativas } from '../estado.js';
 import { periodosSobrepostos, faixaDistancia, FAIXAS, cpfValido, formatarCpf, moeda, calcularDiaria } from '../calculo.js';
 import { esc, dataBR, numeroBR, normalizar, hojeISO } from '../ui.js';
@@ -49,7 +49,9 @@ export function analisarPendencias() {
   distancias.sort((a, b) => b.divergentes.reduce((t, x) => t + Math.abs(x.diferenca), 0) - a.divergentes.reduce((t, x) => t + Math.abs(x.diferenca), 0));
 
   // 3) CPF inválido
-  const cpfs = estado.servidores.filter(s => s.ativo !== false && !cpfOk(s));
+  const cpfs = estado.servidores.filter(s => s.ativo !== false && cpfSituacao(s) === 'invalido');
+
+  const cpfsNaoVerificados = estado.servidores.filter(s => s.ativo !== false && ['ausente', 'nao_verificado'].includes(cpfSituacao(s)));
 
   // 4) Empenho pendente há mais de 30 dias
   const limite = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
@@ -59,12 +61,12 @@ export function analisarPendencias() {
   const posteriores = sols.filter(s => s.data_solicitacao && String(s.data_hora_saida).slice(0, 10) < s.data_solicitacao);
 
   const total = grupos.length + distancias.filter(d => d.divergentes.some(x => x.mudaFaixa)).length + cpfs.length;
-  return { grupos, distancias, cpfs, semEmpenho, posteriores, total };
+  return { grupos, distancias, cpfs, cpfsNaoVerificados, semEmpenho, posteriores, total };
 }
 
 export function telaConferencia(el) {
   if (aguardando(el, ['solicitacoes', 'servidores', 'config'])) return { viva: true, titulo: 'Conferência' };
-  const { grupos, distancias, cpfs, semEmpenho, posteriores } = analisarPendencias();
+  const { grupos, distancias, cpfs, cpfsNaoVerificados, semEmpenho, posteriores } = analisarPendencias();
   const excessoTotal = grupos.reduce((t, g) => t + g.excesso, 0);
   const impactoDist = distancias.flatMap(d => d.divergentes).reduce((t, x) => t + x.diferenca, 0);
   const link = s => `<a href="#/solicitacoes/${esc(s.id)}">${esc(s.numero)}</a>`;
@@ -95,9 +97,10 @@ export function telaConferencia(el) {
     </section>
 
     <section class="cartao"><h3>3. Servidores ativos com CPF inválido</h3>
-      ${cpfs.map(s => `<div class="pendencia-itens"><span><a href="#/servidores/${esc(s.id)}">${esc(s.nome)}</a> · ${esc(cpfExibir(s))}</span></div>`).join('') || '<p class="ok-txt">✓ Todos os CPFs conferem.</p>'}
+      ${cpfs.map(s => `<div class="pendencia-itens"><span><a href="#/servidores/${esc(s.id)}">${esc(s.nome)}</a> · ${esc(cpfExibir(s))}</span></div>`).join('') || '<p class="ok-txt">✓ Nenhum CPF comprovadamente inválido.</p>'}
     </section>
 
+    <p class="muted">${cpfsNaoVerificados.length} cadastro(s) com CPF ausente ou não verificável; revisar a integridade dos dados privados sem classificá-los como inválidos.</p>
     <section class="cartao"><h3>4. Solicitações sem empenho há mais de 30 dias</h3>
       ${semEmpenho.length ? `<div class="pendencia-itens">${semEmpenho.slice(0, 200).map(s => `<span>${link(s)} ${esc(s.servidor?.nome)} · emitida em ${esc(dataBR(s.data_solicitacao))} · ${moeda(s.valor_total)}</span>`).join('')}</div>` : '<p class="ok-txt">✓ Nenhuma pendência.</p>'}
     </section>
