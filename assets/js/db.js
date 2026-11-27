@@ -473,13 +473,25 @@ export async function gravarEmLote(operacoes, progresso) {
     const parte = operacoes.slice(i, i + 100);
     const b = writeBatch(fs);
     for (const op of parte) for (const [ref, d] of expandir(op)) b.set(ref, d, { merge: true });
+    const auditaveis = parte.filter(op => COLECOES_COM_AUDITORIA_ATOMICA.has(op.colecao));
+    if (auditaveis.length) incluirLogNaGravacao(b, 'financeiro.lote', {
+      colecoes: [...new Set(auditaveis.map(op => op.colecao))],
+      quantidade: auditaveis.length,
+      documentos: auditaveis.map(op => op.id).slice(0, 100)
+    });
     try {
       await b.commit();
     } catch (e) {
       // Um registro recusado derruba o lote inteiro: grava um a um para salvar o resto e apontar qual falhou.
       for (const op of parte) {
-        try { const b1 = writeBatch(fs); for (const [ref, d] of expandir(op)) b1.set(ref, d, { merge: true }); await b1.commit(); }
-        catch (e2) { falhas.push({ colecao: op.colecao, id: op.id, nome: op.dados.nome || op.dados.numero || op.id, erro: e2.code || e2.message }); }
+        try {
+          const b1 = writeBatch(fs);
+          for (const [ref, d] of expandir(op)) b1.set(ref, d, { merge: true });
+          if (COLECOES_COM_AUDITORIA_ATOMICA.has(op.colecao)) incluirLogNaGravacao(b1, 'financeiro.lote', {
+            colecoes: [op.colecao], quantidade: 1, documentos: [op.id]
+          });
+          await b1.commit();
+        } catch (e2) { falhas.push({ colecao: op.colecao, id: op.id, nome: op.dados.nome || op.dados.numero || op.id, erro: e2.code || e2.message }); }
       }
     }
     progresso && progresso(Math.min(i + 100, operacoes.length), operacoes.length);
