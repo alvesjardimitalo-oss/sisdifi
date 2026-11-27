@@ -135,7 +135,7 @@ service cloud.firestore {
     match /cpfs/{cpf} {
       // O CPF integra o caminho do documento: leitura unitária apenas por quem precisa
       // validar duplicidade/cadastro. Listagem do índice é sempre vedada.
-      allow get: if ativo() && perfil() in ['admin', 'operador', 'secretaria', 'rh'];
+      allow get: if ativo() && (perfil() in ['admin', 'operador', 'rh'] || (secretaria()\n        && exists(/databases/$(database)/documents/servidores_privado/$(resource.data.servidor_id))\n        && get(/databases/$(database)/documents/servidores_privado/$(resource.data.servidor_id)).data.secretaria_id == minhaSecretaria()));
       allow list: if false;
       allow create: if cpf.matches('^[0-9]{11}
 
