@@ -4,7 +4,8 @@
 // colunas que a Contabilidade já usa — ver linhasDaPlanilha() em
 // folha-lancamento.js. A chamada sai do navegador para a API do Google com o
 // token da conta que edita a planilha; o SISDIFI não guarda esse token.
-import { COLUNAS_DINHEIRO_PLANILHA, INICIO_ITENS_PLANILHA, ROTULOS_ITENS_PLANILHA } from './folha-lancamento.js';
+import { COLUNAS_DINHEIRO_PLANILHA, INICIO_ITENS_PLANILHA, ROTULOS_ITENS_PLANILHA, COLUNA_HISTORICO_PLANILHA,
+  COLUNA_DESCONTO_PLANILHA, COLUNA_OP_PLANILHA, ROTULOS_OP_PLANILHA, COLUNA_LIQUIDO_PLANILHA } from './folha-lancamento.js';
 
 const API = 'https://sheets.googleapis.com/v4/spreadsheets/';
 export const MESES_ABA = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO',
@@ -53,68 +54,99 @@ async function chamar(url, token, opcoes = {}) {
 
 const citar = aba => "'" + String(aba).replace(/'/g, "''") + "'";
 const LINHA_CABECALHO = PRIMEIRA_LINHA - 1;
-/** Coluna do histórico (0 = A): V, logo depois do líquido. */
-const COLUNA_HISTORICO = INICIO_ITENS_PLANILHA + ROTULOS_ITENS_PLANILHA.length + 6;
+const H = COLUNA_HISTORICO_PLANILHA, I = COLUNA_DESCONTO_PLANILHA, J = INICIO_ITENS_PLANILHA;
+const FIM_ITENS = J + ROTULOS_ITENS_PLANILHA.length;           // Q, nº da OP
+const V = COLUNA_LIQUIDO_PLANILHA, W = V + 1, X = V + 2;
+const normal = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase();
 
-/** Abas da planilha, a do mês, quantos empenhos ela já tem e se já tem as colunas dos itens. */
+/**
+ * Em que modelo está o cabeçalho da aba (linha 3):
+ *  'atual'  — H histórico, I desconto, J–P itens (o que o SISDIFI escreve);
+ *  'itens'  — I–O itens e o histórico no fim (V), como saiu até nov/2026;
+ *  'manual' — o modelo da Contabilidade, sem itens nem histórico (H desconto).
+ */
+export function modeloDaAba(cabecalho = []) {
+  const c = cabecalho.map(normal);
+  const itensEm = i => ROTULOS_ITENS_PLANILHA.every((r, k) => c[i + k] === normal(r));
+  if (c[H] === 'HISTORICO' && itensEm(J)) return 'atual';
+  if (itensEm(J - 1) && c[V] === 'HISTORICO') return 'itens';
+  return 'manual';
+}
+/** Compatível com quem perguntava só se a aba já tinha os itens. */
+export const itensNoCabecalho = (itens = []) => ROTULOS_ITENS_PLANILHA.every((r, k) => normal(itens[k]) === normal(r));
+
+/** Abas da planilha, a do mês, quantos empenhos ela já tem e em que modelo está. */
 export async function situacaoDaPlanilha(token, planilhaId, competencia) {
   const info = await chamar(API + planilhaId + '?fields=properties.title,sheets.properties(sheetId,title)', token);
   const abas = (info.sheets || []).map(s => s.properties);
   const aba = abaDoMes(abas.map(a => a.title), competencia);
-  const base = { titulo: info.properties?.title || '', titulos: abas.map(a => a.title), aba, sheetId: null, preenchidas: 0, temItens: false };
+  const base = { titulo: info.properties?.title || '', titulos: abas.map(a => a.title), aba, sheetId: null, preenchidas: 0, modelo: '' };
   if (!aba) return base;
   const sheetId = abas.find(a => a.title === aba).sheetId;
-  const fim = letraColuna(INICIO_ITENS_PLANILHA + ROTULOS_ITENS_PLANILHA.length - 1);
-  const q = ['B' + PRIMEIRA_LINHA + ':B1000', letraColuna(INICIO_ITENS_PLANILHA) + LINHA_CABECALHO + ':' + fim + LINHA_CABECALHO]
+  const q = ['B' + PRIMEIRA_LINHA + ':B1000', 'A' + LINHA_CABECALHO + ':' + letraColuna(X + 2) + LINHA_CABECALHO]
     .map(r => 'ranges=' + encodeURIComponent(citar(aba) + '!' + r)).join('&');
   const v = await chamar(API + planilhaId + '/values:batchGet?' + q, token);
   const [empenhos, cab] = (v.valueRanges || []).map(x => x.values || []);
   const preenchidas = (empenhos || []).filter(r => String(r[0] || '').trim()).length;
-  return { ...base, sheetId, preenchidas, temItens: itensNoCabecalho(cab?.[0]) };
+  return { ...base, sheetId, preenchidas, modelo: modeloDaAba(cab?.[0] || []) };
 }
 
-/** O cabeçalho já tem INSS, Caixa… logo depois do desconto da liquidação? */
-export function itensNoCabecalho(linha = []) {
-  const n = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase();
-  return ROTULOS_ITENS_PLANILHA.every((r, i) => n(linha[i]) === n(r));
-}
+const larguras = (sheetId, colunas) => colunas.map(([c0, c1, px]) => ({ updateDimensionProperties: {
+  range: { sheetId, dimension: 'COLUMNS', startIndex: c0, endIndex: c1 }, properties: { pixelSize: px }, fields: 'pixelSize' } }));
+const titulos = (sheetId, coluna, textos) => ({ updateCells: { start: { sheetId, rowIndex: LINHA_CABECALHO - 1, columnIndex: coluna },
+  rows: [{ values: textos.map(t => ({ userEnteredValue: { stringValue: t } })) }], fields: 'userEnteredValue' } });
 
 /**
- * Pedidos para preparar a aba: abre as colunas dos itens do desconto logo
- * depois do H, escreve o cabeçalho delas e as agrupa, fechadas, com o "+"
- * antes do grupo — ao lado do desconto da liquidação. Inserir colunas empurra
- * o resto para a direita, e as fórmulas da aba (totais, "valor bateu") se
- * ajustam sozinhas.
+ * Pedidos para pôr a aba no modelo atual. Inserir colunas empurra o resto
+ * para a direita e alarga os títulos mesclados das linhas 1–2; as fórmulas
+ * da aba (totais, "valor bateu") se ajustam sozinhas. Mover coluna não
+ * serve: o Google recusa mover para dentro de célula mesclada — por isso o
+ * histórico antigo (V) é copiado para a coluna nova e a velha é apagada.
+ * Testado nas abas NOVEMBRO/2026 nos dois modelos.
  */
-export function pedidosParaItens(sheetId) {
-  const range = { sheetId, dimension: 'COLUMNS', startIndex: INICIO_ITENS_PLANILHA,
-    endIndex: INICIO_ITENS_PLANILHA + ROTULOS_ITENS_PLANILHA.length };
-  return [
-    { insertDimension: { range, inheritFromBefore: true } },
-    { updateCells: { start: { sheetId, rowIndex: LINHA_CABECALHO - 1, columnIndex: INICIO_ITENS_PLANILHA },
-      rows: [{ values: ROTULOS_ITENS_PLANILHA.map(r => ({ userEnteredValue: { stringValue: r } })) }],
-      fields: 'userEnteredValue' } },
-    { addDimensionGroup: { range } },
-    { updateDimensionGroup: { dimensionGroup: { range, depth: 1, collapsed: true }, fields: 'collapsed' } },
+export function pedidosParaModelo(sheetId, modelo) {
+  if (modelo === 'atual') return [];
+  const col = (c0, c1) => ({ sheetId, dimension: 'COLUMNS', startIndex: c0, endIndex: c1 });
+  const grade = (c0, c1) => ({ sheetId, startRowIndex: LINHA_CABECALHO - 1, endRowIndex: 1000, startColumnIndex: c0, endColumnIndex: c1 });
+  const titulo = (c0, c1) => ({ ...grade(c0, c1), endRowIndex: LINHA_CABECALHO });
+  const pedidos = [{ insertDimension: { range: col(H, H + 1), inheritFromBefore: true } }];
+  if (modelo === 'itens') {
+    // O histórico estava em V; com a coluna nova em H, ele passou para W.
+    pedidos.push({ copyPaste: { source: grade(W, W + 1), destination: grade(H, H + 1), pasteType: 'PASTE_VALUES' } },
+      { deleteDimension: { range: col(W, W + 1) } });
+  } else {
+    const itens = col(J, FIM_ITENS);
+    pedidos.push({ insertDimension: { range: itens, inheritFromBefore: true } },
+      titulos(sheetId, H, ['Histórico']), titulos(sheetId, J, ROTULOS_ITENS_PLANILHA),
+      { addDimensionGroup: { range: itens } },
+      { updateDimensionGroup: { dimensionGroup: { range: itens, depth: 1, collapsed: true }, fields: 'collapsed' } });
+  }
+  const verde = { red: 0.85, green: 0.94, blue: 0.83 }, vermelho = { red: 0.96, green: 0.8, blue: 0.8 };
+  const conferencia = [{ sheetId, startRowIndex: PRIMEIRA_LINHA - 1, endRowIndex: 1000, startColumnIndex: X, endColumnIndex: X + 1 }];
+  const regra = (cond, valor, fundo, letra) => ({ addConditionalFormatRule: { index: 0, rule: { ranges: conferencia,
+    booleanRule: { condition: { type: cond, values: [{ userEnteredValue: valor }] },
+      format: { backgroundColor: fundo, textFormat: { foregroundColor: letra } } } } } });
+  pedidos.push(
+    // OPs: o desconto delas é o INSS da maternidade, e o título diz isso.
+    titulos(sheetId, FIM_ITENS, ROTULOS_OP_PLANILHA), titulos(sheetId, W, ['Resumo RH', 'Conferência']),
+    // "+" antes do grupo, ao lado do desconto da liquidação.
     { updateSheetProperties: { properties: { sheetId, gridProperties: { columnGroupControlAfter: false } },
       fields: 'gridProperties.columnGroupControlAfter' } },
-    // Depois do líquido: histórico, total líquido do Resumo de Verbas (em R$) e conferência.
-    { updateCells: { start: { sheetId, rowIndex: LINHA_CABECALHO - 1, columnIndex: COLUNA_HISTORICO },
-      rows: [{ values: ['Histórico', 'Resumo RH', 'Conferência'].map(r => ({ userEnteredValue: { stringValue: r },
-        userEnteredFormat: { textFormat: { bold: true } } })) }],
-      fields: 'userEnteredValue,userEnteredFormat.textFormat.bold' } },
-    { repeatCell: { range: { sheetId, startRowIndex: PRIMEIRA_LINHA - 1, endRowIndex: 1000,
-      startColumnIndex: COLUNA_HISTORICO + 1, endColumnIndex: COLUNA_HISTORICO + 2 },
-      cell: { userEnteredFormat: { numberFormat: { type: 'CURRENCY', pattern: '"R$" #,##0.00' } } },
-      fields: 'userEnteredFormat.numberFormat' } }
-  ];
+    // Títulos novos no estilo do título "Valor Bruto".
+    ...[[H, H + 1], [J, FIM_ITENS], [W, X + 1]].map(([a, b]) => ({ copyPaste: { source: titulo(6, 7), destination: titulo(a, b), pasteType: 'PASTE_FORMAT' } })),
+    regra('TEXT_EQ', 'BATEU', verde, { red: 0.1, green: 0.4, blue: 0.1 }),
+    regra('TEXT_CONTAINS', 'NÃO', vermelho, { red: 0.6, green: 0, blue: 0 }),
+    ...larguras(sheetId, [[H, H + 1, 430], [J, FIM_ITENS, 95], [W, W + 1, 115], [X, X + 1, 110]]));
+  return pedidos;
 }
+/** Nome antigo: preparar a aba é pô-la no modelo atual. */
+export const pedidosParaItens = sheetId => pedidosParaModelo(sheetId, 'manual');
 
-/** Prepara a aba do mês, se ainda não tiver as colunas dos itens. */
+/** Põe a aba do mês no modelo atual, se ainda não estiver. */
 export async function prepararAba(token, planilhaId, sit) {
-  if (sit.temItens) return false;
-  await chamar(API + planilhaId + ':batchUpdate', token,
-    { method: 'POST', body: JSON.stringify({ requests: pedidosParaItens(sit.sheetId) }) });
+  const pedidos = pedidosParaModelo(sit.sheetId, sit.modelo);
+  if (!pedidos.length) return false;
+  await chamar(API + planilhaId + ':batchUpdate', token, { method: 'POST', body: JSON.stringify({ requests: pedidos }) });
   return true;
 }
 
@@ -133,31 +165,28 @@ export async function escreverNaPlanilha(token, planilhaId, aba, linhas, sheetId
 }
 
 /**
- * Formato das linhas lançadas: dinheiro em R$ (as linhas que vinham da
- * planilha antiga como texto ficavam "2875,23"), fonte e ficha como texto
- * simples, e o histórico cortado na largura da coluna em vez de quebrar a
- * linha em várias alturas.
+ * Visual das linhas lançadas. Cada linha da planilha tem a cor da secretaria
+ * no bruto, no desconto e no líquido; o histórico pega a cor do bruto, os
+ * itens a do desconto, e o resumo e a conferência a do líquido. Depois vêm
+ * o formato de cada coluna: dinheiro em R$, empenho/ficha/fonte como texto,
+ * histórico à esquerda sem quebrar a linha, conferência em negrito ao centro.
  */
 export function pedidosDeFormato(sheetId, quantidade) {
   const linhas = { sheetId, startRowIndex: PRIMEIRA_LINHA - 1, endRowIndex: PRIMEIRA_LINHA - 1 + quantidade };
   const faixa = (a, b) => ({ ...linhas, startColumnIndex: a, endColumnIndex: b });
+  const cor = (de, a, b) => ({ copyPaste: { source: faixa(de, de + 1), destination: faixa(a, b), pasteType: 'PASTE_FORMAT' } });
   const moeda = { numberFormat: { type: 'CURRENCY', pattern: '"R$" #,##0.00' } };
-  const pedidos = [];
+  const pedidos = [cor(6, H, H + 1), cor(I, J, FIM_ITENS), cor(V, W, X + 1)];
   for (const [a, b] of blocosDeDinheiro())
     pedidos.push({ repeatCell: { range: faixa(a, b), cell: { userEnteredFormat: moeda }, fields: 'userEnteredFormat.numberFormat' } });
   pedidos.push({ repeatCell: { range: faixa(1, 5), cell: { userEnteredFormat: { numberFormat: { type: 'TEXT' } } },
     fields: 'userEnteredFormat.numberFormat' } });
-  /* Histórico à esquerda (centralizado e cortado, o começo do texto sumia),
-     conferência ao centro, e as três colunas do fim numa largura que caiba
-     o texto e o valor — conferido na aba NOVEMBRO/2026. */
-  pedidos.push({ repeatCell: { range: faixa(COLUNA_HISTORICO, COLUNA_HISTORICO + 1),
-    cell: { userEnteredFormat: { wrapStrategy: 'CLIP', horizontalAlignment: 'LEFT', textFormat: { fontSize: 9 } } },
-    fields: 'userEnteredFormat.wrapStrategy,userEnteredFormat.horizontalAlignment,userEnteredFormat.textFormat.fontSize' } });
-  pedidos.push({ repeatCell: { range: faixa(COLUNA_HISTORICO + 2, COLUNA_HISTORICO + 3),
-    cell: { userEnteredFormat: { horizontalAlignment: 'CENTER' } }, fields: 'userEnteredFormat.horizontalAlignment' } });
-  [560, 115, 105].forEach((px, i) => pedidos.push({ updateDimensionProperties: {
-    range: { sheetId, dimension: 'COLUMNS', startIndex: COLUNA_HISTORICO + i, endIndex: COLUNA_HISTORICO + i + 1 },
-    properties: { pixelSize: px }, fields: 'pixelSize' } }));
+  pedidos.push({ repeatCell: { range: faixa(H, H + 1),
+    cell: { userEnteredFormat: { numberFormat: { type: 'TEXT' }, wrapStrategy: 'CLIP', horizontalAlignment: 'LEFT', textFormat: { fontSize: 9 } } },
+    fields: 'userEnteredFormat.numberFormat,userEnteredFormat.wrapStrategy,userEnteredFormat.horizontalAlignment,userEnteredFormat.textFormat.fontSize' } });
+  pedidos.push({ repeatCell: { range: faixa(X, X + 1),
+    cell: { userEnteredFormat: { horizontalAlignment: 'CENTER', textFormat: { bold: true } } },
+    fields: 'userEnteredFormat.horizontalAlignment,userEnteredFormat.textFormat.bold' } });
   return pedidos;
 }
 /** Colunas de dinheiro em blocos contíguos [início, fim). */

@@ -155,6 +155,7 @@ export function telaFolhaEmpenhos(el){
     '.fe-lanc tr.nb td{background:rgba(220,38,38,.08)}.fe-lanc tr.falta td:first-child{box-shadow:inset 3px 0 #d97706}'+
     '.fe-lanc [data-cp]{cursor:copy}.fe-lanc [data-cp]:hover{outline:1px dashed currentColor}.fe-lanc .op{white-space:nowrap}.fe-lanc .op+.op{margin-top:6px}'+
     '.fe-lanc .ok{color:#15803d;font-weight:700}.fe-lanc .ruim{color:#b91c1c;font-weight:700}.fe-lanc .dif{font-size:.75rem;color:#b91c1c;white-space:normal}'+
+    '.fe-lanc .cpb{border:0;background:none;cursor:pointer;opacity:.5;font-size:.85em;padding:0 0 0 3px;color:inherit}.fe-lanc .cpb:hover{opacity:1}'+
     '.fe-lanc .mudou{color:#1d4ed8;font-weight:700}.fe-lanc .grupo td{background:var(--fundo-alt,#f3f4f6);font-weight:700}'+
     '</style>';
   const passo=(id,n,titulo,corpo)=>'<details class="fe-passo" data-passo="'+id+'"><summary><h2>'+n+' · '+titulo+'</h2><span class="fe-sit" id="fe-sit-'+id+'"></span></summary><div class="fe-corpo">'+corpo+'</div></details>';
@@ -867,10 +868,11 @@ export function telaFolhaEmpenhos(el){
     const proposta=Object.fromEntries(rateio.propostas.map(x=>[x.id,x]));
     const usadas=COLUNAS_DESCONTO.filter(c=>r.linhas.some(l=>l.composicao[c.chave]));
     const temOP=r.linhas.some(l=>l.ops.length);
-    const cp=(v,txt)=>'<span data-cp="'+esc(v)+'">'+esc(txt??v)+'</span>';
+    /* Cada valor tem o botão de copiar à vista (⧉): clicar no valor também copia. */
+    const cp=(v,txt)=>'<span data-cp="'+esc(v)+'">'+esc(txt??v)+'</span><button type="button" class="cpb" data-cp="'+esc(v)+'" title="Copiar" aria-label="Copiar '+esc(txt??v)+'">⧉</button>';
     const din=c=>c?cp(somenteValor(c)):'<span class="fe-muted">—</span>';
     const nomes={principal:'Folha mensal',extra:'Folha extra',decimo:'Adiantamento do 13º',rescisao:'Rescisões'};
-    const colunas=7+usadas.length+(temOP?1:0)+2;
+    const colunas=7+usadas.length+(temOP?1:0)+3;
     let grupo='';
     const corpo=r.linhas.map(l=>{
       const cab=l.tipo!==grupo?'<tr class="grupo"><td colspan="'+colunas+'">'+esc(nomes[l.tipo]||l.tipo)+'</td></tr>':'';grupo=l.tipo;
@@ -879,7 +881,7 @@ export function telaFolhaEmpenhos(el){
       const sugere=pr?.mudou?'<br><small class="mudou" title="'+esc(pr.motivo)+'">saldo: '+(pr.ficha!==l.ficha?'ficha '+esc(pr.ficha)+' · ':'')+esc(pr.fonte)+'</small>':'';
       const ops=l.ops.map(o=>'<div class="op"><strong>'+esc(o.tipo)+'</strong> · ficha '+cp(o.ficha||'?')+'<br>'+
         'OP nº <input data-op-lanc="'+esc(o.id)+'" style="width:64px" value="'+esc(o.numero)+'" aria-label="Número da OP"> '+din(o.valor)+
-        (o.desconto?' · desc. '+din(o.desconto):'')+'<br><small class="hist">'+cp(o.historico)+'</small></div>').join('');
+        (o.desconto?' · desconto (INSS) '+din(o.desconto):'')+'<br><small class="hist">'+cp(o.historico)+'</small></div>').join('');
       return cab+'<tr class="'+(l.bateu?'':'nb ')+(l.falta.length?'falta':'')+'">'+
         '<td><strong>'+cp(String(l.numero),l.empenhoAno)+'</strong></td>'+
         '<td>'+(l.ficha?cp(l.ficha):'<span class="ruim">falta</span>')+'</td>'+
@@ -889,6 +891,7 @@ export function telaFolhaEmpenhos(el){
         '<td class="n"><strong>'+din(l.desconto)+'</strong></td>'+
         usadas.map(c=>'<td class="n">'+din(l.composicao[c.chave])+'</td>').join('')+
         (temOP?'<td>'+(ops||'<span class="fe-muted">—</span>')+'</td>':'')+
+        '<td class="n"><strong>'+din(l.calculado)+'</strong></td>'+
         '<td class="n">'+(l.resumo==null?'<span class="ruim">?</span>':din(l.resumo))+'</td>'+
         '<td>'+(l.bateu?'<span class="ok">✓ bateu</span>':'<span class="ruim">✗ não bateu</span>'+l.diferencas.map(d=>'<div class="dif">'+esc(d)+'</div>').join(''))+'</td>'+
         '</tr>';
@@ -896,7 +899,7 @@ export function telaFolhaEmpenhos(el){
     const tot=r.totais;
     const rodape='<tr class="grupo"><td colspan="3">Total · '+r.linhas.length+' empenhos</td><td class="n">'+somenteValor(tot.bruto)+'</td><td></td>'+
       '<td class="n">'+somenteValor(tot.desconto)+'</td>'+usadas.map(c=>'<td class="n">'+somenteValor(tot.composicao[c.chave])+'</td>').join('')+
-      (temOP?'<td class="n">'+somenteValor(tot.liquidoOP)+'</td>':'')+'<td class="n">'+somenteValor(tot.resumo)+'</td>'+
+      (temOP?'<td class="n">'+somenteValor(tot.liquidoOP)+'</td>':'')+'<td class="n">'+somenteValor(tot.calculado)+'</td><td class="n">'+somenteValor(tot.resumo)+'</td>'+
       '<td>'+(tot.calculado===tot.resumo?'<span class="ok">✓</span>':'<span class="ruim">dif. '+somenteValor(tot.resumo-tot.calculado)+'</span>')+'</td></tr>';
     const usoSaldo=rateio.uso.length?'<p><strong>Fontes estaduais e federais</strong> (saldo das contas da etapa 3): '+rateio.uso.map(u=>esc(u.fonte)+' — saldo '+dinheiroFolha(u.saldo)+
         ', cabem '+u.empenhos.length+' empenho(s) somando '+dinheiroFolha(u.usado)+', sobra '+dinheiroFolha(u.sobra)).join(' · ')+'</p>'+
@@ -916,10 +919,10 @@ export function telaFolhaEmpenhos(el){
       '<p class="fe-muted">Conta de cada linha: bruto − desconto + OP − desconto da OP = total líquido do Resumo de Verbas. Clique num valor para copiar.</p>'+
       usoSaldo+
       '<div class="fe-scroll"><table><thead><tr><th>Empenho</th><th>Ficha</th><th>Fonte</th><th>Bruto</th><th>Histórico</th><th>Desconto</th>'+
-        usadas.map(c=>'<th>'+esc(c.rotulo)+'</th>').join('')+(temOP?'<th>Ordem de pagamento</th>':'')+'<th>Resumo RH</th><th>Conferência</th></tr></thead>'+
+        usadas.map(c=>'<th>'+esc(c.rotulo)+'</th>').join('')+(temOP?'<th>Ordem de pagamento</th>':'')+'<th>Líquido</th><th>Resumo RH</th><th>Conferência</th></tr></thead>'+
       '<tbody>'+corpo+rodape+'</tbody></table></div>';
     alvo.querySelectorAll('[data-cp]').forEach(x=>x.onclick=()=>{
-      navigator.clipboard?.writeText(x.dataset.cp).then(()=>toast('Copiado: '+x.dataset.cp),()=>{});
+      navigator.clipboard?.writeText(x.dataset.cp).then(()=>toast('Copiado: '+(x.dataset.cp.length>60?x.dataset.cp.slice(0,60)+'…':x.dataset.cp)),()=>toast('O navegador não deixou copiar.','erro'));
     });
     alvo.querySelectorAll('[data-op-lanc]').forEach(i=>i.onchange=()=>{
       const v=i.value.trim();
