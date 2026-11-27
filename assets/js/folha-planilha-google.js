@@ -147,8 +147,17 @@ export function pedidosDeFormato(sheetId, quantidade) {
     pedidos.push({ repeatCell: { range: faixa(a, b), cell: { userEnteredFormat: moeda }, fields: 'userEnteredFormat.numberFormat' } });
   pedidos.push({ repeatCell: { range: faixa(1, 5), cell: { userEnteredFormat: { numberFormat: { type: 'TEXT' } } },
     fields: 'userEnteredFormat.numberFormat' } });
+  /* Histórico à esquerda (centralizado e cortado, o começo do texto sumia),
+     conferência ao centro, e as três colunas do fim numa largura que caiba
+     o texto e o valor — conferido na aba NOVEMBRO/2026. */
   pedidos.push({ repeatCell: { range: faixa(COLUNA_HISTORICO, COLUNA_HISTORICO + 1),
-    cell: { userEnteredFormat: { wrapStrategy: 'CLIP' } }, fields: 'userEnteredFormat.wrapStrategy' } });
+    cell: { userEnteredFormat: { wrapStrategy: 'CLIP', horizontalAlignment: 'LEFT', textFormat: { fontSize: 9 } } },
+    fields: 'userEnteredFormat.wrapStrategy,userEnteredFormat.horizontalAlignment,userEnteredFormat.textFormat.fontSize' } });
+  pedidos.push({ repeatCell: { range: faixa(COLUNA_HISTORICO + 2, COLUNA_HISTORICO + 3),
+    cell: { userEnteredFormat: { horizontalAlignment: 'CENTER' } }, fields: 'userEnteredFormat.horizontalAlignment' } });
+  [560, 115, 105].forEach((px, i) => pedidos.push({ updateDimensionProperties: {
+    range: { sheetId, dimension: 'COLUMNS', startIndex: COLUNA_HISTORICO + i, endIndex: COLUNA_HISTORICO + i + 1 },
+    properties: { pixelSize: px }, fields: 'pixelSize' } }));
   return pedidos;
 }
 /** Colunas de dinheiro em blocos contíguos [início, fim). */

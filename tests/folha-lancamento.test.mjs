@@ -225,6 +225,9 @@ t('linhas lançadas ficam em R$, com fonte como texto e histórico sem quebrar l
   assert.equal(moeda[0].repeatCell.range.endRowIndex, 6);
   assert.ok(p.some(x => x.repeatCell?.cell.userEnteredFormat.numberFormat?.type === 'TEXT'));
   assert.ok(p.some(x => x.repeatCell?.cell.userEnteredFormat.wrapStrategy === 'CLIP' && x.repeatCell.range.startColumnIndex === 21));
+  assert.ok(p.some(x => x.repeatCell?.cell.userEnteredFormat.horizontalAlignment === 'LEFT' && x.repeatCell.range.startColumnIndex === 21));
+  assert.deepEqual(p.filter(x => x.updateDimensionProperties).map(x => [x.updateDimensionProperties.range.startIndex, x.updateDimensionProperties.properties.pixelSize]),
+    [[21, 560], [22, 115], [23, 105]]);
 });
 
 console.log(`folha-lancamento: ${ok} ok, ${falhas.length} falhas`);
