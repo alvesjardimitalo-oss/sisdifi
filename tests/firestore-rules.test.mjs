@@ -4,7 +4,7 @@ import {
   initializeTestEnvironment, assertFails, assertSucceeds
 } from '@firebase/rules-unit-testing';
 import {
-  doc, getDoc, setDoc, collection, getDocs, serverTimestamp
+  doc, getDoc, setDoc, collection, getDocs, serverTimestamp, writeBatch
 } from 'firebase/firestore';
 
 const projectId = 'demo-sisdifi';
@@ -62,6 +62,14 @@ try {
   await assertSucceeds(getDoc(doc(db('operador'), 'solicitacoes_privado', 'antiga-com-dados')));
   await assertSucceeds(getDoc(doc(db('secretaria-a'), 'solicitacoes_privado', 'antiga-com-dados')));
   await assertFails(getDoc(doc(db('secretaria-a'), 'solicitacoes_privado', 'outra-secretaria')));
+  await assertSucceeds(setDoc(doc(db('operador'), 'solicitacoes_privado', 'antiga-saneada'), {
+    solicitacao_id: 'antiga-saneada', servidor_id: 'servidor-a', secretaria_id: 'sec-a',
+    cpf: '12345678901'
+  }));
+  await assertSucceeds(setDoc(doc(db('secretaria-a'), 'solicitacoes_privado', 'antiga-saneada'), {
+    solicitacao_id: 'antiga-saneada', servidor_id: 'servidor-a', secretaria_id: 'sec-a',
+    chave_pix: '12345678901'
+  }));
 
   // CPF e Pix integrais não ficam acessíveis ao perfil de consulta.
   await assertFails(getDoc(doc(db('consulta'), 'servidores_privado', 'servidor-a')));
@@ -79,6 +87,12 @@ try {
   await assertFails(setDoc(doc(db('secretaria-a'), 'cpfs', '11111111111'), {
     servidor_id: 'servidor-b'
   }));
+  const cadastro = writeBatch(db('secretaria-a'));
+  cadastro.set(doc(db('secretaria-a'), 'servidores_privado', 'servidor-novo'), {
+    secretaria_id: 'sec-a', cpf: '11111111111'
+  });
+  cadastro.set(doc(db('secretaria-a'), 'cpfs', '11111111111'), { servidor_id: 'servidor-novo' });
+  await assertSucceeds(cadastro.commit());
   await assertFails(setDoc(doc(db('operador'), 'cpfs', '123'), {
     servidor_id: 'servidor-a'
   }));
