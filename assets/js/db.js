@@ -153,21 +153,53 @@ export async function criarUsuario({ nome, email, senha, perfil, secretaria_id =
 }
 
 // ---------------- Leitura em tempo real ----------------
+const cachePrivadoSolicitacao = new Map();
+async function hidratarSolicitacao(dados) {
+  if (!dados || !dados.id || !sessao || !['admin', 'operador', 'rh', 'secretaria'].includes(sessao.perfil)) return dados;
+  try {
+    let pendente = cachePrivadoSolicitacao.get(dados.id);
+    if (!pendente) {
+      pendente = getDoc(doc(fs, 'solicitacoes_privado', dados.id))
+        .then(s => s.exists() ? s.data() : null)
+        .catch(() => null);
+      cachePrivadoSolicitacao.set(dados.id, pendente);
+    }
+    const privado = await pendente;
+    if (!privado) return dados;
+    return {
+      ...dados,
+      servidor: {
+        ...(dados.servidor || {}),
+        ...(privado.cpf ? { cpf: privado.cpf } : {}),
+        ...(privado.chave_pix ? { chave_pix: privado.chave_pix } : {})
+      }
+    };
+  } catch { return dados; }
+}
+async function hidratarLista(colecao, itens) {
+  if (colecao !== 'solicitacoes') return itens;
+  return Promise.all(itens.map(hidratarSolicitacao));
+}
 /** filtro opcional: [campo, valor] → só documentos com campo == valor (ex.: solicitações da própria secretaria). */
 export function ouvir(colecao, cb, onErro, filtro = null) {
-  // filtro: [campo, valor] ou lista de [campo, valor] (todas as condições)
   const filtros = !filtro ? [] : Array.isArray(filtro[0]) ? filtro : [filtro];
   const alvo = filtros.length ? query(collection(fs, colecao), ...filtros.map(([c, v]) => where(c, '==', v))) : collection(fs, colecao);
   return onSnapshot(alvo,
-    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    snap => { hidratarLista(colecao, snap.docs.map(d => ({ id: d.id, ...d.data() }))).then(cb).catch(e => onErro && onErro(e)); },
     e => onErro && onErro(e));
 }
 export function ouvirDoc(colecao, id, cb, onErro) {
-  return onSnapshot(doc(fs, colecao, id), s => cb(s.exists() ? { id: s.id, ...s.data() } : null), e => onErro && onErro(e));
+  return onSnapshot(doc(fs, colecao, id), s => {
+    const item = s.exists() ? { id: s.id, ...s.data() } : null;
+    if (colecao === 'solicitacoes' && item) hidratarSolicitacao(item).then(cb).catch(e => onErro && onErro(e));
+    else cb(item);
+  }, e => onErro && onErro(e));
 }
 export async function lerDoc(colecao, id) {
   const s = await getDoc(doc(fs, colecao, id));
-  return s.exists() ? { id: s.id, ...s.data() } : null;
+  if (!s.exists()) return null;
+  const item = { id: s.id, ...s.data() };
+  return colecao === 'solicitacoes' ? hidratarSolicitacao(item) : item;
 }
 export async function ultimosLogs(n = 200) {
   const snap = await getDocs(query(collection(fs, 'logs'), orderBy('em', 'desc'), limitar(n)));
@@ -273,15 +305,32 @@ export async function criarSolicitacoes(lista) {
     const ano = Number(String(dados.data_solicitacao).slice(0, 4));
     const contadorRef = doc(fs, 'contadores', 'solicitacoes-' + ano);
     const novaRef = doc(collection(fs, 'solicitacoes'));
+    const servidorOriginal = dados.servidor || {};
+    const servidorPublico = { ...servidorOriginal };
+    const cpf = String(servidorPublico.cpf || '').replace(/\\D/g, '');
+    const chavePix = String(servidorPublico.chave_pix || '');
+    delete servidorPublico.cpf;
+    delete servidorPublico.chave_pix;
+    delete servidorPublico.cpf_anterior;
+    const dadosPublicos = { ...dados, servidor: servidorPublico };
     const numero = await runTransaction(fs, async tx => {
       const c = await tx.get(contadorRef);
       const seq = (c.exists() ? Number(c.data().ultimo || 0) : 0) + 1;
       const numero = String(seq).padStart(4, '0') + '/' + ano;
       tx.set(contadorRef, { ultimo: seq, ano }, { merge: true });
       tx.set(novaRef, {
-        ...dados, numero, ano, sequencia: seq,
+        ...dadosPublicos, numero, ano, sequencia: seq,
         criado_em: serverTimestamp(), criado_por: autor(), atualizado_em: serverTimestamp(), atualizado_por: autor()
       });
+      if (cpf || chavePix) {
+        tx.set(doc(fs, 'solicitacoes_privado', novaRef.id), {
+          solicitacao_id: novaRef.id,
+          servidor_id: String(dados.servidor_id || ''),
+          secretaria_id: dados.secretaria_id || null,
+          ...(cpf.length === 11 ? { cpf } : {}),
+          ...(chavePix ? { chave_pix: chavePix.slice(0, 140) } : {})
+        });
+      }
       return numero;
     });
     criadas.push({ id: novaRef.id, numero });
@@ -375,6 +424,52 @@ export async function registrarLog(acao, detalhe = {}) {
   try {
     await addDoc(collection(fs, 'logs'), { acao, detalhe, uid: sessao.uid, nome: sessao.nome || sessao.email, em: serverTimestamp() });
   } catch { /* log nunca impede a operação */ }
+}
+
+/**
+ * Migra CPF/Pix dos snapshots históricos de solicitações para uma coleção privada.
+ * A execução é manual e restrita à Contabilidade/ADM; não apaga nem altera outros campos do processo.
+ */
+export async function protegerDadosSolicitacoes(progresso) {
+  if (!sessao || !['admin', 'operador'].includes(sessao.perfil)) throw Error('Acesso restrito à Contabilidade e ADM.');
+  const snap = await getDocs(collection(fs, 'solicitacoes'));
+  const pendentes = snap.docs.filter(s => {
+    const servidor = s.data().servidor || {};
+    return ['cpf', 'chave_pix', 'cpf_anterior'].some(k => Object.prototype.hasOwnProperty.call(servidor, k));
+  });
+  let migrados = 0, ignorados = 0;
+  for (let i = 0; i < pendentes.length; i += 120) {
+    const lote = pendentes.slice(i, i + 120);
+    const b = writeBatch(fs);
+    for (const item of lote) {
+      const dados = item.data(), servidor = { ...(dados.servidor || {}) };
+      const cpf = String(servidor.cpf || '').replace(/\\D/g, '');
+      const chavePix = String(servidor.chave_pix || '');
+      delete servidor.cpf;
+      delete servidor.chave_pix;
+      delete servidor.cpf_anterior;
+      const servidorId = String(dados.servidor_id || '');
+      if ((cpf.length || chavePix) && (!servidorId || !dados.secretaria_id)) {
+        ignorados++;
+        continue;
+      }
+      if (cpf.length === 11 || chavePix) {
+        b.set(doc(fs, 'solicitacoes_privado', item.id), {
+          solicitacao_id: item.id, servidor_id: servidorId, secretaria_id: dados.secretaria_id,
+          ...(cpf.length === 11 ? { cpf } : {}),
+          ...(chavePix ? { chave_pix: chavePix.slice(0, 140) } : {})
+        }, { merge: true });
+      }
+      b.update(doc(fs, 'solicitacoes', item.id), {
+        servidor, atualizado_em: serverTimestamp(), atualizado_por: autor()
+      });
+      migrados++;
+    }
+    await b.commit();
+    progresso && progresso(Math.min(i + 120, pendentes.length), pendentes.length);
+  }
+  await registrarLog('privacidade.solicitacoes_migrar', { migrados, ignorados });
+  return { migrados, ignorados, total: pendentes.length };
 }
 
 /** Move campos de valor do documento da solicitação para a coleção protegida "valores". lista = [{ id, valores }] */
