@@ -732,7 +732,16 @@ export function telaFolhaEmpenhos(el){
       else if(campo==='contaId'){
         const c=contaPorId(input.value);
         mapa[k]={...(mapa[k]||{}),contaId:input.value};
-        if(c?.fonte&&!mapa[k].fonte)mapa[k].fonte=c.fonte.split(',')[0].trim();
+        if(c?.fonte&&!mapa[k].fonte){
+          /* Só copia a fonte da conta se a ficha da lotação a aceitar na LOA:
+             foi assim que o 5203 (ficha 347, só 1500/1660) ficou na 1540 do
+             FUNDEB em novembro/2026. */
+          const aceitas=fontesAceitas(mapa[k].ficha);
+          const daConta=c.fonte.split(',').map(x=>x.trim()).filter(Boolean);
+          const boa=daConta.find(f=>!aceitas.length||aceitas.includes(codigoCurto(f)));
+          if(boa)mapa[k].fonte=boa;
+          else toast('A conta '+(c.nome||'')+' é da fonte '+daConta.join(', ')+', que a ficha '+(mapa[k].ficha||'')+' não aceita na LOA. Escolha a fonte à mão.','erro');
+        }
       }else{
         mapa[k]={...(mapa[k]||{}),[campo]:campo==='fonte'?normalizarFonte(input.value):input.value.trim()};
         if(campo==='fonte')sugerirConta(k);
@@ -868,6 +877,13 @@ export function telaFolhaEmpenhos(el){
     const propria=fontes.includes('1500')?fonteDaFicha({fontes:['1500'],unidade:ref.unidade,acao:ref.acao}):'';
     return {fontes,propria};
   };
+  /* Fontes que a ficha aceita na LOA, em código curto. A LOA publica 1500 nas
+     fichas de educação e saúde pagas com imposto, e o empenho leva a
+     vinculação (1001, 1002): as três valem como a mesma. */
+  const fontesAceitas=ficha=>{
+    const f=(localizarFicha(ficha)?.fontes||[]).map(codigoCurto);
+    return f.includes('1500')?[...f,'1001','1002']:f;
+  };
   const eu=()=>({uid:estado.sessao?.uid||'',nome:String(estado.sessao?.nome||estado.sessao?.email||'').split(/[ @]/)[0]});
   const lancadoNoMes=id=>preenchimento[id]?.estado==='lancado'||transcritos.includes(id);
   function marcarPreenchimento(id,situacao){
@@ -910,7 +926,11 @@ export function telaFolhaEmpenhos(el){
     const corpo=r.linhas.map(l=>{
       const cab=l.tipo!==grupo?'<tr class="grupo"><td colspan="'+colunas+'">'+esc(nomes[l.tipo]||l.tipo)+'</td></tr>':'';grupo=l.tipo;
       const pr=proposta[l.id];
-      const fonte=l.fonte?cp(l.fonte):'<span class="ruim">falta</span>';
+      /* Fonte que a ficha não aceita na LOA (em novembro/2026, o 5203 na ficha
+         347 com a 1540 do FUNDEB): avisa na linha, não passa calado. */
+      const fontesFicha=fontesAceitas(l.ficha);
+      const fonteErrada=!!(l.fonte&&fontesFicha.length&&!fontesFicha.includes(codigoCurto(l.fonte)));
+      const fonte=l.fonte?cp(l.fonte)+(fonteErrada?'<br><small class="ruim" title="Fontes da ficha '+esc(l.ficha)+' na LOA: '+esc(fontesFicha.filter(f=>!['1001','1002'].includes(f)).join(', '))+'">⚠ a ficha '+esc(l.ficha)+' não aceita '+esc(codigoCurto(l.fonte))+' (aceita '+esc(fontesFicha.filter(f=>!['1001','1002'].includes(f)).join(', '))+')</small>':''):'<span class="ruim">falta</span>';
       const sugere=pr?.mudou?'<br><small class="mudou" title="'+esc(pr.motivo)+'">saldo: '+(pr.ficha!==l.ficha?'ficha '+esc(pr.ficha)+' · ':'')+esc(pr.fonte)+'</small>':'';
       const ops=l.ops.map(o=>'<div class="op"><strong>'+esc(o.tipo)+'</strong> · ficha '+cp(o.ficha||'?')+'<br>'+
         'OP nº <input data-op-lanc="'+esc(o.id)+'" style="width:64px" value="'+esc(o.numero)+'" aria-label="Número da OP"> '+din(o.valor)+
@@ -943,6 +963,7 @@ export function telaFolhaEmpenhos(el){
     const tipoRegra={servidores:'servidores pelo nome',fichas:'fichas',livre:'qualquer lotação da fonte'};
     /* Previsão do mês com a cobertura aplicada: contas × recurso próprio. */
     const prev=previsaoDaFolha(p.empenhos,rateio.propostas);
+    const fontesErradas=r.linhas.filter(l=>{const f=fontesAceitas(l.ficha);return l.fonte&&f.length&&!f.includes(codigoCurto(l.fonte));});
     const barra='<div style="display:flex;height:14px;border-radius:7px;overflow:hidden;margin:6px 0;background:#e5e7eb">'+
       '<div style="width:'+prev.pctContas+'%;background:#16a34a" title="Contas"></div><div style="width:'+prev.pctPropria+'%;background:#f59e0b" title="Recurso próprio"></div></div>';
     const previsao='<div class="fe-card" style="margin:8px 0;padding:10px 12px"><strong>Previsão do mês</strong> · bruto dos empenhos '+dinheiroFolha(prev.total)+barra+
@@ -991,6 +1012,8 @@ export function telaFolhaEmpenhos(el){
           ' · das contas estaduais e federais: '+dinheiroFolha(prev.contas)+' ('+prev.pctContas.toLocaleString('pt-BR')+'%)'+
           (prev.semFonte?' · <span class="ruim">'+dinheiroFolha(prev.semFonte)+' ainda sem fonte — escolha a fonte desses empenhos para fechar a conta</span>':'')+'</div>'+
           '<small class="fe-muted">Bruto dos empenhos, com as fontes propostas pelo saldo das contas (etapa 3). Salário-família e maternidade são OP extraorçamentária e não entram.</small></div>';})()+
+      (fontesErradas.length?'<p class="fe-danger" style="margin:8px 0"><strong>'+fontesErradas.length+' empenho(s) com fonte que a ficha não aceita na LOA:</strong> '+
+        fontesErradas.map(l=>l.empenhoAno+' (ficha '+esc(l.ficha)+', fonte '+esc(codigoCurto(l.fonte))+')').join(' · ')+'. Use "Usar as fontes pelo saldo" ou troque a fonte na etapa 4.</p>':'')+
       '<p class="'+(r.naoBateram?'fe-danger':'fe-ok')+'" style="margin:10px 0"><strong>'+r.bateram+' de '+r.linhas.length+' empenhos bateram</strong> com o Resumo de Verbas'+
         (r.naoBateram?' · '+r.naoBateram+' não bateram (em vermelho)':'')+(r.incompletas?' · '+r.incompletas+' com ficha, fonte ou histórico faltando':'')+'.</p>'+
       '<p class="fe-muted">Conta de cada linha: bruto − desconto + OP − desconto da OP = total líquido do Resumo de Verbas. Clique num valor para copiar.</p>'+
