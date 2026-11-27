@@ -119,10 +119,10 @@ export function telaDuodecimo(el) {
       atualizadoEm:agora,atualizadoPor:estado.sessao.nome,anulado:false};
     ocupada=true;estadoBotoes();
     try {
-      await db.salvar('duodecimo_anos',String(ano),{ano,repasses:{[id]:registro}});
-      try{await db.registrarLog(anterior?'duodecimo.op.editar':'duodecimo.op.criar',
-        {ano,competencia:registro.competencia,numeroOP:registro.numeroOP,valorCentavos:registro.valorCentavos,dataRepasse:registro.dataRepasse});}
-      catch(e){toast('Registro salvo. Não foi possível registrar o log de auditoria.','erro');}
+      await db.salvar('duodecimo_anos',String(ano),{ano,repasses:{[id]:registro}},{
+        acao: anterior ? 'duodecimo.op.editar' : 'duodecimo.op.criar',
+        detalhe: {ano,competencia:registro.competencia,numeroOP:registro.numeroOP,valorCentavos:registro.valorCentavos,dataRepasse:registro.dataRepasse}
+      });
       toast(anterior?'OP atualizada.':'OP registrada com sucesso.');
       return true;
     } finally {ocupada=false;estadoBotoes();}
@@ -170,9 +170,10 @@ export function telaDuodecimo(el) {
     try {
       const {id: ignorado, ...dadosExistentes} = r;
       await db.salvar('duodecimo_anos',String(ano),{ano,repasses:{[id]:{...dadosExistentes,anulado:true,
-        anuladoEm:new Date().toISOString(),anuladoPor:estado.sessao.nome}}});
-      try{await db.registrarLog('duodecimo.op.anular',{ano,competencia:r.competencia,numeroOP:r.numeroOP,valorCentavos:r.valorCentavos});}
-      catch(e){toast('OP anulada. Falha ao registrar log de auditoria.','erro');}
+        anuladoEm:new Date().toISOString(),anuladoPor:estado.sessao.nome}}},{
+        acao:'duodecimo.op.anular',
+        detalhe:{ano,competencia:r.competencia,numeroOP:r.numeroOP,valorCentavos:r.valorCentavos}
+      });
       toast('OP anulada e excluída dos totais.');
     } catch(e){toast(mensagemErro(e),'erro');}
     finally {ocupada=false;estadoBotoes();}
