@@ -526,6 +526,7 @@ export async function protegerDadosSolicitacoes(progresso) {
   for (let i = 0; i < pendentes.length; i += 120) {
     const lote = pendentes.slice(i, i + 120);
     const b = writeBatch(fs);
+    const migradosAntes = migrados;
     for (const item of lote) {
       const dados = item.data(), servidor = { ...(dados.servidor || {}) };
       const cpf = String(servidor.cpf || '').replace(/\\D/g, '');
@@ -554,7 +555,7 @@ export async function protegerDadosSolicitacoes(progresso) {
       });
       migrados++;
     }
-    await b.commit();
+    if (migrados > migradosAntes) await b.commit();
     progresso && progresso(Math.min(i + 120, pendentes.length), pendentes.length);
   }
   await registrarLog('privacidade.solicitacoes_migrar', { migrados, ignorados });
