@@ -965,8 +965,11 @@ export function telaFolhaEmpenhos(el){
           :'<li>Empenho <strong>'+x.empenho+'</strong> · '+esc(x.secretaria)+(x.vinculo?' · '+esc(x.vinculo):'')+' (lotação '+esc(x.lotacao)+'): '+
           x.servidores.map(v=>esc(v.nome)+' ('+somenteValor(v.bruto)+')').join(', ')+' → <strong>'+dinheiroFolha(x.valor)+'</strong> na conta '+esc(x.contaNome)+' ('+esc(x.fonte)+')'+
           (x.cabe?'':' <em>— a conta não tem saldo para tudo este mês</em>')+'; ficariam '+x.outros+' servidor(es) na lotação atual.</li>').join('')+'</ul></div>':'')+
-      (rateio.conferencia.length?'<p class="fe-alert">Confira os nomes do "pode pagar": '+rateio.conferencia.map(c=>esc(c.nome)+' ('+esc(c.conta)+') '+
-        (c.achados.length?'aparece em '+c.achados.length+' servidores: '+c.achados.slice(0,4).map(esc).join(', ')+' — escreva o nome completo':'não foi encontrado na folha')).join(' · ')+'</p>':'')+
+      (rateio.conferencia.some(c=>!c.aproximado)?'<p class="fe-alert">Confira os nomes do "pode pagar" (estes não pagam ninguém até serem corrigidos): '+rateio.conferencia.filter(c=>!c.aproximado).map(c=>esc(c.nome)+' ('+esc(c.conta)+') '+
+        (c.achados.length?'aparece em '+c.achados.length+' servidores: '+c.achados.slice(0,4).map(esc).join(', ')+' — escreva o nome completo'
+          :c.onde?'é '+esc(c.onde.nome)+', da lotação '+esc(c.onde.lotacao)+(c.onde.ficha?' (ficha '+esc(c.onde.ficha)+')':'')+', cuja ficha não aceita a fonte '+esc((c.fontes||[]).join('/'))+' na LOA — a conta não pode pagá-lo'
+          :'não está na folha mensal deste mês (rescisão, afastamento ou nome diferente no RH)')).join(' · ')+'</p>':'')+
+      (rateio.conferencia.some(c=>c.aproximado)?'<p class="fe-muted">Nomes achados por grafia parecida — confira: '+rateio.conferencia.filter(c=>c.aproximado).map(c=>esc(c.nome)+' → '+esc(c.achados[0])+' ('+esc(c.conta)+')').join(' · ')+'</p>':'')+
       rateio.avisos.map(a=>'<p class="fe-alert">'+esc(a)+'</p>').join('')+'</details>'
       :'<p class="fe-muted">Para o sistema dizer quais empenhos cabem no recurso estadual/federal, informe na etapa 3 o saldo de cada conta, a fonte e o que ela pode pagar. O que não couber vai para o recurso próprio.</p>';
     alvo.innerHTML='<div class="fe-actions" style="justify-content:space-between"><h2 style="margin:0">Lançamento · uma linha por empenho</h2>'+

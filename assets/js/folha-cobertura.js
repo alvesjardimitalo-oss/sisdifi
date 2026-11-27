@@ -81,13 +81,50 @@ export function lerPodePagar(texto = '') {
   return { fichas, nomes };
 }
 
-/** O nome da lista corresponde ao servidor? Todas as palavras dele estão no nome completo. */
-export function mesmoServidor(nomeDaLista, nomeCompleto) {
+/* A planilha de contas e o cadastro do RH escrevem o mesmo nome de jeitos
+   diferentes — em novembro/2026: "Lorrai" × LORRAINY, "Mariany" × MARIANE,
+   "Francielle" × FRANCIELE. Por isso a palavra também casa por aproximação:
+   sem letra dobrada, Y como I, começo do nome (4 letras ou mais) ou uma letra
+   diferente (5 letras ou mais). A busca é só nas lotações que a conta pode
+   pagar, e o que casou por aproximação é mostrado para conferir. */
+const simples = p => p.replace(/Y/g, 'I').replace(/PH/g, 'F').replace(/TH/g, 'T').replace(/(.)\1+/g, '$1');
+const umaLetra = (a, b) => {
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0, j = 0, dif = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++dif > 1) return false;
+    if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; }
+  }
+  return dif + (a.length - i) + (b.length - j) <= 1;
+};
+const palavraCasa = (p, q) => {
+  if (p === q) return 'exato';
+  const a = simples(p), b = simples(q);
+  if (a === b) return 'aprox';
+  if (a.length >= 4 && b.startsWith(a)) return 'aprox';
+  if (a.length >= 5 && umaLetra(a, b)) return 'aprox';
+  return '';
+};
+/**
+ * Como o nome da lista corresponde ao servidor: 'exato' (todas as palavras
+ * estão no nome completo), 'aprox' (alguma só por aproximação) ou ''.
+ */
+export function casamentoDeNome(nomeDaLista, nomeCompleto) {
   const ps = Array.isArray(nomeDaLista) ? nomeDaLista : palavras(nomeDaLista);
-  if (!ps.length) return false;
-  const doServidor = new Set(palavras(nomeCompleto));
-  return ps.every(p => doServidor.has(p));
+  if (!ps.length) return '';
+  const doServidor = palavras(nomeCompleto);
+  let aprox = false;
+  for (const p of ps) {
+    let melhor = '';
+    for (const q of doServidor) { const c = palavraCasa(p, q); if (c === 'exato') { melhor = c; break; } if (c) melhor = c; }
+    if (!melhor) return '';
+    if (melhor === 'aprox') aprox = true;
+  }
+  return aprox ? 'aprox' : 'exato';
 }
+/** O nome da lista corresponde ao servidor (exato ou aproximado)? */
+export const mesmoServidor = (nomeDaLista, nomeCompleto) => !!casamentoDeNome(nomeDaLista, nomeCompleto);
 
 /**
  * Bruto de cada servidor, por lotação, a partir da folha nominal.
@@ -133,7 +170,57 @@ export function coberturaPorConta(empenhos = [], contas = [], fichaInfo = () => 
     avisos.push('Há conta que paga servidores pelo nome: envie a Folha de pagamento (nominal) na etapa 1 para o SISDIFI saber quem está em cada lotação.');
 
   const servidoresDe = e => (temQuadro ? quadro[e.lotacao] || null : null);
-  // A conta pode pagar este empenho inteiro? E, se não, quem dele ela pagaria?
+
+  /* Cada nome do "pode pagar" é resolvido para UM servidor, procurado só nas
+     lotações que a conta pode pagar (ficha que admite a fonte dela; lotação
+     ainda sem ficha entra): primeiro pelo nome exato e, se não houver, por
+     aproximação de grafia. Nome que não resolve para uma pessoa só não paga
+     ninguém e vai para a conferência — assim a aproximação nunca faz a conta
+     pagar quem não está na lista. */
+  const conferencia = [];
+  if (temQuadro) {
+    const fichaDaLotacao = new Map((empenhos || []).map(e => [e.lotacao, String(e.ficha || '')]));
+    const daConta = c => Object.entries(quadro).filter(([lot]) => {
+      const ficha = fichaDaLotacao.get(lot);
+      if (!ficha) return true;
+      const admitidas = ((fichaInfo(ficha) || {}).fontes || []).map(codigoFonte);
+      return c.fontes.some(f => admitidas.includes(f));
+    }).flatMap(([lot, ss]) => ss.map(([nome]) => ({ nome, lot })));
+    for (const c of lista) {
+      c.resolvidos = new Set();
+      if (!c.regra?.nomes.length) continue;
+      const pessoas = daConta(c);
+      const casos = c.regra.nomes.map(n => {
+        const todos = pessoas.map(x => ({ ...x, como: casamentoDeNome(n.palavras, x.nome) })).filter(x => x.como);
+        return { n, exatos: [...new Set(todos.filter(x => x.como === 'exato').map(x => x.nome))],
+          aprox: [...new Set(todos.filter(x => x.como === 'aprox').map(x => x.nome))] };
+      });
+      // Primeiro os nomes exatos; depois as grafias parecidas, sem quem já
+      // foi resolvido por outro nome da lista ("Elza" já é ELZA MARIANA, então
+      // "Mariany" só pode ser MARIANE).
+      for (const k of casos) if (k.exatos.length === 1) c.resolvidos.add(k.exatos[0]);
+      for (const k of casos) {
+        if (k.exatos.length === 1) continue;
+        if (k.exatos.length > 1) { conferencia.push({ conta: c.nome || c.fonte, nome: k.n.texto, achados: k.exatos }); continue; }
+        const livres = k.aprox.filter(nome => !c.resolvidos.has(nome));
+        if (!livres.length && !k.aprox.length) {
+          /* Ninguém com esse nome nas lotações da conta: diz onde ele está, se
+             estiver na folha — numa lotação cuja ficha não aceita a fonte da
+             conta (o Marcelo Vieira, contratado da Vigilância Sanitária, na
+             ficha 248, que na LOA 2026 não tem a 1621) — ou que não está na
+             folha mensal (o Felipe, em rescisão em novembro/2026). */
+          const fora = Object.entries(quadro).flatMap(([lot, ss]) => ss.filter(([nome]) => casamentoDeNome(k.n.palavras, nome) === 'exato').map(([nome]) => ({ nome, lot })));
+          const onde = fora.length === 1 ? { nome: fora[0].nome, lotacao: fora[0].lot, ficha: fichaDaLotacao.get(fora[0].lot) || '' } : null;
+          conferencia.push({ conta: c.nome || c.fonte, nome: k.n.texto, achados: [], onde, fontes: c.fontes });
+          continue;
+        }
+        if (livres.length !== 1) { conferencia.push({ conta: c.nome || c.fonte, nome: k.n.texto, achados: livres.length ? livres : k.aprox }); continue; }
+        c.resolvidos.add(livres[0]);
+        conferencia.push({ conta: c.nome || c.fonte, nome: k.n.texto, achados: livres, aproximado: true });
+      }
+    }
+  }
+
   /* Fonte com que a conta pagaria o empenho: a de categoria (1604) só para o
      empenho daquela categoria; as outras, se a ficha admite. */
   const fonteParaEmpenho = (c, e, admitidas, categoria) => categoria
@@ -142,13 +229,18 @@ export function coberturaPorConta(empenhos = [], contas = [], fichaInfo = () => 
   const avaliar = (c, e, admitidas, categoria = '') => {
     const fonte = fonteParaEmpenho(c, e, admitidas, categoria);
     if (!fonte) return { pode: false };
+    /* A conta que tem a fonte da categoria (o Custeio SUS com "1600, 1604")
+       paga os agentes onde estiverem lotados — na Vigilância em Saúde, em
+       novembro/2026 —, mesmo que o "pode pagar" dela limite as fichas da 1600
+       à Atenção Básica. */
+    if (categoria) return { pode: true, fonte };
     const r = c.regra;
     if (!r) return { pode: true, fonte };
     if (r.fichas.size && r.fichas.has(String(e.ficha))) return { pode: true, fonte };
     if (!r.nomes.length) return { pode: false };
     const servidores = servidoresDe(e);
     if (!servidores?.length) return { pode: false };
-    const deles = servidores.filter(([nome]) => r.nomes.some(n => mesmoServidor(n.palavras, nome)));
+    const deles = servidores.filter(([nome]) => c.resolvidos?.has(nome));
     return { pode: deles.length === servidores.length, parte: deles, total: servidores.length, fonte };
   };
   const usar = (c, e) => { c.restante -= num(e.bruto); c.usado += num(e.bruto); c.empenhos.push(e.empenho); };
@@ -216,28 +308,6 @@ export function coberturaPorConta(empenhos = [], contas = [], fichaInfo = () => 
   for (const e of empenhos || []) if (!porId.has(e.id)) porId.set(e.id, decidir(e, ''));
   const propostas = (empenhos || []).map(e => porId.get(e.id));
 
-  /* Nomes da lista que não aparecem, ou que aparecem em mais de um servidor —
-     procurados só nas lotações que a conta pode pagar (ficha que admite a
-     fonte dela): uma Juliana de outra secretaria não confunde a conta da
-     Assistência Social. */
-  const conferencia = [];
-  if (temQuadro) {
-    const fichaDaLotacao = new Map((empenhos || []).map(e => [e.lotacao, String(e.ficha || '')]));
-    const daConta = c => Object.entries(quadro).filter(([lot]) => {
-      const ficha = fichaDaLotacao.get(lot);
-      if (!ficha) return false;
-      const admitidas = ((fichaInfo(ficha) || {}).fontes || []).map(codigoFonte);
-      return c.fontes.some(f => admitidas.includes(f));
-    }).flatMap(([lot, ss]) => ss.map(([nome]) => ({ nome, lot })));
-    for (const c of lista) {
-      if (!c.regra?.nomes.length) continue;
-      const pessoas = daConta(c);
-      for (const n of c.regra.nomes) {
-        const achados = pessoas.filter(s => mesmoServidor(n.palavras, s.nome));
-        if (achados.length !== 1) conferencia.push({ conta: c.nome || c.fonte, nome: n.texto, achados: achados.map(s => s.nome) });
-      }
-    }
-  }
   for (const s of sugestoes) s.cabe = (lista.find(c => c.id === s.conta)?.restante ?? 0) >= s.valor;
 
   return { propostas, avisos, sugestoes, conferencia,

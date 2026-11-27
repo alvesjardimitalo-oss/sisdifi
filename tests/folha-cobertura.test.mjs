@@ -4,7 +4,7 @@
 // fonte, Atenção Básica por ficha). Nomes fictícios.
 import assert from 'node:assert/strict';
 import { extrairCargo } from '../assets/js/folha-servidores.js';
-import { lerPodePagar, mesmoServidor, quadroDaFolha, coberturaPorConta, ehDeAgente, fontesDaConta, previsaoDaFolha, cargoDeAgente } from '../assets/js/folha-cobertura.js';
+import { lerPodePagar, mesmoServidor, quadroDaFolha, coberturaPorConta, ehDeAgente, fontesDaConta, previsaoDaFolha, cargoDeAgente, casamentoDeNome } from '../assets/js/folha-cobertura.js';
 
 let ok = 0; const falhas = [];
 const t = (nome, fn) => { try { fn(); ok++; } catch (e) { falhas.push(nome + ': ' + e.message); } };
@@ -198,6 +198,59 @@ t('cargo lido da linha do servidor na folha nominal', () => {
   assert.equal(extrairCargo('JOAO DA SILVA 1_20 / 0073 - AGENTE DE ENDEMIAS 03/02/2020 EFETIVO'), 'AGENTE DE ENDEMIAS');
   assert.equal(extrairCargo('ANA LIMA II /0032 - MONITOR (SALA DE AULA) 01/01/2026 CONTRATADO'), 'MONITOR (SALA DE AULA)');
   assert.equal(extrairCargo('SEM NIVEL'), '');
+});
+
+t('grafias diferentes da planilha de contas e do RH casam por aproximação', () => {
+  assert.equal(casamentoDeNome('Lorrai', 'LORRAINY DUARTE VIEIRA'), 'aprox');      // começo do nome
+  assert.equal(casamentoDeNome('Mariany', 'MARIANE MOREIRA DE ALMEIDA'), 'aprox');  // Y × E
+  assert.equal(casamentoDeNome('Francielle', 'FRANCIELE GONCALVES'), 'aprox');      // letra dobrada
+  assert.equal(casamentoDeNome('Kissila', 'KISSILA OLIVEIRA BRAGA'), 'exato');
+  assert.equal(casamentoDeNome('Ana', 'ANALICE SOUZA'), '', 'nome curto não casa pelo começo');
+});
+
+t('aproximação nunca faz a conta pagar quem não está na lista', () => {
+  // "Marcelo" na lista; na lotação há MARCELO e MARCELA: só ele conta.
+  const quadro = { L: [['MARCELO VIEIRA', 100], ['MARCELA VIEIRA', 100]] };
+  const contas = [{ id: 'v', nome: 'Vig', fonte: '1621', saldo: 1000, podePagar: 'Marcelo' }];
+  const r = coberturaPorConta([emp(1, '235', '1500', 200, 'L')], contas, info, quadro);
+  assert.equal(r.propostas[0].fonte, '1500');
+  assert.deepEqual(r.sugestoes[0].servidores.map(x => x.nome), ['MARCELO VIEIRA']);
+  // Lorrai resolve para LORRAINY e aparece na conferência como aproximado.
+  const q2 = { CF: [['LORRAINY DUARTE VIEIRA', 100]] };
+  const c2 = [{ id: 'cf', nome: 'Criança Feliz', fonte: '1660', saldo: 1000, podePagar: 'Supervisora: Lorrai' }];
+  const r2 = coberturaPorConta([emp(1, '347', '1500', 100, 'CF')], c2, info, q2);
+  assert.equal(r2.propostas[0].fonte, '1660');
+  assert.deepEqual(r2.conferencia, [{ conta: 'Criança Feliz', nome: 'Lorrai', achados: ['LORRAINY DUARTE VIEIRA'], aproximado: true }]);
+});
+
+t('Custeio SUS limitado à Atenção Básica (226, 227) paga os agentes na ficha própria deles, sem mexer na ficha', () => {
+  const LOA2 = { ...LOA, '255': { fontes: ['1500', '1600', '1604'], propria: '1002' } };
+  const contas = [{ id: 'sus', nome: 'Custeio SUS', fonte: '1600, 1604', saldo: 1000000, podePagar: '226, 227' }];
+  const quadro = { VS: [['PEDRO', 100, 'AGENTE COMBATE ENDEMIAS']], VS2: [['CLARA', 100, 'ENFERMEIRA']] };
+  const r = coberturaPorConta([emp(1, '255', '1500', 100000, 'VS'), emp(2, '255', '1500', 100000, 'VS2'), emp(3, '227', '1500', 100000, 'AB')],
+    contas, f => LOA2[f] || null, quadro);
+  // Agentes: ficha própria (255) mantida, fonte 1604. Enfermeira na 255: nenhuma conta a paga, fica como está.
+  assert.deepEqual(r.propostas.map(p => [p.ficha, p.fonte]), [['255', '1604'], ['255', '1500'], ['227', '1600']]);
+});
+
+t('quem já foi resolvido por outro nome da lista sai das grafias parecidas', () => {
+  // Planilha: "Visitadora: Elza Visitadora: Mariany". Na folha: ELZA MARIANA e MARIANE MOREIRA.
+  const quadro = { CF: [['ELZA MARIANA DE SOUZA', 100], ['MARIANE MOREIRA DE ALMEIDA', 100]] };
+  const contas = [{ id: 'cf', nome: 'Criança Feliz', fonte: '1660', saldo: 1000, podePagar: 'Visitadora: Elza Visitadora: Mariany' }];
+  const r = coberturaPorConta([emp(1, '347', '1500', 200, 'CF')], contas, info, quadro);
+  assert.equal(r.propostas[0].fonte, '1660');
+  assert.deepEqual(r.conferencia, [{ conta: 'Criança Feliz', nome: 'Mariany', achados: ['MARIANE MOREIRA DE ALMEIDA'], aproximado: true }]);
+});
+
+t('nome fora das lotações da conta: diz onde está, ou que não está na folha mensal', () => {
+  const quadro = { VS: [['MARCELO VIEIRA', 100]], OUTRA: [['ZE', 1]] };
+  const contas = [{ id: 'v', nome: 'Vigilância Sanitária', fonte: '1621', saldo: 1000, podePagar: 'Marcelo Vieira, Felipe' }];
+  // VS é ficha 65 (só 1500) neste teste, como a 248 contratados na LOA 2026.
+  const r = coberturaPorConta([emp(1, '65', '1500', 100, 'VS')], contas, info, quadro);
+  const m = r.conferencia.find(c => c.nome === 'Marcelo Vieira');
+  assert.deepEqual(m.onde, { nome: 'MARCELO VIEIRA', lotacao: 'VS', ficha: '65' });
+  const f = r.conferencia.find(c => c.nome === 'Felipe');
+  assert.equal(f.onde, null);
 });
 
 console.log(`folha-cobertura: ${ok} ok, ${falhas.length} falhas`);
