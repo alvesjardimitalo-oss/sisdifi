@@ -273,7 +273,7 @@ const COLECOES_COM_AUDITORIA_ATOMICA = new Set([
 function incluirLogNaGravacao(batch, acao, detalhe) {
   if (!sessao) throw Error('Sessão encerrada. Entre novamente para registrar a operação auditável.');
   batch.set(doc(collection(fs, 'logs')), {
-    acao, detalhe, uid: sessao.uid, nome: sessao.nome || sessao.email, em: serverTimestamp()
+    acao, detalhe, uid: sessao.uid, nome: String(sessao.nome || sessao.email || sessao.uid), em: serverTimestamp()
   });
 }
 
@@ -498,7 +498,7 @@ export async function salvarConfiguracaoFiscal(dados, campos, acao, detalhe) {
 export async function registrarLog(acao, detalhe = {}) {
   if (!sessao) return;
   try {
-    await addDoc(collection(fs, 'logs'), { acao, detalhe, uid: sessao.uid, nome: sessao.nome || sessao.email, em: serverTimestamp() });
+    await addDoc(collection(fs, 'logs'), { acao, detalhe, uid: sessao.uid, nome: String(sessao.nome || sessao.email || sessao.uid), em: serverTimestamp() });
   } catch { /* log nunca impede a operação */ }
 }
 
