@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { passosDoEmpenho, conferirEmpenho, montarHistorico, fichasOPpendentes,
   modeloDoEmpenho, textoDoModelo, MODELOS_HISTORICO,
   MODELO_HISTORICO_OP } from '../assets/js/folha-transcrever.js';
-import { FICHAS_EXTRA_OP } from '../assets/js/folha-empenhos.js';
+import { FICHAS_EXTRA_OP, dinheiroFolha } from '../assets/js/folha-empenhos.js';
 
 let ok = 0; const falhas = [];
 const t = (nome, fn) => { try { fn(); ok++; } catch (e) { falhas.push(nome + ': ' + e.message); } };
@@ -392,6 +392,21 @@ t('empenho vazio não quebra', () => {
   const c = conferirEmpenho();
   assert.equal(c.liquidoLinha, 0);
   assert.deepEqual(passosDoEmpenho().filter(p => p.grupo === 'Ordem de pagamento'), []);
+});
+
+// O INSS da servidora em salário-maternidade sai da liquidação e vai para a
+// OP: na distribuição do desconto ele não pode aparecer de novo.
+t('maternidade: o INSS dela não entra na distribuição do desconto', () => {
+  const e = { empenho: 5168, ficha: '186', fonte: '1540', bruto: 6227425,
+    descontoRH: 566763, descontoAjustado: 553154, maisInssExtra: 13609,
+    composicao: { INSS: 413609, Caixa: 100000, IRRF: 53154 }, liquidoRH: 5919947 };
+  const ops = [{ id: 'm', tipo: 'Salário-maternidade', bruto: 178237, inss: 13609, liquido: 164628 },
+    { id: 'f', tipo: 'Salário-família', bruto: 81048, inss: 0, liquido: 81048 }];
+  const inss = passosDoEmpenho(e, ops, {}).find(p => p.rotulo === 'INSS');
+  assert.equal(inss.valor, dinheiroFolha(400000));
+  const c = conferirEmpenho(e, ops);
+  assert.equal(c.composicao, c.desconto);
+  assert.equal(c.bateu, true);
 });
 
 console.log(`folha-transcrever: ${ok} ok, ${falhas.length} falhas`);

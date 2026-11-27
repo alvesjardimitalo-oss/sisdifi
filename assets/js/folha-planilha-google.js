@@ -187,6 +187,48 @@ export function pedidosDeFormato(sheetId, quantidade) {
   pedidos.push({ repeatCell: { range: faixa(X, X + 1),
     cell: { userEnteredFormat: { horizontalAlignment: 'CENTER', textFormat: { bold: true } } },
     fields: 'userEnteredFormat.horizontalAlignment,userEnteredFormat.textFormat.bold' } });
+  return [...pedidos, ...pedidosDeVisual(sheetId, quantidade)];
+}
+
+/**
+ * Acabamento da aba: cabeçalho escuro com letra branca, a mesma fonte em todas
+ * as linhas (vinham misturadas Arial e Times), valores à direita, empenho,
+ * ficha, fonte e nº da OP ao centro, tudo no meio da altura, bordas finas
+ * cinza e a mesma altura e largura em todas as linhas e colunas. As cores
+ * de cada secretaria ficam como estão: só fonte e alinhamento são tocados.
+ */
+export function pedidosDeVisual(sheetId, quantidade) {
+  const L0 = PRIMEIRA_LINHA - 1, L1 = L0 + quantidade;
+  const g = (r0, r1, c0, c1) => ({ sheetId, startRowIndex: r0, endRowIndex: r1, startColumnIndex: c0, endColumnIndex: c1 });
+  const azul = { red: 0.12, green: 0.23, blue: 0.37 }, branco = { red: 1, green: 1, blue: 1 };
+  const cinza = { red: 0.78, green: 0.8, blue: 0.83 }, escuro = { red: 0.35, green: 0.38, blue: 0.42 };
+  const fino = { style: 'SOLID', width: 1, color: cinza }, grosso = { style: 'SOLID_MEDIUM', width: 2, color: escuro };
+  const alinhar = (c0, c1, h) => ({ repeatCell: { range: g(L0, L1, c0, c1), cell: { userEnteredFormat: { horizontalAlignment: h } },
+    fields: 'userEnteredFormat.horizontalAlignment' } });
+  const altura = (r0, r1, px) => ({ updateDimensionProperties: { range: { sheetId, dimension: 'ROWS', startIndex: r0, endIndex: r1 },
+    properties: { pixelSize: px }, fields: 'pixelSize' } });
+  const pedidos = [
+    // Cabeçalho (linha 3)
+    { repeatCell: { range: g(L0 - 1, L0, 1, X + 1), cell: { userEnteredFormat: { backgroundColor: azul,
+      textFormat: { foregroundColor: branco, bold: true, fontSize: 9, fontFamily: 'Arial' },
+      horizontalAlignment: 'CENTER', verticalAlignment: 'MIDDLE', wrapStrategy: 'WRAP' } },
+      fields: 'userEnteredFormat.backgroundColor,userEnteredFormat.textFormat,userEnteredFormat.horizontalAlignment,userEnteredFormat.verticalAlignment,userEnteredFormat.wrapStrategy' } },
+    altura(L0 - 1, L0, 44),
+    // Linhas: mesma fonte, no meio da altura
+    { repeatCell: { range: g(L0, L1, 1, X + 1), cell: { userEnteredFormat: { verticalAlignment: 'MIDDLE',
+      textFormat: { fontFamily: 'Arial', fontSize: 9 } } },
+      fields: 'userEnteredFormat.verticalAlignment,userEnteredFormat.textFormat.fontFamily,userEnteredFormat.textFormat.fontSize' } },
+    altura(L0, L1, 22),
+    ...[...blocosDeDinheiro()].map(([a, b]) => alinhar(a, b, 'RIGHT')),
+    alinhar(1, 2, 'CENTER'), alinhar(3, 5, 'CENTER'), alinhar(FIM_ITENS, FIM_ITENS + 1, 'CENTER'), alinhar(X, X + 1, 'CENTER'),
+    alinhar(H, H + 1, 'LEFT'),
+    // Bordas: finas por dentro, mais grossa em volta
+    { updateBorders: { range: g(L0 - 1, L1, 1, X + 1), top: grosso, bottom: grosso, left: grosso, right: grosso,
+      innerHorizontal: fino, innerVertical: fino } },
+    // Larguras: B empenho … X conferência
+    ...larguras(sheetId, [[1, 2, 70], [2, 3, 175], [3, 4, 55], [4, 5, 62], [5, 6, 105], [6, 7, 110], [H, H + 1, 430], [I, I + 1, 115],
+      [J, FIM_ITENS, 95], [FIM_ITENS, FIM_ITENS + 1, 75], [FIM_ITENS + 1, V, 108], [V, V + 1, 118], [W, W + 1, 118], [X, X + 1, 105]])
+  ];
   return pedidos;
 }
 /** Colunas de dinheiro em blocos contíguos [início, fim). */

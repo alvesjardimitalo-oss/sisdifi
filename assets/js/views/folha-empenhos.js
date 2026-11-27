@@ -19,6 +19,7 @@ import {pensoesParaOP,chaveCadastro,RUBRICAS_PENSAO} from '../folha-pensoes.js?v
 import {passosDoEmpenho,conferirEmpenho,fichasOPpendentes,modeloDoEmpenho,textoDoModelo,MODELOS_HISTORICO} from '../folha-transcrever.js';
 import {ordemDasLotacoes} from '../folha-ordem.js?v=3.23.0.06d2837c';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js?v=3.23.0.418e5047';
+import {abrirAssistente} from './folha-assistente.js';
 import {linhasDeLancamento,distribuirFontesPorSaldo,COLUNAS_DESCONTO,linhasDaPlanilha,textoParaColar} from '../folha-lancamento.js';
 import {idDaPlanilha,situacaoDaPlanilha,prepararAba,escreverNaPlanilha,PRIMEIRA_LINHA} from '../folha-planilha-google.js';
 import {ouvir,ouvirDoc,salvar,substituir,excluir,campoApagado,tokenGooglePlanilhas} from '../db.js';
@@ -155,7 +156,7 @@ export function telaFolhaEmpenhos(el){
     '.fe-lanc tr.nb td{background:rgba(220,38,38,.08)}.fe-lanc tr.falta td:first-child{box-shadow:inset 3px 0 #d97706}'+
     '.fe-lanc [data-cp]{cursor:copy}.fe-lanc [data-cp]:hover{outline:1px dashed currentColor}.fe-lanc .op{white-space:nowrap}.fe-lanc .op+.op{margin-top:6px}'+
     '.fe-lanc .ok{color:#15803d;font-weight:700}.fe-lanc .ruim{color:#b91c1c;font-weight:700}.fe-lanc .dif{font-size:.75rem;color:#b91c1c;white-space:normal}'+
-    '.fe-lanc .cpb{border:0;background:none;cursor:pointer;opacity:.5;font-size:.85em;padding:0 0 0 3px;color:inherit}.fe-lanc .cpb:hover{opacity:1}'+
+    '.fe-lanc .cpb{border:1px solid #93c5fd;background:#eff6ff;color:#1d4ed8;border-radius:5px;cursor:pointer;font-size:.72rem;font-weight:700;padding:1px 6px;margin-left:5px;vertical-align:middle}.fe-lanc .cpb:hover{background:#2563eb;color:#fff}'+
     '.fe-lanc .mudou{color:#1d4ed8;font-weight:700}.fe-lanc .grupo td{background:var(--fundo-alt,#f3f4f6);font-weight:700}'+
     '</style>';
   const passo=(id,n,titulo,corpo)=>'<details class="fe-passo" data-passo="'+id+'"><summary><h2>'+n+' · '+titulo+'</h2><span class="fe-sit" id="fe-sit-'+id+'"></span></summary><div class="fe-corpo">'+corpo+'</div></details>';
@@ -869,7 +870,7 @@ export function telaFolhaEmpenhos(el){
     const usadas=COLUNAS_DESCONTO.filter(c=>r.linhas.some(l=>l.composicao[c.chave]));
     const temOP=r.linhas.some(l=>l.ops.length);
     /* Cada valor tem o botão de copiar à vista (⧉): clicar no valor também copia. */
-    const cp=(v,txt)=>'<span data-cp="'+esc(v)+'">'+esc(txt??v)+'</span><button type="button" class="cpb" data-cp="'+esc(v)+'" title="Copiar" aria-label="Copiar '+esc(txt??v)+'">⧉</button>';
+    const cp=(v,txt)=>'<span data-cp="'+esc(v)+'">'+esc(txt??v)+'</span><button type="button" class="cpb" data-cp="'+esc(v)+'" title="Copiar" aria-label="Copiar '+esc(txt??v)+'">copiar</button>';
     const din=c=>c?cp(somenteValor(c)):'<span class="fe-muted">—</span>';
     const nomes={principal:'Folha mensal',extra:'Folha extra',decimo:'Adiantamento do 13º',rescisao:'Rescisões'};
     const colunas=7+usadas.length+(temOP?1:0)+3;
@@ -882,8 +883,9 @@ export function telaFolhaEmpenhos(el){
       const ops=l.ops.map(o=>'<div class="op"><strong>'+esc(o.tipo)+'</strong> · ficha '+cp(o.ficha||'?')+'<br>'+
         'OP nº <input data-op-lanc="'+esc(o.id)+'" style="width:64px" value="'+esc(o.numero)+'" aria-label="Número da OP"> '+din(o.valor)+
         (o.desconto?' · desconto (INSS) '+din(o.desconto):'')+'<br><small class="hist">'+cp(o.historico)+'</small></div>').join('');
+      const lancado=transcritos.includes(l.id);
       return cab+'<tr class="'+(l.bateu?'':'nb ')+(l.falta.length?'falta':'')+'">'+
-        '<td><strong>'+cp(String(l.numero),l.empenhoAno)+'</strong></td>'+
+        '<td><strong>'+cp(String(l.numero),l.empenhoAno)+'</strong>'+(lancado?'<br><small class="ok">✓ lançado</small>':'')+'</td>'+
         '<td>'+(l.ficha?cp(l.ficha):'<span class="ruim">falta</span>')+'</td>'+
         '<td>'+fonte+sugere+'</td>'+
         '<td class="n">'+din(l.bruto)+'</td>'+
@@ -907,7 +909,8 @@ export function telaFolhaEmpenhos(el){
       rateio.avisos.map(a=>'<p class="fe-alert">'+esc(a)+'</p>').join('')
       :'<p class="fe-muted">Para o sistema dizer quais empenhos cabem no recurso estadual/federal, informe o saldo das contas (com a fonte) na etapa 3. O que não couber vai para o recurso próprio.</p>';
     alvo.innerHTML='<div class="fe-actions" style="justify-content:space-between"><h2 style="margin:0">Lançamento · uma linha por empenho</h2>'+
-      '<span><button type="button" class="btn" id="fe-lanc-planilha">Lançar na planilha Google</button> '+
+      '<span><button type="button" class="btn" id="fe-lanc-assistente" style="background:#16a34a;border-color:#16a34a;font-size:1.05rem">▶ Iniciar preenchimento</button> '+
+        '<button type="button" class="btn" id="fe-lanc-planilha">Lançar na planilha Google</button> '+
         '<button type="button" class="btn btn-sec" id="fe-lanc-colar">Copiar para colar na planilha</button> '+
         '<button type="button" class="btn btn-sec" id="fe-lanc-csv">Baixar tabela (Excel)</button></span></div>'+
       '<details class="fe-sub"><summary>Planilha Google da folha</summary>'+
@@ -968,6 +971,15 @@ export function telaFolhaEmpenhos(el){
         if(!cancelou)toast('Não foi possível lançar na planilha: '+(err.message||err),'erro');
       }finally{botao.disabled=false;}
     };
+    $('#fe-lanc-assistente').onclick=()=>abrirAssistente({empenhos:p.empenhos,extras:p.extras,
+      estado:{competencia,dataLiquidacao,numerosOP,transcritos,fichasOP,escolhasHistorico,textosHistorico},
+      aoMudar:m=>{
+        if('dataLiquidacao' in m)dataLiquidacao=m.dataLiquidacao;
+        if(m.numerosOP)numerosOP=m.numerosOP;
+        if(m.transcritos)transcritos=m.transcritos;
+        if(m.escolhasHistorico)escolhasHistorico=m.escolhasHistorico;
+        persistir();render();
+      }});
     $('#fe-lanc-csv').onclick=()=>{
       const cab=['Empenho','Ficha','Fonte','Bruto','Histórico','Desconto',...COLUNAS_DESCONTO.map(c=>c.rotulo),
         'OP tipo','OP ficha','OP nº','OP valor','OP desconto','OP histórico','Resumo RH','Calculado','Diferença','Situação'];

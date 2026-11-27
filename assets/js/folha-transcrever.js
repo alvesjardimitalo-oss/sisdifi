@@ -152,6 +152,16 @@ export const ROTULOS_DESCONTO={
 
 const passo=(grupo,rotulo,valor,extra={})=>({grupo,rotulo,valor,...extra});
 
+/* Composição do desconto que vai na liquidação: o INSS da servidora em
+   salário-maternidade sai do empenho e vai para a OP (maisInssExtra), então
+   não entra aqui — senão seria descontado duas vezes. */
+export function composicaoLiquidacao(empenho={}){
+ const comp={};
+ for(const c of CATEGORIAS_DESCONTOS)comp[c]=Number(empenho.composicao?.[c])||0;
+ comp.INSS-=Number(empenho.maisInssExtra)||0;
+ return comp;
+}
+
 /**
  * Sequência de digitação de um empenho, na ordem dos campos do sistema.
  *
@@ -187,7 +197,7 @@ export function passosDoEmpenho(empenho={}, ops=[], opcoes={}){
  ];
 
  // Distribuição do desconto, só o que tem valor, cada um com a ficha extra.
- const comp=empenho.composicao||{};
+ const comp=composicaoLiquidacao(empenho);
  for(const cat of CATEGORIAS_DESCONTOS){
   const v=comp[cat]||0;
   if(!v)continue;
@@ -233,7 +243,7 @@ export function conferirEmpenho(empenho={}, ops=[]){
  const opsBruto=(ops||[]).reduce((n,o)=>n+(o.bruto||0),0);
  const opsLiquido=(ops||[]).reduce((n,o)=>n+(o.liquido||0),0);
  const liquidoLinha=liquidoEmpenho+opsLiquido;
- const composicao=empenho.composicaoTotal??Object.values(empenho.composicao||{}).reduce((n,v)=>n+v,0);
+ const composicao=Object.values(composicaoLiquidacao(empenho)).reduce((n,v)=>n+v,0);
  const daFolha=empenho.liquidoRH??null;
  const linhas=[
   {rotulo:'Bruto do empenho',valor:bruto},
