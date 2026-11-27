@@ -4,7 +4,7 @@ import {
   initializeTestEnvironment, assertFails, assertSucceeds
 } from '@firebase/rules-unit-testing';
 import {
-  doc, getDoc, setDoc, collection, getDocs, serverTimestamp, writeBatch
+  doc, getDoc, setDoc, collection, getDocs, serverTimestamp, writeBatch, query, where
 } from 'firebase/firestore';
 
 const projectId = 'demo-sisdifi';
@@ -41,7 +41,7 @@ try {
     });
     await setDoc(doc(db, 'solicitacoes', 'antiga-saneada'), {
       servidor_id: 'servidor-a', secretaria_id: 'sec-a', interna: false, visivel_secretaria: true,
-      servidor: { nome: 'Servidor A', cpf_mascara: '***.***.***-01' }
+      servidor: { nome: 'Servidor A', cpf_mascara: '***.***.***-01' }, privacidade_migrada: true
     });
     await setDoc(doc(db, 'solicitacoes', 'saneada-secretaria'), {
       servidor_id: 'servidor-a', secretaria_id: 'sec-a', interna: false, visivel_secretaria: true,
@@ -62,6 +62,11 @@ try {
   // CPF/Pix não podem permanecer no documento consultável da solicitação.
   await assertFails(getDoc(doc(db('consulta'), 'solicitacoes', 'antiga-com-dados')));
   await assertSucceeds(getDoc(doc(db('consulta'), 'solicitacoes', 'antiga-saneada')));
+  await assertFails(getDocs(collection(db('consulta'), 'solicitacoes')));
+  await assertSucceeds(getDocs(query(
+    collection(db('consulta'), 'solicitacoes'),
+    where('privacidade_migrada', '==', true)
+  )));
   await assertFails(getDoc(doc(db('consulta'), 'solicitacoes_privado', 'antiga-com-dados')));
   await assertSucceeds(getDoc(doc(db('operador'), 'solicitacoes_privado', 'antiga-com-dados')));
   await assertSucceeds(getDoc(doc(db('secretaria-a'), 'solicitacoes_privado', 'antiga-com-dados')));
