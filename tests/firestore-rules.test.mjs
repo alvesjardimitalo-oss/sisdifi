@@ -142,11 +142,12 @@ try {
   await assertFails(setDoc(doc(db('secretaria-a'), 'cpfs', '11111111111'), {
     servidor_id: 'servidor-b'
   }));
-  const cadastro = writeBatch(db('secretaria-a'));
-  cadastro.set(doc(db('secretaria-a'), 'servidores_privado', 'servidor-novo'), {
+  const secretariaA = db('secretaria-a');
+  const cadastro = writeBatch(secretariaA);
+  cadastro.set(doc(secretariaA, 'servidores_privado', 'servidor-novo'), {
     secretaria_id: 'sec-a', cpf: '11111111111'
   });
-  cadastro.set(doc(db('secretaria-a'), 'cpfs', '11111111111'), { servidor_id: 'servidor-novo' });
+  cadastro.set(doc(secretariaA, 'cpfs', '11111111111'), { servidor_id: 'servidor-novo' });
   await assertSucceeds(cadastro.commit());
   await assertFails(setDoc(doc(db('operador'), 'cpfs', '123'), {
     servidor_id: 'servidor-a'
