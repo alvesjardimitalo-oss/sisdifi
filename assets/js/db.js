@@ -171,6 +171,7 @@ async function hidratarSolicitacao(dados) {
       servidor: {
         ...(dados.servidor || {}),
         ...(privado.cpf ? { cpf: privado.cpf } : {}),
+        ...(privado.cpf_anterior ? { cpf_anterior: privado.cpf_anterior } : {}),
         ...(privado.chave_pix ? { chave_pix: privado.chave_pix } : {})
       }
     };
