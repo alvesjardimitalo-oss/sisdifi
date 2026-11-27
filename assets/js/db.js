@@ -507,7 +507,7 @@ export async function protegerDadosServidores(lista, progresso) {
       const { publico, privado } = separarServidor({ cpf: sv.cpf || '', cpf_anterior: sv.cpf_anterior || '', chave_pix: sv.chave_pix || '', secretaria_id: sv.secretaria_id || null });
       b.set(doc(fs, 'servidores_privado', sv.id), privado, { merge: true });
       if (privado.cpf) b.set(doc(fs, 'cpfs', privado.cpf), { servidor_id: sv.id }, { merge: true });
-      b.update(doc(fs, 'servidores', sv.id), { cpf_mascara: publico.cpf_mascara || '', cpf_valido: !!publico.cpf_valido, tem_pix: !!publico.tem_pix, privacidade_migrada: true, cpf: deleteField(), cpf_anterior: deleteField(), chave_pix: deleteField() });
+      b.update(doc(fs, 'servidores', sv.id), { cpf_mascara: publico.cpf_mascara || sv.cpf_mascara || '', cpf_valido: 'cpf_valido' in publico ? !!publico.cpf_valido : !!sv.cpf_valido, tem_pix: 'tem_pix' in publico ? !!publico.tem_pix : !!sv.tem_pix, privacidade_migrada: true, cpf: deleteField(), cpf_anterior: deleteField(), chave_pix: deleteField() });
     }
     await b.commit();
     progresso && progresso(Math.min(i + 120, lista.length), lista.length);
