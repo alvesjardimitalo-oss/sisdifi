@@ -35,9 +35,33 @@ try {
       secretaria_id: 'sec-b', cpf: '10987654321', chave_pix: '10987654321'
     });
     await setDoc(doc(db, 'cpfs', '12345678901'), { servidor_id: 'servidor-a' });
+    await setDoc(doc(db, 'solicitacoes', 'antiga-com-dados'), {
+      servidor_id: 'servidor-a', secretaria_id: 'sec-a', interna: false, visivel_secretaria: true,
+      servidor: { nome: 'Servidor A', cpf: '12345678901', chave_pix: '12345678901' }
+    });
+    await setDoc(doc(db, 'solicitacoes', 'antiga-saneada'), {
+      servidor_id: 'servidor-a', secretaria_id: 'sec-a', interna: false, visivel_secretaria: true,
+      servidor: { nome: 'Servidor A', cpf_mascara: '***.***.***-01' }
+    });
+    await setDoc(doc(db, 'solicitacoes_privado', 'antiga-com-dados'), {
+      solicitacao_id: 'antiga-com-dados', servidor_id: 'servidor-a', secretaria_id: 'sec-a',
+      cpf: '12345678901', chave_pix: '12345678901'
+    });
+    await setDoc(doc(db, 'solicitacoes_privado', 'outra-secretaria'), {
+      solicitacao_id: 'outra-secretaria', servidor_id: 'servidor-b', secretaria_id: 'sec-b',
+      cpf: '10987654321', chave_pix: '10987654321'
+    });
   });
 
   const db = uid => env.authenticatedContext(uid).firestore();
+
+  // CPF/Pix não podem permanecer no documento consultável da solicitação.
+  await assertFails(getDoc(doc(db('consulta'), 'solicitacoes', 'antiga-com-dados')));
+  await assertSucceeds(getDoc(doc(db('consulta'), 'solicitacoes', 'antiga-saneada')));
+  await assertFails(getDoc(doc(db('consulta'), 'solicitacoes_privado', 'antiga-com-dados')));
+  await assertSucceeds(getDoc(doc(db('operador'), 'solicitacoes_privado', 'antiga-com-dados')));
+  await assertSucceeds(getDoc(doc(db('secretaria-a'), 'solicitacoes_privado', 'antiga-com-dados')));
+  await assertFails(getDoc(doc(db('secretaria-a'), 'solicitacoes_privado', 'outra-secretaria')));
 
   // CPF e Pix integrais não ficam acessíveis ao perfil de consulta.
   await assertFails(getDoc(doc(db('consulta'), 'servidores_privado', 'servidor-a')));
