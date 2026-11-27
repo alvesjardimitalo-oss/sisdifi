@@ -127,7 +127,12 @@ service cloud.firestore {
     // O perfil consulta recebe os indicadores mascarados do cadastro público, não CPF nem chave Pix integrais.
     function lePrivado(secId) { return ativo() && (perfil() in ['admin', 'operador', 'rh'] || (secretaria() && secId == minhaSecretaria())); }
     match /servidores_privado/{id} {
-      allow read: if lePrivado(resource.data.secretaria_id);
+      // GET vazio é permitido aos perfis que hidratam cadastros; não revela dados.
+      allow get: if ativo() && (
+        (resource == null && perfil() in ['admin', 'operador', 'rh', 'secretaria'])
+        || lePrivado(resource.data.secretaria_id)
+      );
+      allow list: if lePrivado(resource.data.secretaria_id);
       allow create: if operador() || (secretaria() && request.resource.data.secretaria_id == minhaSecretaria()
         && request.resource.data.cpf is string && request.resource.data.cpf.size() == 11);
       // Secretaria inclui a chave Pix de quem está sem, troca a chave padrão (o CPF) por outra,
@@ -223,31 +228,30 @@ service cloud.firestore {
     // Dados pessoais históricos de cada solicitação ficam separados do documento consultável.
     // Consulta, Controle Interno e demais perfis sem necessidade funcional não recebem CPF/Pix.
     match /solicitacoes_privado/{id} {
-      function solicitacaoPai() {
-        return get(/databases/$(database)/documents/solicitacoes/$(id));
-      }
-      allow get: if ativo() && exists(/databases/$(database)/documents/solicitacoes/$(id))
-        && (perfil() in ['admin', 'operador']
-          || (rh() && solicitacaoPai().data.interna == false)
-          || (secretaria() && solicitacaoPai().data.secretaria_id == minhaSecretaria() && solicitacaoPai().data.visivel_secretaria == true));
+      // Dados do snapshot só são consultáveis por quem pode acessar a solicitação-pai.
+      allow get: if ativo() && exists(/databases/$(database)/documents/solicitacoes/$(id)) && (
+        perfil() in ['admin', 'operador']
+        || (rh() && get(/databases/$(database)/documents/solicitacoes/$(id)).data.interna == false)
+        || (secretaria()
+          && get(/databases/$(database)/documents/solicitacoes/$(id)).data.secretaria_id == minhaSecretaria()
+          && get(/databases/$(database)/documents/solicitacoes/$(id)).data.visivel_secretaria == true)
+      );
       allow list: if false;
       allow create: if solicitante()
         && request.resource.data.keys().hasOnly(['solicitacao_id', 'servidor_id', 'secretaria_id', 'cpf', 'cpf_anterior', 'chave_pix'])
         && request.resource.data.solicitacao_id == id
         && request.resource.data.servidor_id is string
-        && request.resource.data.servidor_id.size() > 0
         && existsAfter(/databases/$(database)/documents/solicitacoes/$(id))
-        && getAfter(/databases/$(database)/documents/solicitacoes/$(id)).data.servidor_id == request.resource.data.servidor_id
-        && getAfter(/databases/$(database)/documents/solicitacoes/$(id)).data.secretaria_id == request.resource.data.secretaria_id
-        && (operador() || (secretaria() && request.resource.data.secretaria_id == minhaSecretaria() && getAfter(/databases/$(database)/documents/solicitacoes/$(id)).data.visivel_secretaria == true))
+        && request.resource.data.servidor_id == getAfter(/databases/$(database)/documents/solicitacoes/$(id)).data.servidor_id
+        && request.resource.data.secretaria_id == getAfter(/databases/$(database)/documents/solicitacoes/$(id)).data.secretaria_id
+        && (operador() || (secretaria() && request.resource.data.secretaria_id == minhaSecretaria()
+          && getAfter(/databases/$(database)/documents/solicitacoes/$(id)).data.visivel_secretaria == true))
         && (!('cpf' in request.resource.data) || (request.resource.data.cpf is string && request.resource.data.cpf.matches('^[0-9]{11}$')))
         && (!('cpf_anterior' in request.resource.data) || (request.resource.data.cpf_anterior is string && request.resource.data.cpf_anterior.matches('^[0-9]{11}$')))
         && (!('chave_pix' in request.resource.data) || (request.resource.data.chave_pix is string && request.resource.data.chave_pix.size() <= 140));
       allow update, delete: if operador();
     }
 
-    // Metadados dos anexos: somente o backend autenticado (Admin SDK) grava.
-    // A leitura também passa pelo backend para não expor IDs internos do Drive.
     match /solicitacoes/{solicitacaoId}/anexos/{anexoId} {
       allow read, write: if false;
     }
