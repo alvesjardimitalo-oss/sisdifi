@@ -14,13 +14,14 @@ import {esc,toast} from '../ui.js';
 import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha,tipoDeFolhaCabecalho,competenciaNoResumo,pagamentosConsignados,atualizarFeriasNoResumo,emitirTextoCSV} from '../folha-empenhos.js?v=3.23.0.997c05d0';
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
-import {varrerServidores} from '../folha-servidores.js';
+import {varrerServidores,codigosDeDesconto} from '../folha-servidores.js';
+import {coberturaPorConta,quadroDaFolha} from '../folha-cobertura.js';
 import {pensoesParaOP,chaveCadastro,RUBRICAS_PENSAO} from '../folha-pensoes.js?v=3.26.0.6d3bdba8';
 import {passosDoEmpenho,conferirEmpenho,fichasOPpendentes,modeloDoEmpenho,textoDoModelo,MODELOS_HISTORICO} from '../folha-transcrever.js';
 import {ordemDasLotacoes} from '../folha-ordem.js?v=3.23.0.06d2837c';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js?v=3.23.0.418e5047';
 import {abrirAssistente} from './folha-assistente.js';
-import {linhasDeLancamento,distribuirFontesPorSaldo,COLUNAS_DESCONTO,linhasDaPlanilha,textoParaColar} from '../folha-lancamento.js';
+import {linhasDeLancamento,COLUNAS_DESCONTO,linhasDaPlanilha,textoParaColar} from '../folha-lancamento.js';
 import {idDaPlanilha,situacaoDaPlanilha,prepararAba,escreverNaPlanilha,PRIMEIRA_LINHA} from '../folha-planilha-google.js';
 import {ouvir,ouvirDoc,salvar,substituir,excluir,campoApagado,tokenGooglePlanilhas} from '../db.js';
 import {carregarMes,salvarMes} from '../consignacoes-mensal.js?v=3.13.0.357fc820';
@@ -433,16 +434,17 @@ export function telaFolhaEmpenhos(el){
     const fontes=[...new Set(FICHAS_PESSOAL_2026.flatMap(f=>f.fontes))].sort();
     $('#fe-fontes').innerHTML=fontes.map(f=>'<option value="'+esc(f)+'"></option>').join('');
     const sit=saldosDasContas(contas,saldos,pacote?.previsao.empenhos||[]);
-    $('#fe-contas').innerHTML='<table><thead><tr><th>Nome da conta</th><th>Banco / agência / conta</th><th>Fonte de recurso</th><th class="fe-money">Saldo em '+esc(competencia.slice(5)+'/'+competencia.slice(0,4))+'</th><th class="fe-money">Folha nesta conta</th><th class="fe-money">Saldo depois</th><th></th></tr></thead><tbody>'+
+    $('#fe-contas').innerHTML='<table><thead><tr><th>Nome da conta</th><th>Banco / agência / conta</th><th>Fonte de recurso</th><th class="fe-money">Saldo em '+esc(competencia.slice(5)+'/'+competencia.slice(0,4))+'</th><th>Pode pagar</th><th class="fe-money">Folha nesta conta</th><th class="fe-money">Saldo depois</th><th></th></tr></thead><tbody>'+
       (contas.length?sit.contas.map(c=>'<tr><td><input style="width:190px" data-conta="'+esc(c.id)+'" data-campo="nome" value="'+esc(c.nome||'')+'" placeholder="Ex.: FUNDEB 70%"></td>'+
         '<td><input style="width:190px" data-conta="'+esc(c.id)+'" data-campo="numero" value="'+esc(c.numero||'')+'" placeholder="Ex.: BB 1234-5 / 6789-0"></td>'+
         '<td><input style="width:150px" list="fe-fontes" data-conta="'+esc(c.id)+'" data-campo="fonte" value="'+esc(c.fonte||'')+'" placeholder="1.540.000.0000"></td>'+
         '<td class="fe-money"><input style="width:130px;text-align:right" inputmode="decimal" data-conta="'+esc(c.id)+'" data-campo="saldo" value="'+(c.saldo==null?'':formato(c.saldo))+'" placeholder="0,00"></td>'+
+        '<td><textarea rows="2" style="width:260px;font-size:.85rem" data-conta="'+esc(c.id)+'" data-campo="podePagar" placeholder="Vazio: qualquer lotação da fonte. Ou nomes dos servidores, ou nº das fichas, separados por vírgula">'+esc(c.podePagar||'')+'</textarea></td>'+
         '<td class="fe-money">'+dinheiroFolha(c.utilizado)+'</td>'+
         '<td class="fe-money '+(c.insuficiente?'fe-neg':'')+'">'+(c.restante==null?'Informe o saldo':dinheiroFolha(c.restante))+'</td>'+
         '<td><button type="button" class="btn btn-sec btn-peq" data-remover-conta="'+esc(c.id)+'">Remover</button></td></tr>').join(''):
-        '<tr><td colspan="7">Nenhuma conta cadastrada. Clique em <strong>+ Adicionar conta</strong>.</td></tr>')+
-      '</tbody>'+(contas.length?'<tfoot><tr><th colspan="3">Total</th><th class="fe-money">'+dinheiroFolha(sit.totalSaldo)+'</th><th class="fe-money">'+dinheiroFolha(sit.totalUtilizado)+'</th><th class="fe-money">'+dinheiroFolha(sit.totalSaldo-sit.totalUtilizado)+'</th><th></th></tr></tfoot>':'')+'</table>'+
+        '<tr><td colspan="8">Nenhuma conta cadastrada. Clique em <strong>+ Adicionar conta</strong>.</td></tr>')+
+      '</tbody>'+(contas.length?'<tfoot><tr><th colspan="3">Total</th><th class="fe-money">'+dinheiroFolha(sit.totalSaldo)+'</th><th></th><th class="fe-money">'+dinheiroFolha(sit.totalUtilizado)+'</th><th class="fe-money">'+dinheiroFolha(sit.totalSaldo-sit.totalUtilizado)+'</th><th></th></tr></tfoot>':'')+'</table>'+
       (pacote?'<p class="fe-muted">Bruto total dos empenhos desta folha: <strong>'+dinheiroFolha(pacote.previsao.totalBruto)+'</strong>.</p>':'');
     $('#fe-contas').querySelectorAll('[data-conta]').forEach(i=>i.onchange=()=>{
       const c=contaPorId(i.dataset.conta);if(!c)return;
@@ -858,7 +860,7 @@ export function telaFolhaEmpenhos(el){
   const linkPlanilha=()=>{try{return localStorage.getItem('sisdifi-folha-planilha')||'';}catch(e){return '';}};
   const somenteValor=c=>(c/100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
   /* Saldo por fonte, das contas da etapa 3, na ordem das contas. */
-  const saldosPorFonte=()=>contas.filter(c=>c.fonte&&saldos[c.id]!=null).map(c=>({fonte:codigoCurto(c.fonte),saldo:saldos[c.id]}));
+  const contasComSaldo=()=>contas.filter(c=>c.fonte&&saldos[c.id]!=null).map(c=>({id:c.id,nome:c.nome||rotuloConta(c),fonte:codigoCurto(c.fonte),saldo:saldos[c.id],podePagar:c.podePagar||''}));
   const fichaInfo=ficha=>{
     const ref=localizarFicha(ficha);
     if(!ref)return null;
@@ -890,7 +892,7 @@ export function telaFolhaEmpenhos(el){
     if(!pacote){alvo.innerHTML='<h2>Lançamento · uma linha por empenho</h2><p class="fe-muted">Envie o Resumo de Verbas na etapa 1 e a tabela aparece aqui.</p>';return;}
     const p=pacote.previsao;
     const r=linhasDeLancamento(p,{competencia,numerosOP,escolhasHistorico,textosHistorico});
-    const rateio=distribuirFontesPorSaldo(p.empenhos,saldosPorFonte(),fichaInfo);
+    const rateio=coberturaPorConta(p.empenhos,contasComSaldo(),fichaInfo,fontesRH.nominal?.quadro||null);
     const proposta=Object.fromEntries(rateio.propostas.map(x=>[x.id,x]));
     const usadas=COLUNAS_DESCONTO.filter(c=>r.linhas.some(l=>l.composicao[c.chave]));
     const temOP=r.linhas.some(l=>l.ops.length);
@@ -931,11 +933,23 @@ export function telaFolhaEmpenhos(el){
       '<td class="n">'+somenteValor(tot.desconto)+'</td>'+usadas.map(c=>'<td class="n">'+somenteValor(tot.composicao[c.chave])+'</td>').join('')+
       (temOP?'<td class="n">'+somenteValor(tot.liquidoOP)+'</td>':'')+'<td class="n">'+somenteValor(tot.calculado)+'</td><td class="n">'+somenteValor(tot.resumo)+'</td>'+
       '<td>'+(tot.calculado===tot.resumo?'<span class="ok">✓</span>':'<span class="ruim">dif. '+somenteValor(tot.resumo-tot.calculado)+'</span>')+'</td></tr>';
-    const usoSaldo=rateio.uso.length?'<p><strong>Fontes estaduais e federais</strong> (saldo das contas da etapa 3): '+rateio.uso.map(u=>esc(u.fonte)+' — saldo '+dinheiroFolha(u.saldo)+
-        ', cabem '+u.empenhos.length+' empenho(s) somando '+dinheiroFolha(u.usado)+', sobra '+dinheiroFolha(u.sobra)).join(' · ')+'</p>'+
-      (rateio.mudancas?'<p>'+rateio.mudancas+' empenho(s) mudam de fonte pelo saldo (em azul na coluna Fonte). <button type="button" class="btn" id="fe-aplicar-saldo">Usar as fontes pelo saldo</button></p>':'<p class="fe-muted">As fontes já estão de acordo com o saldo.</p>')+
-      rateio.avisos.map(a=>'<p class="fe-alert">'+esc(a)+'</p>').join('')
-      :'<p class="fe-muted">Para o sistema dizer quais empenhos cabem no recurso estadual/federal, informe o saldo das contas (com a fonte) na etapa 3. O que não couber vai para o recurso próprio.</p>';
+    /* Cobertura das contas: quanto de cada saldo a folha usa, o que vai para o
+       recurso próprio e o que o RH poderia separar para usar melhor o saldo. */
+    const tipoRegra={servidores:'servidores pelo nome',fichas:'fichas',livre:'qualquer lotação da fonte'};
+    const usoSaldo=rateio.uso.length?'<details class="fe-sub" open><summary><strong>Cobertura das contas</strong> · saldo informado na etapa 3, comparado com o bruto de cada empenho</summary>'+
+        '<div class="fe-scroll"><table style="margin:8px 0"><thead><tr><th>Conta</th><th>Fonte</th><th>Paga</th><th class="n">Saldo</th><th class="n">Usado pela folha</th><th class="n">Sobra</th><th>Empenhos</th></tr></thead><tbody>'+
+        rateio.uso.map(u=>'<tr><td>'+esc(u.nome||'')+'</td><td>'+esc(u.fonte)+'</td><td>'+esc(tipoRegra[u.regra])+'</td><td class="n">'+somenteValor(u.saldo)+'</td>'+
+          '<td class="n">'+somenteValor(u.usado)+'</td><td class="n'+(u.sobra<0?' ruim':'')+'">'+somenteValor(u.sobra)+'</td><td>'+(u.empenhos.join(', ')||'—')+'</td></tr>').join('')+
+        '</tbody></table></div>'+
+      (rateio.mudancas?'<p>'+rateio.mudancas+' empenho(s) mudam de fonte pela cobertura (em azul na coluna Fonte). <button type="button" class="btn" id="fe-aplicar-saldo">Usar as fontes pelo saldo</button></p>':'<p class="fe-muted">As fontes já estão de acordo com a cobertura das contas.</p>')+
+      (rateio.sugestoes.length?'<div class="fe-alert"><strong>Sugestões para pedir ao RH</strong> — nestas lotações a conta pode pagar só parte dos servidores, então o empenho inteiro foi para o recurso próprio. Separando esses servidores numa lotação própria, <em>da mesma modalidade</em>, o valor abaixo sairia da conta e não do recurso próprio:<ul>'+
+        rateio.sugestoes.map(x=>'<li>Empenho <strong>'+x.empenho+'</strong> · '+esc(x.secretaria)+(x.vinculo?' · '+esc(x.vinculo):'')+' (lotação '+esc(x.lotacao)+'): '+
+          x.servidores.map(v=>esc(v.nome)+' ('+somenteValor(v.bruto)+')').join(', ')+' → <strong>'+dinheiroFolha(x.valor)+'</strong> na conta '+esc(x.contaNome)+' ('+esc(x.fonte)+')'+
+          (x.cabe?'':' <em>— a conta não tem saldo para tudo este mês</em>')+'; ficariam '+x.outros+' servidor(es) na lotação atual.</li>').join('')+'</ul></div>':'')+
+      (rateio.conferencia.length?'<p class="fe-alert">Confira os nomes do "pode pagar": '+rateio.conferencia.map(c=>esc(c.nome)+' ('+esc(c.conta)+') '+
+        (c.achados.length?'aparece em '+c.achados.length+' servidores: '+c.achados.slice(0,4).map(esc).join(', ')+' — escreva o nome completo':'não foi encontrado na folha')).join(' · ')+'</p>':'')+
+      rateio.avisos.map(a=>'<p class="fe-alert">'+esc(a)+'</p>').join('')+'</details>'
+      :'<p class="fe-muted">Para o sistema dizer quais empenhos cabem no recurso estadual/federal, informe na etapa 3 o saldo de cada conta, a fonte e o que ela pode pagar. O que não couber vai para o recurso próprio.</p>';
     alvo.innerHTML='<div class="fe-actions" style="justify-content:space-between"><h2 style="margin:0">Lançamento · uma linha por empenho</h2>'+
       '<span><button type="button" class="btn" id="fe-lanc-assistente" style="background:#16a34a;border-color:#16a34a;font-size:1.05rem">▶ Iniciar preenchimento</button> '+
         '<button type="button" class="btn" id="fe-lanc-planilha">Lançar na planilha Google</button> '+
@@ -962,7 +976,7 @@ export function telaFolhaEmpenhos(el){
     });
     const aplicar=$('#fe-aplicar-saldo');
     if(aplicar)aplicar.onclick=()=>{
-      for(const x of rateio.propostas)if(x.mudou)mapa[x.id]={...(mapa[x.id]||{}),ficha:x.ficha,fonte:x.fonte};
+      for(const x of rateio.propostas)if(x.mudou)mapa[x.id]={...(mapa[x.id]||{}),ficha:x.ficha,fonte:x.fonte,...(x.conta?{contaId:x.conta}:{})};
       persistir();render();toast(rateio.mudancas+' empenho(s) com a fonte pelo saldo.');
     };
     const paraPlanilha=()=>linhasDaPlanilha(p.empenhos,r);
@@ -1066,7 +1080,11 @@ export function telaFolhaEmpenhos(el){
       const rubricas=s.rubricas.filter(r=>rubricasPensao.has(r.codigo));
       return rubricas.length?[{...s,rubricas}]:[];
     });
-    fontesRH={...fontesRH,nominal:{nome,pensoes}};
+    /* Quem está em cada lotação e o bruto de cada um: é o que a cobertura das
+       contas precisa para saber se uma conta que paga servidores pelo nome
+       pode pagar a lotação inteira. Só nome e bruto, por lotação. */
+    const quadro=quadroDaFolha(servidores,codigosDeDesconto(arquivosLista()));
+    fontesRH={...fontesRH,nominal:{nome,pensoes,quadro}};
     origemIndividual=nome;
     alertas=alertas.filter(x=>!/^Matrícula .*lotação .*sem rubrica 163/.test(x));
     alertas.push(...candidatos.avisos);
