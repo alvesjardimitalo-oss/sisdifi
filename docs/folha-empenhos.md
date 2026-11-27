@@ -102,6 +102,8 @@ Assim que o Resumo de Verbas é lido, o topo da tela mostra a tabela de lançame
 
 **Recurso próprio necessário.** No topo da tela, em destaque: quanto de recurso próprio a folha vai pedir (bruto dos empenhos nas fontes 1500, 1001 e 1002, já com a cobertura das contas), separado por fonte, quanto sai das contas e o que ainda está sem fonte.
 
+**Uso por conta e fonte.** Dentro da cobertura, uma linha por conta (saldo, usado, sobra, quantos empenhos e o que ela paga) e uma por fonte de recurso próprio (1500 livre, 1001 Educação, 1002 Saúde); ao abrir, os empenhos que caem nela, com secretaria, vínculo, ficha e bruto.
+
 **Previsão do mês.** No topo da cobertura: o bruto dos empenhos, quanto sai das contas estaduais e federais e quanto do recurso próprio (com a barra verde/laranja), e a divisão por fonte — já com as fontes propostas. Salário-família e maternidade ficam de fora (OP extraorçamentária).
 
 **Na planilha**, o nº do empenho (B) e a fonte (E) ficam em verde quando a fonte não é recurso próprio (1500, 1001, 1002). É formatação condicional, criada uma vez por aba: acompanha se a fonte for trocada à mão. (A planilha é em português: a fórmula usa ";".)

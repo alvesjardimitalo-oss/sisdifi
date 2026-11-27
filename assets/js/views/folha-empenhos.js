@@ -158,6 +158,7 @@ export function telaFolhaEmpenhos(el){
     '.fe-lanc [data-cp]{cursor:copy}.fe-lanc [data-cp]:hover{outline:1px dashed currentColor}.fe-lanc .op{white-space:nowrap}.fe-lanc .op+.op{margin-top:6px}'+
     '.fe-lanc .ok{color:#15803d;font-weight:700}.fe-lanc .ruim{color:#b91c1c;font-weight:700}.fe-lanc .dif{font-size:.75rem;color:#b91c1c;white-space:normal}'+
     '.fe-lanc .cpb{border:1px solid #93c5fd;background:#eff6ff;color:#1d4ed8;border-radius:5px;cursor:pointer;font-size:.72rem;font-weight:700;padding:1px 6px;margin-left:5px;vertical-align:middle}.fe-lanc .cpb:hover{background:#2563eb;color:#fff}'+
+    '.fe-lanc .fe-uso{border:1px solid rgba(148,163,184,.35);border-radius:8px;padding:6px 10px;margin:4px 0}.fe-lanc .fe-uso summary{cursor:pointer}'+
     '.fe-lanc .mudou{color:#1d4ed8;font-weight:700}.fe-lanc .grupo td{background:var(--fundo-alt,#f3f4f6);font-weight:700}'+
     '</style>';
   const passo=(id,n,titulo,corpo)=>'<details class="fe-passo" data-passo="'+id+'"><summary><h2>'+n+' · '+titulo+'</h2><span class="fe-sit" id="fe-sit-'+id+'"></span></summary><div class="fe-corpo">'+corpo+'</div></details>';
@@ -963,6 +964,23 @@ export function telaFolhaEmpenhos(el){
     const tipoRegra={servidores:'servidores pelo nome',fichas:'fichas',livre:'qualquer lotação da fonte'};
     /* Previsão do mês com a cobertura aplicada: contas × recurso próprio. */
     const prev=previsaoDaFolha(p.empenhos,rateio.propostas);
+    /* Uso por conta e por fonte: cada conta (e cada fonte de recurso próprio)
+       com saldo, usado e sobra, e — ao abrir — os empenhos que caem nela. */
+    const porNumero=new Map(p.empenhos.map(e=>[e.empenho,e]));
+    const propostaDe=new Map(rateio.propostas.map(x=>[x.id,x]));
+    const fonteFinal=e=>codigoCurto(propostaDe.get(e.id)?.fonte||e.fonte);
+    const listaEmp=es=>'<div class="fe-scroll"><table style="margin:4px 0 8px"><thead><tr><th>Empenho</th><th>Secretaria</th><th>Vínculo</th><th>Ficha</th><th class="n">Bruto</th></tr></thead><tbody>'+
+      es.map(e=>'<tr><td>'+e.empenho+'</td><td>'+esc(e.secretaria||'')+'</td><td>'+esc(e.vinculo||'')+'</td><td>'+esc(propostaDe.get(e.id)?.ficha||e.ficha||'')+'</td><td class="n">'+somenteValor(e.bruto||0)+'</td></tr>').join('')+
+      '</tbody></table></div>';
+    const blocoUso=(titulo,fonte,saldo,usado,es,extra='')=>'<details class="fe-uso"><summary><strong>'+esc(titulo)+'</strong> · fonte '+esc(fonte)+
+      (saldo!=null?' · saldo '+dinheiroFolha(saldo)+' · usado <strong>'+dinheiroFolha(usado)+'</strong> · sobra <span class="'+(saldo-usado<0?'ruim':'ok')+'">'+dinheiroFolha(saldo-usado)+'</span>':' · usado <strong>'+dinheiroFolha(usado)+'</strong>')+
+      ' · '+es.length+' empenho'+(es.length===1?'':'s')+extra+'</summary>'+(es.length?listaEmp(es):'<p class="fe-muted">Nenhum empenho nesta conta este mês.</p>')+'</details>';
+    const proprios=[['1500','Recurso próprio — livre'],['1001','Recurso próprio — Educação (25%)'],['1002','Recurso próprio — Saúde (15%)']]
+      .map(([f,t])=>{const es=p.empenhos.filter(e=>fonteFinal(e)===f&&(e.bruto||0)>0);return {f,t,es,total:es.reduce((n,e)=>n+(e.bruto||0),0)};}).filter(x=>x.es.length);
+    const usoPorContaEFonte='<h3 style="margin:12px 0 6px;font-size:1rem">Uso por conta e fonte</h3>'+
+      rateio.uso.map(u=>blocoUso(u.nome||u.fonte,u.fonte,u.saldo,u.usado,u.empenhos.map(n=>porNumero.get(n)).filter(Boolean),' · paga '+tipoRegra[u.regra])).join('')+
+      proprios.map(x=>blocoUso(x.t,x.f,null,x.total,x.es)).join('')+
+      '<p class="fe-muted" style="margin-top:4px">Clique numa conta para ver os empenhos. Valores com as fontes propostas pelo saldo; aplique com "Usar as fontes pelo saldo".</p>';
     const fontesErradas=r.linhas.filter(l=>{const f=fontesAceitas(l.ficha);return l.fonte&&f.length&&!f.includes(codigoCurto(l.fonte));});
     const barra='<div style="display:flex;height:14px;border-radius:7px;overflow:hidden;margin:6px 0;background:#e5e7eb">'+
       '<div style="width:'+prev.pctContas+'%;background:#16a34a" title="Contas"></div><div style="width:'+prev.pctPropria+'%;background:#f59e0b" title="Recurso próprio"></div></div>';
@@ -974,10 +992,7 @@ export function telaFolhaEmpenhos(el){
       prev.porFonte.map(x=>'<tr><td>'+esc(x.fonte)+'</td><td>'+esc(nomeDaFonte(x.fonte)||'')+(x.propria?' <small class="fe-muted">(próprio)</small>':'')+'</td><td class="n">'+somenteValor(x.valor)+'</td><td class="n">'+x.pct.toLocaleString('pt-BR')+'%</td><td class="n">'+x.empenhos+'</td></tr>').join('')+
       '</tbody></table></div><small class="fe-muted">Já com as fontes propostas pela cobertura das contas. Salário-família e maternidade ficam de fora: são OP extraorçamentária.</small></div>';
     const usoSaldo=rateio.uso.length?'<details class="fe-sub" open><summary><strong>Cobertura das contas</strong> · saldo informado na etapa 3, comparado com o bruto de cada empenho</summary>'+previsao+
-        '<div class="fe-scroll"><table style="margin:8px 0"><thead><tr><th>Conta</th><th>Fonte</th><th>Paga</th><th class="n">Saldo</th><th class="n">Usado pela folha</th><th class="n">Sobra</th><th>Empenhos</th></tr></thead><tbody>'+
-        rateio.uso.map(u=>'<tr><td>'+esc(u.nome||'')+'</td><td>'+esc(u.fonte)+'</td><td>'+esc(tipoRegra[u.regra])+'</td><td class="n">'+somenteValor(u.saldo)+'</td>'+
-          '<td class="n">'+somenteValor(u.usado)+'</td><td class="n'+(u.sobra<0?' ruim':'')+'">'+somenteValor(u.sobra)+'</td><td>'+(u.empenhos.join(', ')||'—')+'</td></tr>').join('')+
-        '</tbody></table></div>'+
+        usoPorContaEFonte+
       (rateio.mudancas?'<p>'+rateio.mudancas+' empenho(s) mudam de fonte pela cobertura (em azul na coluna Fonte). <button type="button" class="btn" id="fe-aplicar-saldo">Usar as fontes pelo saldo</button></p>':'<p class="fe-muted">As fontes já estão de acordo com a cobertura das contas.</p>')+
       (rateio.sugestoes.length?'<div class="fe-alert"><strong>Sugestões para pedir ao RH</strong> — nestas lotações a conta pode pagar só parte dos servidores, então o empenho inteiro foi para o recurso próprio. Separando esses servidores numa lotação própria, <em>da mesma modalidade</em>, o valor abaixo sairia da conta e não do recurso próprio:<ul>'+
         rateio.sugestoes.map(x=>x.motivo==='agentes de endemias'
