@@ -64,6 +64,14 @@ try {
       solicitacao_id: 'antiga-com-dados', servidor_id: 'servidor-a', secretaria_id: 'sec-a',
       cpf: '12345678901', chave_pix: '12345678901'
     });
+    await setDoc(doc(db, 'solicitacoes', 'oculta-secretaria'), {
+      servidor_id: 'servidor-a', secretaria_id: 'sec-a', interna: true, visivel_secretaria: false,
+      numero: '0002/2026', servidor: { nome: 'Servidor A' }, privacidade_migrada: true
+    });
+    await setDoc(doc(db, 'solicitacoes_privado', 'oculta-secretaria'), {
+      solicitacao_id: 'oculta-secretaria', servidor_id: 'servidor-a', secretaria_id: 'sec-a',
+      cpf: '12345678901'
+    });
     await setDoc(doc(db, 'solicitacoes_privado', 'outra-secretaria'), {
       solicitacao_id: 'outra-secretaria', servidor_id: 'servidor-b', secretaria_id: 'sec-b',
       cpf: '10987654321', chave_pix: '10987654321'
@@ -87,6 +95,7 @@ try {
   await assertSucceeds(getDoc(doc(db('operador'), 'solicitacoes_privado', 'antiga-com-dados')));
   await assertSucceeds(getDoc(doc(db('secretaria-a'), 'solicitacoes_privado', 'antiga-com-dados')));
   await assertFails(getDoc(doc(db('secretaria-a'), 'solicitacoes_privado', 'outra-secretaria')));
+  await assertFails(getDoc(doc(db('secretaria-a'), 'solicitacoes_privado', 'oculta-secretaria')));
   await assertSucceeds(setDoc(doc(db('operador'), 'solicitacoes_privado', 'antiga-saneada'), {
     solicitacao_id: 'antiga-saneada', servidor_id: 'servidor-a', secretaria_id: 'sec-a',
     cpf: '12345678901'
