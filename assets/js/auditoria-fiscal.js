@@ -73,6 +73,15 @@ export function auditoriaNota({doc={},cadastro=null,resultado=null,contexto={},p
   if (!contexto.atestoConfirmado || !literal(doc.referenciaAtesto)) adicionar('atesto','Atesto do fornecimento ou serviço','Registre a referência ao atesto/recebimento efetivo e confira a assinatura do fiscal responsável.');
   if (resultado?.simples==null) adicionar('simples','Regime tributário na data da emissão','Consulte o regime e selecione a opção correspondente em Situação na data da nota.');
   if (ehServico) {
+    if (resultado?.simples === false && !resultado?.mei
+        && resultado?.iss?.fonteConfiguracao === 'unica'
+        && resultado.iss.aliquotaAnexoII != null
+        && Number.isFinite(Number(resultado.iss.aliquotaAnexoII))
+        && Math.abs(Number(resultado.iss.aliquotaBaseMunicipal) - Number(resultado.iss.aliquotaAnexoII)) > 0.001) {
+      adicionar('iss_aliquota_unica','Alíquota única do ISS diverge da referência do Anexo II',
+        'O cálculo aplicou a alíquota municipal única de ' + resultado.iss.aliquotaBaseMunicipal + '%, enquanto o Anexo II indica ' + resultado.iss.aliquotaAnexoII + '% para o subitem ' + (resultado.iss.subitemAnexoII || doc.codigoServico) + '. Não altere o parâmetro automaticamente: confira a Lei 883/2017, a Lei 966/2023, a vigência da nota e o cadastro municipal do Emissor Nacional.',
+        'Lei Municipal 883/2017 e alterações; LC 116/2003, art. 8º-A');
+    }
     if (!literal(doc.codigoServico)) adicionar('codigo','Código do serviço','Informe o código de tributação conforme a NFS-e e confira com a descrição.');
     if (!literal(doc.descricaoServico)) adicionar('descricao','Descrição dos serviços','Confira o objeto do contrato e a descrição discriminada na nota.');
     if (!literal(doc.incidencia)) adicionar('incidencia','Município de incidência do ISS','Confirme o município de incidência da nota; a cidade do prestador não determina sozinha o ISS devido.');
