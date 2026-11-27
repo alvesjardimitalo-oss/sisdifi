@@ -4,7 +4,7 @@ import {
   initializeTestEnvironment, assertFails, assertSucceeds
 } from '@firebase/rules-unit-testing';
 import {
-  doc, getDoc, setDoc, collection, getDocs, serverTimestamp, writeBatch, query, where
+  doc, getDoc, setDoc, collection, getDocs, serverTimestamp, writeBatch, query, where, updateDoc
 } from 'firebase/firestore';
 
 const projectId = 'demo-sisdifi';
@@ -36,7 +36,7 @@ try {
     });
     await setDoc(doc(db, 'cpfs', '12345678901'), { servidor_id: 'servidor-a' });
     await setDoc(doc(db, 'solicitacoes', 'antiga-com-dados'), {
-      servidor_id: 'servidor-a', secretaria_id: 'sec-a', interna: false, visivel_secretaria: true,
+      servidor_id: 'servidor-a', secretaria_id: 'sec-a', interna: false, visivel_secretaria: true, numero: '0001/2026',
       servidor: { nome: 'Servidor A', cpf: '12345678901', chave_pix: '12345678901' }
     });
     await setDoc(doc(db, 'solicitacoes', 'antiga-saneada'), {
@@ -61,6 +61,9 @@ try {
 
   // CPF/Pix não podem permanecer no documento consultável da solicitação.
   await assertFails(getDoc(doc(db('consulta'), 'solicitacoes', 'antiga-com-dados')));
+  await assertFails(updateDoc(doc(db('operador'), 'solicitacoes', 'antiga-com-dados'), {
+    privacidade_migrada: true
+  }));
   await assertSucceeds(getDoc(doc(db('consulta'), 'solicitacoes', 'antiga-saneada')));
   await assertFails(getDocs(collection(db('consulta'), 'solicitacoes')));
   await assertSucceeds(getDocs(query(
