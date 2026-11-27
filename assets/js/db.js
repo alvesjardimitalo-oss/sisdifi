@@ -182,7 +182,10 @@ async function hidratarLista(colecao, itens) {
 }
 /** filtro opcional: [campo, valor] → só documentos com campo == valor (ex.: solicitações da própria secretaria). */
 export function ouvir(colecao, cb, onErro, filtro = null) {
-  const filtros = !filtro ? [] : Array.isArray(filtro[0]) ? filtro : [filtro];
+  const filtros = !filtro ? [] : Array.isArray(filtro[0]) ? [...filtro] : [filtro];
+  // Regras do Firestore não filtram documentos. A consulta precisa declarar o marcador
+  // de migração para que o perfil consulta nunca tente ler snapshots históricos com PII.
+  if (colecao === 'solicitacoes' && sessao?.perfil === 'consulta') filtros.push(['privacidade_migrada', true]);
   const alvo = filtros.length ? query(collection(fs, colecao), ...filtros.map(([c, v]) => where(c, '==', v))) : collection(fs, colecao);
   return onSnapshot(alvo,
     snap => { hidratarLista(colecao, snap.docs.map(d => ({ id: d.id, ...d.data() }))).then(cb).catch(e => onErro && onErro(e)); },
@@ -323,7 +326,7 @@ export async function criarSolicitacoes(lista) {
       const numero = String(seq).padStart(4, '0') + '/' + ano;
       tx.set(contadorRef, { ultimo: seq, ano }, { merge: true });
       tx.set(novaRef, {
-        ...dadosPublicos, numero, ano, sequencia: seq,
+        ...dadosPublicos, privacidade_migrada: true, numero, ano, sequencia: seq,
         criado_em: serverTimestamp(), criado_por: autor(), atualizado_em: serverTimestamp(), atualizado_por: autor()
       });
       if (cpf || cpfAnterior || chavePix) {
@@ -452,7 +455,7 @@ export async function protegerDadosSolicitacoes(progresso) {
   const snap = await getDocs(collection(fs, 'solicitacoes'));
   const pendentes = snap.docs.filter(s => {
     const servidor = s.data().servidor || {};
-    return ['cpf', 'chave_pix', 'cpf_anterior'].some(k => Object.prototype.hasOwnProperty.call(servidor, k));
+    return s.data().privacidade_migrada !== true || ['cpf', 'chave_pix', 'cpf_anterior'].some(k => Object.prototype.hasOwnProperty.call(servidor, k));
   });
   let migrados = 0, ignorados = 0;
   for (let i = 0; i < pendentes.length; i += 120) {
@@ -482,7 +485,7 @@ export async function protegerDadosSolicitacoes(progresso) {
         }, { merge: true });
       }
       b.update(doc(fs, 'solicitacoes', item.id), {
-        servidor, atualizado_em: serverTimestamp(), atualizado_por: autor()
+        servidor, privacidade_migrada: true, atualizado_em: serverTimestamp(), atualizado_por: autor()
       });
       migrados++;
     }
