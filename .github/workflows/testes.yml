@@ -23,6 +23,8 @@ jobs:
         run: |
           erro=0
           for f in tests/*.test.mjs; do
+            # Esta suíte usa dependências próprias e roda no workflow isolado do emulador.
+            if [ "$f" = "tests/firestore-rules.test.mjs" ]; then continue; fi
             echo "::group::$f"
             node "$f" || erro=1
             echo "::endgroup::"
