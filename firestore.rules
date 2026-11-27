@@ -112,8 +112,9 @@ service cloud.firestore {
       allow delete: if operador(); // a tela só exclui servidor sem nenhuma solicitação
     }
 
-    // Servidores — área PRIVADA: CPF e chave Pix. Contabilidade, consulta e RH leem todos; a Secretaria, os da própria pasta.
-    function lePrivado(secId) { return ativo() && (perfil() in ['admin', 'operador', 'consulta', 'rh'] || (secretaria() && secId == minhaSecretaria())); }
+    // Servidores — área PRIVADA: CPF e chave Pix. Somente Admin/Contabilidade, RH e a Secretaria da própria pasta.
+    // O perfil consulta recebe os indicadores mascarados do cadastro público, não CPF nem chave Pix integrais.
+    function lePrivado(secId) { return ativo() && (perfil() in ['admin', 'operador', 'rh'] || (secretaria() && secId == minhaSecretaria())); }
     match /servidores_privado/{id} {
       allow read: if lePrivado(resource.data.secretaria_id);
       allow create: if operador() || (secretaria() && request.resource.data.secretaria_id == minhaSecretaria()
@@ -129,9 +130,10 @@ service cloud.firestore {
       allow delete: if operador();
     }
 
-    // Índice de CPF: só responde a quem já sabe o CPF completo (get); ninguém lista.
+    // Índice de CPF: só responde a perfis que precisam evitar duplicidade ou administrar o cadastro; ninguém lista.
+    // O documento contém apenas o ID do servidor, mas o CPF integra o caminho e continua sendo dado pessoal.
     match /cpfs/{cpf} {
-      allow get: if diarias();
+      allow get: if ativo() && perfil() in ['admin', 'operador', 'secretaria', 'rh'];
       allow list: if false;
       allow create: if (operador() || secretaria()) && cpf.size() == 11 && request.resource.data.servidor_id is string;
       allow update: if operador();
