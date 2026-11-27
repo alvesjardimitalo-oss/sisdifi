@@ -41,6 +41,12 @@ try {
       nome: 'Servidor saneado', secretaria_id: 'sec-a', cpf_mascara: '***.***.***-01',
       privacidade_migrada: true
     });
+    await setDoc(doc(db, 'servidores', 'motorista-legado'), {
+      nome: 'Motorista legado', secretaria_id: 'sec-b', motorista: true, cpf: '10987654321'
+    });
+    await setDoc(doc(db, 'servidores', 'motorista-saneado'), {
+      nome: 'Motorista saneado', secretaria_id: 'sec-b', motorista: true, privacidade_migrada: true
+    });
     await setDoc(doc(db, 'cpfs', '12345678901'), { servidor_id: 'servidor-a' });
     await setDoc(doc(db, 'solicitacoes', 'antiga-com-dados'), {
       servidor_id: 'servidor-a', secretaria_id: 'sec-a', interna: false, visivel_secretaria: true, numero: '0001/2026',
@@ -112,6 +118,13 @@ try {
   await assertSucceeds(getDoc(doc(db('rh'), 'servidores_privado', 'servidor-a')));
   await assertSucceeds(getDoc(doc(db('secretaria-a'), 'servidores_privado', 'servidor-a')));
   await assertFails(getDoc(doc(db('secretaria-a'), 'servidores_privado', 'servidor-b')));
+  await assertFails(getDoc(doc(db('secretaria-a'), 'servidores', 'motorista-legado')));
+  await assertSucceeds(getDoc(doc(db('secretaria-a'), 'servidores', 'motorista-saneado')));
+  await assertFails(getDocs(query(collection(db('secretaria-a'), 'servidores'), where('motorista', '==', true))));
+  await assertSucceeds(getDocs(query(
+    collection(db('secretaria-a'), 'servidores'),
+    where('motorista', '==', true), where('privacidade_migrada', '==', true)
+  )));
   await assertSucceeds(getDoc(doc(db('secretaria-a'), 'cpfs', '12345678901')));
   await assertFails(getDoc(doc(db('secretaria-a'), 'cpfs', '10987654321')));
   await assertFails(getDocs(collection(db('operador'), 'cpfs')));
