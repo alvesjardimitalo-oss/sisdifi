@@ -157,16 +157,18 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['servidor_id'])
         && request.resource.data.servidor_id is string
         && request.resource.data.servidor_id.size() > 0
+        && existsAfter(/databases/$(database)/documents/servidores_privado/$(request.resource.data.servidor_id))
+        && getAfter(/databases/$(database)/documents/servidores_privado/$(request.resource.data.servidor_id)).data.cpf == cpf
         && (operador() || (secretaria()
-          && existsAfter(/databases/$(database)/documents/servidores_privado/$(request.resource.data.servidor_id))
           && getAfter(/databases/$(database)/documents/servidores_privado/$(request.resource.data.servidor_id)).data.secretaria_id == minhaSecretaria()));
-      allow update: if (operador() || (secretaria()
-          && request.resource.data.servidor_id == resource.data.servidor_id
-          && exists(/databases/$(database)/documents/servidores_privado/$(resource.data.servidor_id))
-          && get(/databases/$(database)/documents/servidores_privado/$(resource.data.servidor_id)).data.secretaria_id == minhaSecretaria()))
-        && cpf.matches('^[0-9]{11}$')
+      allow update: if cpf.matches('^[0-9]{11}$')
         && request.resource.data.keys().hasOnly(['servidor_id'])
-        && request.resource.data.servidor_id is string;
+        && request.resource.data.servidor_id is string
+        && existsAfter(/databases/$(database)/documents/servidores_privado/$(request.resource.data.servidor_id))
+        && getAfter(/databases/$(database)/documents/servidores_privado/$(request.resource.data.servidor_id)).data.cpf == cpf
+        && (operador() || (secretaria()
+          && request.resource.data.servidor_id == resource.data.servidor_id
+          && getAfter(/databases/$(database)/documents/servidores_privado/$(request.resource.data.servidor_id)).data.secretaria_id == minhaSecretaria()));
       allow delete: if operador();
     }
 
