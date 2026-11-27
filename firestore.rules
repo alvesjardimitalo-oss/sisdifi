@@ -164,7 +164,7 @@ service cloud.firestore {
       // e sem o histórico do sistema antigo). Controle Interno e RH: tudo, menos os lançamentos internos da Contabilidade.
       allow read: if ativo() && (
         perfil() in ['admin', 'operador']
-        || (perfil() == 'consulta' && resource.data.privacidade_migrada == true && !resource.data.get('servidor', {}).keys().hasAny(['cpf', 'chave_pix', 'cpf_anterior']))
+        || (perfil() == 'consulta' && resource.data.privacidade_migrada == true)
         || (secretaria() && resource.data.secretaria_id == minhaSecretaria() && resource.data.visivel_secretaria == true)
         || (perfil() in ['controle_interno', 'rh'] && resource.data.interna == false));
       allow create: if solicitante()
@@ -201,6 +201,8 @@ service cloud.firestore {
       // O número nunca muda. A Contabilidade não altera a análise do Controle Interno.
       allow update: if solicitante() && !secretaria()
         && request.resource.data.numero == resource.data.numero
+        && (request.resource.data.privacidade_migrada != true
+          || !request.resource.data.get('servidor', {}).keys().hasAny(['cpf', 'chave_pix', 'cpf_anterior']))
         && !(contabilidade() && alterou(['analise']));
       allow delete: if admin();
     }
