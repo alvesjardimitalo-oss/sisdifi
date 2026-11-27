@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { linhaDeLancamento, linhasDeLancamento, composicaoDaLiquidacao,
   distribuirFontesPorSaldo, linhasDaPlanilha, textoParaColar, secretariaDaPlanilha } from '../assets/js/folha-lancamento.js';
-import { idDaPlanilha, abaDoMes, valoresParaAPI, letraColuna, itensNoCabecalho, pedidosParaModelo, modeloDaAba, pedidosDeFormato, pedidosDeCores, CORES_SECRETARIA } from '../assets/js/folha-planilha-google.js';
+import { idDaPlanilha, abaDoMes, valoresParaAPI, letraColuna, itensNoCabecalho, pedidosParaModelo, modeloDaAba, pedidosDeFormato, pedidosDeCores, CORES_SECRETARIA, pedidosDeGrupos } from '../assets/js/folha-planilha-google.js';
 
 let ok = 0; const falhas = [];
 const t = (nome, fn) => { try { fn(); ok++; } catch (e) { falhas.push(nome + ': ' + e.message); } };
@@ -136,65 +136,83 @@ t('FUNDEB sem saldo vai para a ficha espelho em recurso próprio', () => {
 /* ---- Planilha da Contabilidade ---- */
 // Empenho 5168 de novembro/2026 na planilha: bruto 62.274,25, desconto 5.667,63,
 // salário-família 810,48, maternidade 1.782,37, líquido 59.199,47.
-t('linha da planilha: bruto, histórico, desconto, itens, OPs, líquido', () => {
+t('linha da planilha: empenho (D–G), desconto, itens, OPs, líquido — sem a conta', () => {
   const emp = empenho({ id: 'principal|x', empenho: 5168, secretaria: 'SECRETARIA MUNIC. DE EDUCACAO', ficha: '186', fonte: '1540',
-    bruto: 6227425, descontoRH: 566763, descontoAjustado: 553154, maisInssExtra: 13609,
+    conta: 'FUNDEB · BB/0166-X/123860-4', bruto: 6227425, descontoRH: 566763, descontoAjustado: 553154, maisInssExtra: 13609,
     composicao: { INSS: 413609, Caixa: 100000, IRRF: 53154 }, liquidoRH: 5919947 });
   const ops = [{ id: 'a', empenhoReferencia: 5168, tipo: 'Salário-família', bruto: 81048, inss: 0 },
     { id: 'b', empenhoReferencia: 5168, tipo: 'Salário-maternidade', bruto: 178237, inss: 13609 }];
   const lanc = linhasDeLancamento({ empenhos: [emp], extras: ops }, { competencia: '2026-11', numerosOP: { a: '470', b: '471' } });
   const [l] = linhasDaPlanilha([emp], lanc);
-  assert.deepEqual(l.slice(0, 7), ['FOLHA DE PAGAMENTO', 5168, 'FUNDEB', '186', '1540', '', 6227425]);
-  assert.match(l[7], /EFETIVO NO MES DE NOVEMBRO/);          // H histórico
-  assert.equal(l[8], 553154);                                  // I desconto da liquidação
-  // J–P: INSS (sem o da maternidade), Caixa, Sicoob, Bradesco, Pensão, IR, Outros
-  assert.deepEqual(l.slice(9, 16), [400000, 100000, null, null, null, 53154, null]);
-  // Q–U: nº OP, salário-família, desconto (INSS), maternidade, desconto (INSS)
-  assert.deepEqual(l.slice(16, 21), ['470 / 471', 81048, null, 178237, 13609]);
-  assert.equal(l[21], 5919947);                                // V líquido
-  assert.equal(l[22], 5919947);                                // W resumo RH
-  assert.equal(l[23], 'BATEU');                                // X
+  assert.equal(l.length, 23);                                   // A–W
+  assert.deepEqual(l.slice(0, 6), ['FOLHA DE PAGAMENTO', 5168, 'FUNDEB', '186', '1540', 6227425]);
+  assert.ok(!l.some(v => /BB\/0166/.test(String(v))), 'a conta não vai para a planilha');
+  assert.match(l[6], /EFETIVO NO MES DE NOVEMBRO/);            // G histórico
+  assert.equal(l[7], 553154);                                   // H desconto da liquidação
+  assert.deepEqual(l.slice(8, 15), [400000, 100000, null, null, null, 53154, null]);   // I–O
+  assert.deepEqual(l.slice(15, 20), ['470 / 471', 81048, null, 178237, 13609]);        // P–T
+  assert.equal(l[20], 5919947);                                 // U líquido
+  assert.equal(l[21], 5919947);                                 // V resumo RH
+  assert.equal(l[22], 'BATEU');                                 // W
   const texto = textoParaColar([l]);
-  assert.match(texto, /^FOLHA DE PAGAMENTO\t5168\tFUNDEB\t186\t1540\t\t62\.274,25\tVALOR [^\t]+\t5\.531,54\t4\.000,00\t1\.000,00\t\t\t\t531,54\t\t470 \/ 471\t810,48\t\t1\.782,37\t136,09\t59\.199,47\t/);
+  assert.match(texto, /^FOLHA DE PAGAMENTO\t5168\tFUNDEB\t186\t1540\t62\.274,25\tVALOR [^\t]+\t5\.531,54\t4\.000,00\t1\.000,00\t\t\t\t531,54\t\t470 \/ 471\t810,48\t\t1\.782,37\t136,09\t59\.199,47\t/);
   const api = valoresParaAPI([l])[0];
-  assert.equal(api[6], 62274.25);
-  assert.equal(typeof api[7], 'string');
-  assert.equal(api[21], 59199.47);
+  assert.equal(api[5], 62274.25);
+  assert.equal(typeof api[6], 'string');
+  assert.equal(api[20], 59199.47);
 });
 
+const ITENS = ['INSS', 'Caixa', 'Sicoob', 'Bradesco', 'Pensão', 'IR', 'Outros'];
+const OPS_VELHAS = ['Nº OP', 'Valor Bruto', 'Desconto Liquidação', 'Valor Bruto', 'Desconto Liquidação'];
+const CAB = {
+  manual: ['', 'Empenho', 'Secretaria', 'Ficha', 'Fonte de Recursos', 'Conta Bancária', 'Valor Bruto', 'Desconto Liquidação', ...OPS_VELHAS, 'Valor Liquido '],
+  itensNoFim: ['', 'Empenho', 'Secretaria', 'Ficha', 'Fonte de Recursos', 'Conta Bancária', 'Valor Bruto', 'Desconto Liquidação', ...ITENS, ...OPS_VELHAS, 'Valor Liquido ', 'Histórico', 'Resumo RH', 'Conferência'],
+  comConta: ['', 'Empenho', 'Secretaria', 'Ficha', 'Fonte de Recursos', 'Conta Bancária', 'Valor Bruto', 'Histórico', 'Desconto Liquidação', ...ITENS, ...OPS_VELHAS, 'Valor Liquido ', 'Resumo RH', 'Conferência'],
+  atual: ['', 'Empenho', 'Secretaria', 'Ficha', 'Fonte de Recursos', 'Valor Bruto', 'Histórico', 'Desconto Liquidação', ...ITENS, ...OPS_VELHAS, 'Valor Liquido ', 'Resumo RH', 'Conferência']
+};
 t('o modelo da aba é reconhecido pelo cabeçalho', () => {
-  const itens = ['INSS', 'Caixa', 'Sicoob', 'Bradesco', 'Pensão', 'IR', 'Outros'];
-  const base = ['', 'Empenho', 'Secretaria', 'Ficha', 'Fonte de Recursos', 'Conta Bancária', 'Valor Bruto'];
-  const ops = ['Nº OP', 'Valor Bruto', 'Desconto Liquidação', 'Valor Bruto', 'Desconto Liquidação'];
-  assert.equal(modeloDaAba([...base, 'Desconto Liquidação', ...ops, 'Valor Liquido ']), 'manual');
-  assert.equal(modeloDaAba([...base, 'Desconto Liquidação', ...itens, ...ops, 'Valor Liquido ', 'Histórico', 'Resumo RH', 'Conferência']), 'itens');
-  assert.equal(modeloDaAba([...base, 'Histórico', 'Desconto Liquidação', ...itens, ...ops, 'Valor Liquido ', 'Resumo RH', 'Conferência']), 'atual');
-  assert.equal(itensNoCabecalho(itens), true);
-  assert.equal(itensNoCabecalho([]), false);
+  assert.equal(modeloDaAba(CAB.manual), 'antigo');
+  assert.equal(modeloDaAba(CAB.itensNoFim), 'antigo');
+  assert.equal(modeloDaAba(CAB.comConta), 'antigo');
+  assert.equal(modeloDaAba(CAB.atual), 'atual');
+  assert.deepEqual(pedidosParaModelo(42, CAB.atual), []);
+  assert.equal(itensNoCabecalho(ITENS), true);
 });
 
-t('aba no modelo manual: abre H para o histórico e J–P para os itens, fechados no +', () => {
-  const p = pedidosParaModelo(42, 'manual');
-  assert.deepEqual(p[0].insertDimension.range, { sheetId: 42, dimension: 'COLUMNS', startIndex: 7, endIndex: 8 });
-  assert.deepEqual(p[1].insertDimension.range, { sheetId: 42, dimension: 'COLUMNS', startIndex: 9, endIndex: 16 });
+const cols = p => p.filter(x => x.insertDimension || x.deleteDimension || x.copyPaste?.pasteType === 'PASTE_VALUES').map(x =>
+  x.insertDimension ? ['+', x.insertDimension.range.startIndex, x.insertDimension.range.endIndex]
+  : x.deleteDimension ? ['-', x.deleteDimension.range.startIndex]
+  : ['copia', x.copyPaste.source.startColumnIndex, x.copyPaste.destination.startColumnIndex]);
+t('aba manual: tira a conta, abre G para o histórico e I–O para os itens', () => {
+  const p = pedidosParaModelo(42, CAB.manual);
+  assert.deepEqual(cols(p), [['-', 5], ['+', 6, 7], ['+', 8, 15]]);
   const titulos = p.filter(x => x.updateCells).map(x => [x.updateCells.start.columnIndex, x.updateCells.rows[0].values.map(v => v.userEnteredValue.stringValue)]);
-  assert.deepEqual(titulos, [[7, ['Histórico']], [9, ['INSS', 'Caixa', 'Sicoob', 'Bradesco', 'Pensão', 'IR', 'Outros']],
-    [16, ['Nº OP', 'Salário-família', 'Desconto (INSS)', 'Salário-maternidade', 'Desconto (INSS)']], [22, ['Resumo RH', 'Conferência']]]);
-  assert.equal(p.find(x => x.updateDimensionGroup).updateDimensionGroup.dimensionGroup.collapsed, true);
-  assert.equal(p.find(x => x.updateSheetProperties).updateSheetProperties.properties.gridProperties.columnGroupControlAfter, false);
+  assert.deepEqual(titulos, [[6, ['Histórico']], [8, ITENS],
+    [15, ['Nº OP', 'Salário-família', 'Desconto (INSS)', 'Salário-maternidade', 'Desconto (INSS)']], [21, ['Resumo RH', 'Conferência']]]);
   assert.equal(p.filter(x => x.addConditionalFormatRule).length, 2);
   assert.ok(!p.some(x => x.moveDimension), 'mover coluna é recusado pelas células mescladas');
 });
 
-t('aba do modelo anterior: histórico de V vai para H sem mover coluna', () => {
-  const p = pedidosParaModelo(42, 'itens');
-  assert.deepEqual(p[0].insertDimension.range.startIndex, 7);
-  assert.equal(p[1].copyPaste.source.startColumnIndex, 22);
-  assert.equal(p[1].copyPaste.destination.startColumnIndex, 7);
-  assert.equal(p[1].copyPaste.pasteType, 'PASTE_VALUES');
-  assert.deepEqual(p[2].deleteDimension.range, { sheetId: 42, dimension: 'COLUMNS', startIndex: 22, endIndex: 23 });
-  assert.ok(!p.some(x => x.addDimensionGroup), 'o grupo dos itens já existe e anda junto');
-  assert.deepEqual(pedidosParaModelo(42, 'atual'), []);
+t('abas que o SISDIFI escreveu antes: só o que falta, sem regra de cor repetida', () => {
+  // Itens em I–O e histórico no fim: tira a conta, histórico vai para G.
+  // Histórico estava em V (21); sem a conta foi para U (20), e com a coluna nova em G voltou a V (21).
+  assert.deepEqual(cols(pedidosParaModelo(42, CAB.itensNoFim)), [['-', 5], ['+', 6, 7], ['copia', 21, 6], ['-', 21]]);
+  // Já com histórico depois do bruto, só falta tirar a conta.
+  const p = pedidosParaModelo(42, CAB.comConta);
+  assert.deepEqual(cols(p), [['-', 5]]);
+  assert.equal(p.filter(x => x.addConditionalFormatRule).length, 0);
+});
+
+t('grupos no "+": empenho D–G aberto e itens I–O fechado; o que já existe não é tocado', () => {
+  const p = pedidosDeGrupos(42, []);
+  const g = p.filter(x => x.updateDimensionGroup).map(x => [x.updateDimensionGroup.dimensionGroup.range.startIndex,
+    x.updateDimensionGroup.dimensionGroup.range.endIndex, x.updateDimensionGroup.dimensionGroup.collapsed]);
+  assert.deepEqual(g, [[3, 7, false], [8, 15, true]]);
+  assert.equal(p.at(-1).updateSheetProperties.properties.gridProperties.columnGroupControlAfter, false);
+  const so = pedidosDeGrupos(42, [{ range: { startIndex: 8, endIndex: 15 }, collapsed: false }]);
+  assert.equal(so.filter(x => x.addDimensionGroup).length, 1);
+  assert.equal(so[0].addDimensionGroup.range.startIndex, 3);
+  assert.deepEqual(pedidosDeGrupos(42, [{ range: { startIndex: 3, endIndex: 7 } }, { range: { startIndex: 8, endIndex: 15 } }]), []);
 });
 
 t('o nome do grupo só na primeira linha', () => {
@@ -224,14 +242,14 @@ t('link e aba da planilha', () => {
 
 /* Novembro/2026, primeiro lançamento real: a fonte saiu 15.000.000.000, a
    Agricultura virou Cultura e o Hospital virou Saúde. */
-t('fonte no código curto e conta só pelo nome', () => {
+t('fonte no código curto, e a conta não vai para a planilha', () => {
   const emp = empenho({ id: 'p|1', secretaria: 'SECRETARIA MUNIC. DE ADMINISTRACAO', fonte: '1.500.000.0000',
     conta: 'REC PROPRIO · BB/0166-X/26538-1' });
   const [l] = linhasDaPlanilha([emp], linhasDeLancamento({ empenhos: [emp], extras: [] }, { competencia: '2026-11' }));
   assert.equal(l[4], '1500');
-  assert.equal(l[5], 'REC PROPRIO');
+  assert.equal(l[5], 1000000);
+  assert.ok(!l.includes('REC PROPRIO'));
 });
-
 t('Agricultura não vira Cultura; hospital e transporte escolar pela ficha', () => {
   assert.equal(secretariaDaPlanilha('SECRETARIA MUNIC. DE AGRICULTURA'), 'AGRICULTURA');
   assert.equal(secretariaDaPlanilha('SECRETARIA DE TURISMO E CULTURA'), 'CULTURA');
@@ -243,17 +261,16 @@ t('Agricultura não vira Cultura; hospital e transporte escolar pela ficha', () 
 t('linhas lançadas: cor da secretaria, R$, histórico à esquerda, conferência em negrito', () => {
   const p = pedidosDeFormato(7, 3);
   const cores = p.filter(x => x.copyPaste).map(x => [x.copyPaste.source.startColumnIndex, x.copyPaste.destination.startColumnIndex, x.copyPaste.destination.endColumnIndex]);
-  assert.deepEqual(cores, [[6, 7, 8], [8, 9, 16], [21, 22, 24]]);
+  assert.deepEqual(cores, [[5, 6, 7], [7, 8, 15], [20, 21, 23]]);
   const moeda = p.filter(x => x.repeatCell?.cell.userEnteredFormat.numberFormat?.type === 'CURRENCY');
-  // G (bruto), I–P (desconto e itens), R–W (OPs, líquido e resumo)
-  assert.deepEqual(moeda.map(x => [x.repeatCell.range.startColumnIndex, x.repeatCell.range.endColumnIndex]), [[6, 7], [8, 16], [17, 23]]);
+  // F (bruto), H–O (desconto e itens), Q–V (OPs, líquido e resumo)
+  assert.deepEqual(moeda.map(x => [x.repeatCell.range.startColumnIndex, x.repeatCell.range.endColumnIndex]), [[5, 6], [7, 15], [16, 22]]);
   assert.equal(moeda[0].repeatCell.range.startRowIndex, 3);
   assert.equal(moeda[0].repeatCell.range.endRowIndex, 6);
-  const hist = p.find(x => x.repeatCell?.range.startColumnIndex === 7);
+  const hist = p.find(x => x.repeatCell?.range.startColumnIndex === 6 && x.repeatCell.cell.userEnteredFormat.wrapStrategy);
   assert.equal(hist.repeatCell.cell.userEnteredFormat.horizontalAlignment, 'LEFT');
-  assert.equal(hist.repeatCell.cell.userEnteredFormat.wrapStrategy, 'CLIP');
-  const conf = p.find(x => x.repeatCell?.range.startColumnIndex === 23);
-  assert.equal(conf.repeatCell.cell.userEnteredFormat.textFormat.bold, true);
+  const conf = p.find(x => x.repeatCell?.range.startColumnIndex === 22 && x.repeatCell.cell.userEnteredFormat.textFormat?.bold);
+  assert.ok(conf);
 });
 
 t('cada secretaria tem uma cor só, em toda a linha, e linhas seguidas vão juntas', () => {
@@ -261,7 +278,7 @@ t('cada secretaria tem uma cor só, em toda a linha, e linhas seguidas vão junt
   assert.equal(p.length, 4);
   const r = p.map(x => x.repeatCell.range);
   assert.deepEqual(r.map(x => [x.startRowIndex, x.endRowIndex]), [[3, 5], [5, 6], [6, 7], [7, 8]]);
-  assert.ok(r.every(x => x.startColumnIndex === 1 && x.endColumnIndex === 24));
+  assert.ok(r.every(x => x.startColumnIndex === 1 && x.endColumnIndex === 23));
   // A mesma secretaria tem sempre a mesma cor.
   assert.deepEqual(p[0].repeatCell.cell.userEnteredFormat.backgroundColor, p[3].repeatCell.cell.userEnteredFormat.backgroundColor);
   assert.notDeepEqual(p[0].repeatCell.cell.userEnteredFormat.backgroundColor, p[1].repeatCell.cell.userEnteredFormat.backgroundColor);

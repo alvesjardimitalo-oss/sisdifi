@@ -221,33 +221,38 @@ export function distribuirFontesPorSaldo(empenhos = [], saldos = {}, fichaInfo =
    =====================================================================
    A partir da linha 4, na ordem em que a Contabilidade lança o empenho:
    A grupo (só na primeira linha do grupo) · B empenho · C secretaria ·
-   D ficha · E fonte · F conta · G bruto · H histórico ·
-   I desconto da liquidação · J–P itens do desconto (INSS, Caixa, Sicoob,
-   Bradesco, Pensão, IR, Outros), num grupo que abre e fecha no "+" ·
-   Q nº da OP · R salário-família · S desconto dele (INSS) ·
-   T salário-maternidade (e natalidade) · U desconto dele (INSS) ·
-   V líquido · W total líquido do Resumo de Verbas · X conferência.
+   D ficha · E fonte · F bruto · G histórico — o que se digita no empenho,
+   num grupo que abre e fecha no "+" (aberto: depois de digitar o empenho, a
+   Contabilidade fecha e segue para a liquidação) ·
+   H desconto da liquidação · I–O itens do desconto (INSS, Caixa, Sicoob,
+   Bradesco, Pensão, IR, Outros), num grupo fechado no "+" ·
+   P nº da OP · Q salário-família · R desconto dele (INSS) ·
+   S salário-maternidade (e natalidade) · T desconto dele (INSS) ·
+   U líquido · V total líquido do Resumo de Verbas · W conferência.
+   A conta bancária não vai para a planilha: é escolhida no SISDIFI.
    O único desconto que uma OP tem é o INSS da servidora em
    salário-maternidade, que sai da liquidação do empenho e vai para a OP —
    daí o título "Desconto (INSS)".
-   Conferido em novembro/2026: líquido = G − I + R − S + T − U. */
+   Conferido em novembro/2026: líquido = F − H + Q − R + S − T. */
 export const GRUPOS_PLANILHA = {
   principal: 'FOLHA DE PAGAMENTO', extra: 'FOLHA EXTRA',
   decimo: 'ADIANTAMENTO DE 50% 13º SALÁRIO', rescisao: 'RECISÃO CONTRATUAL'
 };
-/** Coluna do histórico (0 = A): H, logo depois do bruto. */
-export const COLUNA_HISTORICO_PLANILHA = 7;
-/** Coluna do desconto da liquidação: I. */
-export const COLUNA_DESCONTO_PLANILHA = 8;
-/** Primeira coluna dos itens do desconto: J, logo depois do desconto. */
-export const INICIO_ITENS_PLANILHA = 9;
+/** Colunas (0 = A): D ficha, F bruto, G histórico — o grupo do empenho é D–G. */
+export const COLUNA_FICHA_PLANILHA = 3;
+export const COLUNA_BRUTO_PLANILHA = 5;
+export const COLUNA_HISTORICO_PLANILHA = 6;
+/** Coluna do desconto da liquidação: H. */
+export const COLUNA_DESCONTO_PLANILHA = 7;
+/** Primeira coluna dos itens do desconto: I, logo depois do desconto. */
+export const INICIO_ITENS_PLANILHA = 8;
 export const ROTULOS_ITENS_PLANILHA = COLUNAS_DESCONTO.map(c => c.rotulo);
-/** Coluna do nº da OP: Q, logo depois dos itens. */
+/** Coluna do nº da OP: P, logo depois dos itens. */
 export const COLUNA_OP_PLANILHA = INICIO_ITENS_PLANILHA + ROTULOS_ITENS_PLANILHA.length;
 export const ROTULOS_OP_PLANILHA = ['Nº OP', 'Salário-família', 'Desconto (INSS)', 'Salário-maternidade', 'Desconto (INSS)'];
-/** Coluna do líquido: V. Depois dela, resumo do RH (W) e conferência (X). */
+/** Coluna do líquido: U. Depois dela, resumo do RH (V) e conferência (W). */
 export const COLUNA_LIQUIDO_PLANILHA = COLUNA_OP_PLANILHA + ROTULOS_OP_PLANILHA.length;
-export const CABECALHO_PLANILHA = ['', 'Empenho', 'Secretaria', 'Ficha', 'Fonte de Recursos', 'Conta Bancária',
+export const CABECALHO_PLANILHA = ['', 'Empenho', 'Secretaria', 'Ficha', 'Fonte de Recursos',
   'Valor Bruto', 'Histórico', 'Desconto Liquidação', ...ROTULOS_ITENS_PLANILHA, ...ROTULOS_OP_PLANILHA,
   'Valor Liquido ', 'Resumo RH', 'Conferência'];
 
@@ -273,9 +278,7 @@ export function secretariaDaPlanilha(secretaria = '', ficha = '') {
 }
 
 /* A fonte vai no código curto, como a planilha sempre usou: "1.500.000.0000"
-   numa planilha em português vira o número 15.000.000.000. A conta vai só
-   pelo nome ("REC PROPRIO"), sem banco/agência/número, para caber na coluna. */
-const contaCurta = c => String(c || '').split(' · ')[0].trim();
+   numa planilha em português vira o número 15.000.000.000. */
 
 /**
  * Linhas da planilha, na ordem dos empenhos. Valores em centavos; quem
@@ -295,7 +298,7 @@ export function linhasDaPlanilha(empenhos = [], lanc = { linhas: [] }) {
     grupo = l.tipo;
     const ou = v => (v ? v : null);
     return [
-      rotulo, l.numero ?? '', secretariaDaPlanilha(e.secretaria, l.ficha), l.ficha, codigoFonte(l.fonte), contaCurta(e.conta),
+      rotulo, l.numero ?? '', secretariaDaPlanilha(e.secretaria, l.ficha), l.ficha, codigoFonte(l.fonte),
       l.bruto, l.historico, ou(l.desconto),
       ...COLUNAS_DESCONTO.map(c => ou(l.composicao[c.chave])),
       l.ops.map(o => o.numero).filter(Boolean).join(' / '),
@@ -307,8 +310,8 @@ export function linhasDaPlanilha(empenhos = [], lanc = { linhas: [] }) {
   });
 }
 /** Índices (0 = coluna A) das colunas de dinheiro em linhasDaPlanilha:
- *  bruto (G), desconto e itens (I–P), OPs (R–U), líquido (V) e resumo (W). */
-export const COLUNAS_DINHEIRO_PLANILHA = new Set([6, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22]);
+ *  bruto (F), desconto e itens (H–O), OPs (Q–T), líquido (U) e resumo (V). */
+export const COLUNAS_DINHEIRO_PLANILHA = new Set([5, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 20, 21]);
 
 /** Texto para colar na planilha (Ctrl+V em A4): tabulação e valores em pt-BR. */
 export function textoParaColar(linhas = []) {

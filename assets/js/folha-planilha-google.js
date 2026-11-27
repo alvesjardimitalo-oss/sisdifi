@@ -5,7 +5,8 @@
 // folha-lancamento.js. A chamada sai do navegador para a API do Google com o
 // token da conta que edita a planilha; o SISDIFI não guarda esse token.
 import { COLUNAS_DINHEIRO_PLANILHA, INICIO_ITENS_PLANILHA, ROTULOS_ITENS_PLANILHA, COLUNA_HISTORICO_PLANILHA,
-  COLUNA_DESCONTO_PLANILHA, COLUNA_OP_PLANILHA, ROTULOS_OP_PLANILHA, COLUNA_LIQUIDO_PLANILHA } from './folha-lancamento.js';
+  COLUNA_DESCONTO_PLANILHA, COLUNA_OP_PLANILHA, ROTULOS_OP_PLANILHA, COLUNA_LIQUIDO_PLANILHA,
+  COLUNA_FICHA_PLANILHA, COLUNA_BRUTO_PLANILHA } from './folha-lancamento.js';
 
 const API = 'https://sheets.googleapis.com/v4/spreadsheets/';
 export const MESES_ABA = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO',
@@ -54,41 +55,45 @@ async function chamar(url, token, opcoes = {}) {
 
 const citar = aba => "'" + String(aba).replace(/'/g, "''") + "'";
 const LINHA_CABECALHO = PRIMEIRA_LINHA - 1;
+const D = COLUNA_FICHA_PLANILHA, F = COLUNA_BRUTO_PLANILHA;
 const H = COLUNA_HISTORICO_PLANILHA, I = COLUNA_DESCONTO_PLANILHA, J = INICIO_ITENS_PLANILHA;
-const FIM_ITENS = J + ROTULOS_ITENS_PLANILHA.length;           // Q, nº da OP
-const V = COLUNA_LIQUIDO_PLANILHA, W = V + 1, X = V + 2;
+const FIM_ITENS = J + ROTULOS_ITENS_PLANILHA.length;           // P, nº da OP
+const V = COLUNA_LIQUIDO_PLANILHA, W = V + 1, X = V + 2;      // U líquido, V resumo, W conferência
 const normal = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase();
+/* Os dois grupos de colunas que abrem e fecham no "+": o empenho (D–G),
+   aberto — depois de digitar o empenho a Contabilidade o fecha e segue para a
+   liquidação —, e os itens do desconto (I–O), fechado. */
+export const GRUPOS_DE_COLUNAS = [
+  { de: D, ate: I, fechado: false, nome: 'empenho' },
+  { de: J, ate: FIM_ITENS, fechado: true, nome: 'itens do desconto' }
+];
 
-/**
- * Em que modelo está o cabeçalho da aba (linha 3):
- *  'atual'  — H histórico, I desconto, J–P itens (o que o SISDIFI escreve);
- *  'itens'  — I–O itens e o histórico no fim (V), como saiu até nov/2026;
- *  'manual' — o modelo da Contabilidade, sem itens nem histórico (H desconto).
- */
+/** A aba já está no modelo atual? (cabeçalho da linha 3) */
 export function modeloDaAba(cabecalho = []) {
   const c = cabecalho.map(normal);
   const itensEm = i => ROTULOS_ITENS_PLANILHA.every((r, k) => c[i + k] === normal(r));
-  if (c[H] === 'HISTORICO' && itensEm(J)) return 'atual';
-  if (itensEm(J - 1) && c[V] === 'HISTORICO') return 'itens';
-  return 'manual';
+  if (!c.includes('CONTA BANCARIA') && c[F] === 'VALOR BRUTO' && c[H] === 'HISTORICO' && itensEm(J)) return 'atual';
+  return 'antigo';
 }
 /** Compatível com quem perguntava só se a aba já tinha os itens. */
 export const itensNoCabecalho = (itens = []) => ROTULOS_ITENS_PLANILHA.every((r, k) => normal(itens[k]) === normal(r));
 
-/** Abas da planilha, a do mês, quantos empenhos ela já tem e em que modelo está. */
+/** Abas da planilha, a do mês, quantos empenhos ela já tem, o cabeçalho e os grupos de colunas. */
 export async function situacaoDaPlanilha(token, planilhaId, competencia) {
-  const info = await chamar(API + planilhaId + '?fields=properties.title,sheets.properties(sheetId,title)', token);
-  const abas = (info.sheets || []).map(s => s.properties);
+  const info = await chamar(API + planilhaId + '?fields=properties.title,sheets(properties(sheetId,title),columnGroups)', token);
+  const abas = (info.sheets || []).map(s => ({ ...s.properties, grupos: s.columnGroups || [] }));
   const aba = abaDoMes(abas.map(a => a.title), competencia);
-  const base = { titulo: info.properties?.title || '', titulos: abas.map(a => a.title), aba, sheetId: null, preenchidas: 0, modelo: '' };
+  const base = { titulo: info.properties?.title || '', titulos: abas.map(a => a.title), aba, sheetId: null, preenchidas: 0,
+    modelo: '', cabecalho: [], grupos: [] };
   if (!aba) return base;
-  const sheetId = abas.find(a => a.title === aba).sheetId;
-  const q = ['B' + PRIMEIRA_LINHA + ':B1000', 'A' + LINHA_CABECALHO + ':' + letraColuna(X + 2) + LINHA_CABECALHO]
+  const dados = abas.find(a => a.title === aba);
+  const q = ['B' + PRIMEIRA_LINHA + ':B1000', 'A' + LINHA_CABECALHO + ':AH' + LINHA_CABECALHO]
     .map(r => 'ranges=' + encodeURIComponent(citar(aba) + '!' + r)).join('&');
   const v = await chamar(API + planilhaId + '/values:batchGet?' + q, token);
   const [empenhos, cab] = (v.valueRanges || []).map(x => x.values || []);
   const preenchidas = (empenhos || []).filter(r => String(r[0] || '').trim()).length;
-  return { ...base, sheetId, preenchidas, modelo: modeloDaAba(cab?.[0] || []) };
+  const cabecalho = cab?.[0] || [];
+  return { ...base, sheetId: dados.sheetId, preenchidas, cabecalho, grupos: dados.grupos, modelo: modeloDaAba(cabecalho) };
 }
 
 const larguras = (sheetId, colunas) => colunas.map(([c0, c1, px]) => ({ updateDimensionProperties: {
@@ -97,30 +102,41 @@ const titulos = (sheetId, coluna, textos) => ({ updateCells: { start: { sheetId,
   rows: [{ values: textos.map(t => ({ userEnteredValue: { stringValue: t } })) }], fields: 'userEnteredValue' } });
 
 /**
- * Pedidos para pôr a aba no modelo atual. Inserir colunas empurra o resto
- * para a direita e alarga os títulos mesclados das linhas 1–2; as fórmulas
- * da aba (totais, "valor bateu") se ajustam sozinhas. Mover coluna não
- * serve: o Google recusa mover para dentro de célula mesclada — por isso o
- * histórico antigo (V) é copiado para a coluna nova e a velha é apagada.
- * Testado nas abas NOVEMBRO/2026 nos dois modelos.
+ * Pedidos para pôr as COLUNAS da aba no modelo atual, a partir do cabeçalho
+ * que ela tem — o manual da Contabilidade, o que o SISDIFI escreveu antes ou
+ * qualquer passo no meio. Cada passo é aplicado também a uma cópia do
+ * cabeçalho, para o passo seguinte saber onde as colunas estão:
+ *  1. tira a Conta Bancária (a conta é escolhida no SISDIFI);
+ *  2. põe o histórico logo depois do bruto — se ele já existe mais à
+ *     direita, copia e apaga a coluna velha (mover coluna é recusado pelo
+ *     Google por causa das células mescladas do título);
+ *  3. abre as colunas dos itens do desconto depois do desconto.
+ * Inserir e apagar colunas ajusta sozinho os títulos mesclados, as fórmulas,
+ * os totais e os grupos de colunas que já existem.
  */
-export function pedidosParaModelo(sheetId, modelo) {
-  if (modelo === 'atual') return [];
+export function pedidosParaModelo(sheetId, cabecalho = []) {
+  const c = cabecalho.map(normal), pedidos = [];
   const col = (c0, c1) => ({ sheetId, dimension: 'COLUMNS', startIndex: c0, endIndex: c1 });
   const grade = (c0, c1) => ({ sheetId, startRowIndex: LINHA_CABECALHO - 1, endRowIndex: 1000, startColumnIndex: c0, endColumnIndex: c1 });
-  const titulo = (c0, c1) => ({ ...grade(c0, c1), endRowIndex: LINHA_CABECALHO });
-  const pedidos = [{ insertDimension: { range: col(H, H + 1), inheritFromBefore: true } }];
-  if (modelo === 'itens') {
-    // O histórico estava em V; com a coluna nova em H, ele passou para W.
-    pedidos.push({ copyPaste: { source: grade(W, W + 1), destination: grade(H, H + 1), pasteType: 'PASTE_VALUES' } },
-      { deleteDimension: { range: col(W, W + 1) } });
-  } else {
-    const itens = col(J, FIM_ITENS);
-    pedidos.push({ insertDimension: { range: itens, inheritFromBefore: true } },
-      titulos(sheetId, H, ['Histórico']), titulos(sheetId, J, ROTULOS_ITENS_PLANILHA),
-      { addDimensionGroup: { range: itens } },
-      { updateDimensionGroup: { dimensionGroup: { range: itens, depth: 1, collapsed: true }, fields: 'collapsed' } });
+  const apagar = k => { pedidos.push({ deleteDimension: { range: col(k, k + 1) } }); c.splice(k, 1); };
+  const inserir = (k, nomes) => { pedidos.push({ insertDimension: { range: col(k, k + nomes.length), inheritFromBefore: true } }); c.splice(k, 0, ...nomes.map(normal)); };
+  const conta = c.indexOf('CONTA BANCARIA');
+  if (conta >= 0) apagar(conta);
+  if (c[H] !== 'HISTORICO') {
+    const velho = c.indexOf('HISTORICO');
+    inserir(H, ['Histórico']);
+    if (velho >= 0) {
+      const k = velho >= H ? velho + 1 : velho;
+      pedidos.push({ copyPaste: { source: grade(k, k + 1), destination: grade(H, H + 1), pasteType: 'PASTE_VALUES' } });
+      apagar(k);
+    } else pedidos.push(titulos(sheetId, H, ['Histórico']));
   }
+  if (!ROTULOS_ITENS_PLANILHA.every((r, k) => c[J + k] === normal(r))) {
+    inserir(J, ROTULOS_ITENS_PLANILHA);
+    pedidos.push(titulos(sheetId, J, ROTULOS_ITENS_PLANILHA));
+  }
+  if (!pedidos.length) return [];
+  const titulo = (c0, c1) => ({ ...grade(c0, c1), endRowIndex: LINHA_CABECALHO });
   const verde = { red: 0.85, green: 0.94, blue: 0.83 }, vermelho = { red: 0.96, green: 0.8, blue: 0.8 };
   const conferencia = [{ sheetId, startRowIndex: PRIMEIRA_LINHA - 1, endRowIndex: 1000, startColumnIndex: X, endColumnIndex: X + 1 }];
   const regra = (cond, valor, fundo, letra) => ({ addConditionalFormatRule: { index: 0, rule: { ranges: conferencia,
@@ -129,26 +145,51 @@ export function pedidosParaModelo(sheetId, modelo) {
   pedidos.push(
     // OPs: o desconto delas é o INSS da maternidade, e o título diz isso.
     titulos(sheetId, FIM_ITENS, ROTULOS_OP_PLANILHA), titulos(sheetId, W, ['Resumo RH', 'Conferência']),
-    // "+" antes do grupo, ao lado do desconto da liquidação.
-    { updateSheetProperties: { properties: { sheetId, gridProperties: { columnGroupControlAfter: false } },
-      fields: 'gridProperties.columnGroupControlAfter' } },
-    // Títulos novos no estilo do título "Valor Bruto".
-    ...[[H, H + 1], [J, FIM_ITENS], [W, X + 1]].map(([a, b]) => ({ copyPaste: { source: titulo(6, 7), destination: titulo(a, b), pasteType: 'PASTE_FORMAT' } })),
-    regra('TEXT_EQ', 'BATEU', verde, { red: 0.1, green: 0.4, blue: 0.1 }),
-    regra('TEXT_CONTAINS', 'NÃO', vermelho, { red: 0.6, green: 0, blue: 0 }),
-    ...larguras(sheetId, [[H, H + 1, 430], [J, FIM_ITENS, 95], [W, W + 1, 115], [X, X + 1, 110]]));
+    ...[[H, H + 1], [J, FIM_ITENS], [W, X + 1]].map(([a, b]) => ({ copyPaste: { source: titulo(F, F + 1), destination: titulo(a, b), pasteType: 'PASTE_FORMAT' } })));
+  // As regras de cor da conferência só entram quando a coluna é nova.
+  if (!cabecalho.map(normal).includes('CONFERENCIA'))
+    pedidos.push(regra('TEXT_EQ', 'BATEU', verde, { red: 0.1, green: 0.4, blue: 0.1 }),
+      regra('TEXT_CONTAINS', 'NÃO', vermelho, { red: 0.6, green: 0, blue: 0 }));
   return pedidos;
 }
-/** Nome antigo: preparar a aba é pô-la no modelo atual. */
-export const pedidosParaItens = sheetId => pedidosParaModelo(sheetId, 'manual');
 
-/** Põe a aba do mês no modelo atual, se ainda não estiver. */
-export async function prepararAba(token, planilhaId, sit) {
-  const pedidos = pedidosParaModelo(sit.sheetId, sit.modelo);
-  if (!pedidos.length) return false;
-  await chamar(API + planilhaId + ':batchUpdate', token, { method: 'POST', body: JSON.stringify({ requests: pedidos }) });
-  return true;
+/**
+ * Pedidos para os grupos que abrem e fecham no "+": cria o que falta, no
+ * estado inicial (empenho aberto, itens fechados), com o "+" antes de cada
+ * grupo. Grupo que já existe não é tocado — se a Contabilidade fechou o do
+ * empenho, ele continua fechado. `grupos` é columnGroups da aba.
+ */
+export function pedidosDeGrupos(sheetId, grupos = []) {
+  const pedidos = [];
+  for (const g of GRUPOS_DE_COLUNAS) {
+    if (grupos.some(x => x.range?.startIndex === g.de && x.range?.endIndex === g.ate)) continue;
+    const range = { sheetId, dimension: 'COLUMNS', startIndex: g.de, endIndex: g.ate };
+    pedidos.push({ addDimensionGroup: { range } },
+      { updateDimensionGroup: { dimensionGroup: { range, depth: 1, collapsed: g.fechado }, fields: 'collapsed' } });
+  }
+  if (pedidos.length)
+    pedidos.push({ updateSheetProperties: { properties: { sheetId, gridProperties: { columnGroupControlAfter: false } },
+      fields: 'gridProperties.columnGroupControlAfter' } });
+  return pedidos;
 }
+
+/** Põe a aba do mês no modelo atual e cria os grupos que faltam. */
+export async function prepararAba(token, planilhaId, sit) {
+  const lote = pedidos => chamar(API + planilhaId + ':batchUpdate', token, { method: 'POST', body: JSON.stringify({ requests: pedidos }) });
+  const colunas = pedidosParaModelo(sit.sheetId, sit.cabecalho);
+  if (colunas.length) await lote(colunas);
+  // Os grupos andam com as colunas: depois de mexer nelas, lê de novo.
+  let grupos = sit.grupos || [];
+  if (colunas.length) {
+    const info = await chamar(API + planilhaId + '?fields=sheets(properties.sheetId,columnGroups)', token);
+    grupos = (info.sheets || []).find(s => s.properties?.sheetId === sit.sheetId)?.columnGroups || [];
+  }
+  const g = pedidosDeGrupos(sit.sheetId, grupos);
+  if (g.length) await lote(g);
+  return colunas.length > 0 || g.length > 0;
+}
+/** Nome antigo. */
+export const pedidosParaItens = sheetId => pedidosParaModelo(sheetId, []);
 
 /* Cor de cada secretaria: uma só, suave, a mesma em todas as colunas da linha
    e em todos os meses. A planilha manual tinha destaques soltos (amarelo,
@@ -164,10 +205,10 @@ const COR_OUTRA = 'eef0f3';
 const corDa = secretaria => rgb(CORES_SECRETARIA[String(secretaria || '').trim().toUpperCase()] || COR_OUTRA);
 
 /**
- * Pinta cada linha com a cor da secretaria (coluna C), de B até X, e deixa o
+ * Pinta cada linha com a cor da secretaria (coluna C), de B até W, e deixa o
  * texto preto — sobrescreve as cores soltas. Linhas seguidas da mesma
  * secretaria vão num pedido só. A conferência (X) continua verde/vermelha
- * pela formatação condicional, que fica por cima.
+ * pela formatação condicional, que fica por cima. (A conferência é a coluna W.)
  */
 export function pedidosDeCores(sheetId, secretarias = []) {
   const pedidos = [];
@@ -209,7 +250,7 @@ export function pedidosDeFormato(sheetId, quantidade) {
   const faixa = (a, b) => ({ ...linhas, startColumnIndex: a, endColumnIndex: b });
   const cor = (de, a, b) => ({ copyPaste: { source: faixa(de, de + 1), destination: faixa(a, b), pasteType: 'PASTE_FORMAT' } });
   const moeda = { numberFormat: { type: 'CURRENCY', pattern: '"R$" #,##0.00' } };
-  const pedidos = [cor(6, H, H + 1), cor(I, J, FIM_ITENS), cor(V, W, X + 1)];
+  const pedidos = [cor(F, H, H + 1), cor(I, J, FIM_ITENS), cor(V, W, X + 1)];
   for (const [a, b] of blocosDeDinheiro())
     pedidos.push({ repeatCell: { range: faixa(a, b), cell: { userEnteredFormat: moeda }, fields: 'userEnteredFormat.numberFormat' } });
   pedidos.push({ repeatCell: { range: faixa(1, 5), cell: { userEnteredFormat: { numberFormat: { type: 'TEXT' } } },
@@ -259,7 +300,7 @@ export function pedidosDeVisual(sheetId, quantidade) {
     { updateBorders: { range: g(L0 - 1, L1, 1, X + 1), top: grosso, bottom: grosso, left: grosso, right: grosso,
       innerHorizontal: fino, innerVertical: fino } },
     // Larguras: B empenho … X conferência
-    ...larguras(sheetId, [[1, 2, 70], [2, 3, 175], [3, 4, 55], [4, 5, 62], [5, 6, 105], [6, 7, 110], [H, H + 1, 430], [I, I + 1, 115],
+    ...larguras(sheetId, [[1, 2, 70], [2, 3, 175], [D, D + 1, 55], [D + 1, F, 62], [F, F + 1, 110], [H, H + 1, 430], [I, I + 1, 115],
       [J, FIM_ITENS, 95], [FIM_ITENS, FIM_ITENS + 1, 75], [FIM_ITENS + 1, V, 108], [V, V + 1, 118], [W, W + 1, 118], [X, X + 1, 105]])
   ];
   return pedidos;
