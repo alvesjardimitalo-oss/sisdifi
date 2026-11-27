@@ -1,6 +1,6 @@
 name: Publicar regras do Firestore SISDIFI
-# Publica automaticamente o firestore.rules quando ele muda na main.
-# Também pode ser disparado à mão (aba Actions > este workflow > Run workflow).
+# O deploy de produção é manual e só pode ser executado a partir da main.
+# Merge de PR ou alteração de rules não publica nada automaticamente.
 on:
   # Deploy de produção é sempre deliberado; merge de PR não publica regras automaticamente.
   workflow_dispatch:
