@@ -70,8 +70,8 @@ try {
     solicitacao_id: 'antiga-saneada', servidor_id: 'servidor-a', secretaria_id: 'sec-a',
     cpf: '12345678901'
   }));
-  await assertSucceeds(setDoc(doc(db('secretaria-a'), 'solicitacoes_privado', 'antiga-saneada'), {
-    solicitacao_id: 'antiga-saneada', servidor_id: 'servidor-a', secretaria_id: 'sec-a',
+  await assertSucceeds(setDoc(doc(db('secretaria-a'), 'solicitacoes_privado', 'saneada-secretaria'), {
+    solicitacao_id: 'saneada-secretaria', servidor_id: 'servidor-a', secretaria_id: 'sec-a',
     chave_pix: '12345678901'
   }));
 
@@ -84,7 +84,8 @@ try {
   await assertSucceeds(getDoc(doc(db('rh'), 'servidores_privado', 'servidor-a')));
   await assertSucceeds(getDoc(doc(db('secretaria-a'), 'servidores_privado', 'servidor-a')));
   await assertFails(getDoc(doc(db('secretaria-a'), 'servidores_privado', 'servidor-b')));
-  await assertSucceeds(getDoc(doc(db('secretaria-a'), 'cpfs', '12345678901')));\n  await assertFails(getDoc(doc(db('secretaria-a'), 'cpfs', '10987654321')));
+  await assertSucceeds(getDoc(doc(db('secretaria-a'), 'cpfs', '12345678901')));
+  await assertFails(getDoc(doc(db('secretaria-a'), 'cpfs', '10987654321')));
   await assertFails(getDocs(collection(db('operador'), 'cpfs')));
 
   // O índice de CPF só aceita o vínculo mínimo com um servidor da própria secretaria.
