@@ -334,10 +334,23 @@ service cloud.firestore {
     // Auditoria: qualquer usuário ativo registra a própria ação; ninguém altera ou apaga.
     match /logs/{id} {
       allow read: if admin();
-      allow create: if ativo() && request.resource.data.uid == request.auth.uid
+      // Estrutura fechada, autoria própria e horário do servidor; registros são imutáveis.
+      // A atomicidade da gravação com o lançamento é garantida nos fluxos críticos do cliente.
+      allow create: if ativo()
+        && request.resource.data.keys().hasOnly(['uid', 'nome', 'acao', 'detalhe', 'em'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.nome is string
+        && request.resource.data.nome.size() > 0
+        && request.resource.data.nome.size() <= 120
         && request.resource.data.acao is string
+        && request.resource.data.acao.size() > 0
+        && request.resource.data.acao.size() <= 100
+        && request.resource.data.detalhe is map
+        && request.resource.data.detalhe.size() <= 30
+        && request.resource.data.em == request.time
         && (!request.resource.data.acao.matches('^fiscal[.].*') || admin());
       allow update, delete: if false;
     }
+
   }
 }
