@@ -269,7 +269,7 @@ async function gravarServidor(id, dados, carimbo) {
 }
 
 const COLECOES_COM_AUDITORIA_ATOMICA = new Set([
-  'retencoes_config', 'valores', 'duodecimo_anos'
+  'retencoes_config', 'valores', 'duodecimo_anos', 'retencoes_anos'
 ]);
 function incluirLogNaGravacao(batch, acao, detalhe) {
   if (!sessao) throw Error('Sessão encerrada. Entre novamente para registrar a operação auditável.');
@@ -416,7 +416,7 @@ export async function criarSolicitacoes(lista) {
  * com numeração sequencial (RET 0001/2026...) feita em transação — nunca repete número.
  * lista = registros já validados (sem número). Retorna os registros com id, seq e numero.
  */
-export async function lancarRetencoes(ano, lista) {
+export async function lancarRetencoes(ano, lista, meta = {}) {
   if (!sessao || !['admin', 'operador'].includes(sessao.perfil)) throw Error('Acesso restrito à Contabilidade e ADM.');
   const ref = doc(fs, 'retencoes_anos', String(ano));
   const logRef = doc(collection(fs, 'logs'));
@@ -435,7 +435,7 @@ export async function lancarRetencoes(ano, lista) {
     tx.set(ref, { ano: Number(ano), ultimo: seq, lancamentos: novos, atualizado_em: serverTimestamp(), atualizado_por: autor() }, { merge: true });
     tx.set(logRef, {
       acao: 'retencoes.lancar',
-      detalhe: { ano: Number(ano), quantidade: saida.length, numeros: saida.map(r => r.numero) },
+      detalhe: { ano: Number(ano), origem: String(meta.origem || 'manual'), quantidade: saida.length, total_centavos: saida.reduce((s, r) => s + Number(r.centavos || 0), 0), numeros: saida.map(r => r.numero) },
       uid: sessao.uid, nome: sessao.nome || sessao.email, em: serverTimestamp()
     });
     return saida;
