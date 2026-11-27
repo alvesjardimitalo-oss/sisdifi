@@ -551,9 +551,6 @@ export async function protegerDadosSolicitacoes(progresso) {
         ignorados++;
         continue;
       }
-      delete servidor.cpf;
-      delete servidor.chave_pix;
-      delete servidor.cpf_anterior;
       if (cpf || cpfAnterior || chavePix) {
         b.set(doc(fs, 'solicitacoes_privado', item.id), {
           solicitacao_id: item.id, servidor_id: servidorId, secretaria_id: dados.secretaria_id,
@@ -562,9 +559,13 @@ export async function protegerDadosSolicitacoes(progresso) {
           ...(chavePix ? { chave_pix: chavePix } : {})
         }, { merge: true });
       }
-      b.update(doc(fs, 'solicitacoes', item.id), {
-        servidor, privacidade_migrada: true, atualizado_em: serverTimestamp(), atualizado_por: autor()
-      });
+      const patch = {
+        privacidade_migrada: true, atualizado_em: serverTimestamp(), atualizado_por: autor()
+      };
+      if ('cpf' in servidor) patch['servidor.cpf'] = deleteField();
+      if ('cpf_anterior' in servidor) patch['servidor.cpf_anterior'] = deleteField();
+      if ('chave_pix' in servidor) patch['servidor.chave_pix'] = deleteField();
+      b.update(doc(fs, 'solicitacoes', item.id), patch);
       migrados++;
     }
     if (migrados > migradosAntes) await b.commit();
