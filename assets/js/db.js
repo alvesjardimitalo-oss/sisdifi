@@ -269,7 +269,7 @@ async function gravarServidor(id, dados, carimbo) {
 }
 
 const COLECOES_COM_AUDITORIA_ATOMICA = new Set([
-  'retencoes_config', 'valores'
+  'retencoes_config', 'valores', 'duodecimo_anos'
 ]);
 function incluirLogNaGravacao(batch, acao, detalhe) {
   if (!sessao) throw Error('Sessão encerrada. Entre novamente para registrar a operação auditável.');
@@ -278,7 +278,7 @@ function incluirLogNaGravacao(batch, acao, detalhe) {
   });
 }
 
-export async function salvar(colecao, id, dados) {
+export async function salvar(colecao, id, dados, auditoria = null) {
   const carimbo = { atualizado_em: serverTimestamp(), atualizado_por: autor() };
   if (colecao === 'servidores') {
     const novoId = id || doc(collection(fs, 'servidores')).id;
@@ -295,7 +295,7 @@ export async function salvar(colecao, id, dados) {
     };
     if (id) batch.set(ref, payload, { merge: true });
     else batch.set(ref, payload);
-    incluirLogNaGravacao(batch, colecao + '.salvar', {
+    incluirLogNaGravacao(batch, auditoria?.acao || colecao + '.salvar', auditoria?.detalhe || {
       documento: ref.id, operacao: id ? 'mesclar' : 'criar',
       campos: Object.keys(dados).slice(0, 20)
     });
