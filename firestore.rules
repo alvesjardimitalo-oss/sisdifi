@@ -170,8 +170,8 @@ service cloud.firestore {
     }
 
     match /solicitacoes/{id} {
-      // Contabilidade/admin/consulta: tudo. Secretaria: só as da própria pasta visíveis para ela (sem lançamento interno
-      // e sem o histórico do sistema antigo). Controle Interno e RH: tudo, menos os lançamentos internos da Contabilidade.
+      // Admin/Contabilidade: tudo. Consulta: somente documentos marcados como saneados de PII.
+      // Secretaria: solicitações visíveis da própria pasta. Controle Interno e RH: somente não internas.
       allow read: if ativo() && (
         perfil() in ['admin', 'operador']
         || (perfil() == 'consulta' && resource.data.privacidade_migrada == true)
