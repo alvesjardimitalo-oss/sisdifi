@@ -115,7 +115,12 @@ export function linhaDeLancamento(empenho = {}, ops = [], opcoes = {}) {
 export function linhasDeLancamento(previsao = {}, opcoes = {}) {
   const porEmpenho = {};
   for (const x of previsao.extras || []) (porEmpenho[x.empenhoReferencia] ??= []).push(x);
-  const linhas = (previsao.empenhos || []).map(e => linhaDeLancamento(e, porEmpenho[e.empenho] || [], opcoes));
+  // OP pelo número do empenho e, se a numeração mudou, pela lotação (id da OP = id do empenho + '|…').
+  const opsDe = e => {
+    const pelaLotacao = (previsao.extras || []).filter(x => String(x.id || '').startsWith(e.id + '|'));
+    return pelaLotacao.length ? pelaLotacao : porEmpenho[e.empenho] || [];
+  };
+  const linhas = (previsao.empenhos || []).map(e => linhaDeLancamento(e, opsDe(e), opcoes));
   const soma = k => linhas.reduce((n, l) => n + (l[k] || 0), 0);
   const composicao = {};
   for (const c of CATEGORIAS_DESCONTOS) composicao[c] = linhas.reduce((n, l) => n + l.composicao[c], 0);

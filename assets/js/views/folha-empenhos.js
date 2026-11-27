@@ -15,14 +15,14 @@ import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,p
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
 import {varrerServidores,codigosDeDesconto} from '../folha-servidores.js';
-import {coberturaPorConta,quadroDaFolha,previsaoDaFolha} from '../folha-cobertura.js';
+import {coberturaPorConta,quadroDaFolha,previsaoDaFolha} from '../folha-cobertura.js?v=0.11136a99.11136a99.11136a99';
 import {pensoesParaOP,chaveCadastro,RUBRICAS_PENSAO} from '../folha-pensoes.js?v=3.26.0.6d3bdba8';
-import {passosDoEmpenho,conferirEmpenho,fichasOPpendentes,modeloDoEmpenho,textoDoModelo,MODELOS_HISTORICO} from '../folha-transcrever.js';
+import {passosDoEmpenho,conferirEmpenho,fichasOPpendentes,modeloDoEmpenho,textoDoModelo,MODELOS_HISTORICO} from '../folha-transcrever.js?v=0.151635e2.151635e2.151635e2';
 import {ordemDasLotacoes} from '../folha-ordem.js?v=3.23.0.06d2837c';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js?v=3.23.0.418e5047';
-import {abrirAssistente} from './folha-assistente.js';
-import {linhasDeLancamento,COLUNAS_DESCONTO,linhasDaPlanilha,textoParaColar} from '../folha-lancamento.js';
-import {idDaPlanilha,situacaoDaPlanilha,prepararAba,escreverNaPlanilha,PRIMEIRA_LINHA} from '../folha-planilha-google.js';
+import {abrirAssistente} from './folha-assistente.js?v=0.c52abb25.e485a7bc.34c32dd0';
+import {linhasDeLancamento,COLUNAS_DESCONTO,linhasDaPlanilha,textoParaColar} from '../folha-lancamento.js?v=0.06922c72.06922c72.06922c72';
+import {idDaPlanilha,situacaoDaPlanilha,prepararAba,escreverNaPlanilha,PRIMEIRA_LINHA} from '../folha-planilha-google.js?v=0.61d2fad0.61d2fad0.61d2fad0';
 import {ouvir,ouvirDoc,salvar,substituir,excluir,campoApagado,tokenGooglePlanilhas} from '../db.js';
 import {carregarMes,salvarMes} from '../consignacoes-mensal.js?v=3.13.0.357fc820';
 import {saldosDasContas,consignadosPorFonte,etapasDaFolha,avisosDaConta,contaParaFonte,rotuloConta,novaContaId,

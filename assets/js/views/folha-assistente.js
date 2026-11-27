@@ -13,7 +13,7 @@
 // empenho e "Marcar como lançado e ir para o próximo".
 import { esc, toast } from '../ui.js';
 import { dinheiroFolha } from '../folha-empenhos.js';
-import { passosDoEmpenho, conferirEmpenho, MODELOS_HISTORICO } from '../folha-transcrever.js';
+import { passosDoEmpenho, conferirEmpenho, MODELOS_HISTORICO } from '../folha-transcrever.js?v=0.151635e2.151635e2.151635e2';
 
 const ESTILO = `
 .fa-fundo{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1000;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:24px 12px}
@@ -73,7 +73,9 @@ export function abrirAssistente({ empenhos: _e = [], extras: _x = [], estado = {
   // Sem empenho escolhido, abre na lista. Nunca começa sozinho no primeiro.
   let i = inicio, modo = inicio == null ? 'lista' : 'empenho', filtro = 'pendentes';
   let copiados = new Set(), atual = 0;
-  const opsDe = e => extras.filter(x => x.empenhoReferencia === e.empenho);
+  /* OP do empenho: pelo número e também pela lotação (o id da OP começa pelo
+     id do empenho), para a ligação não se perder se a numeração mudar. */
+  const opsDe = e => extras.filter(x => x.empenhoReferencia === e.empenho || String(x.id || '').startsWith(e.id + '|'));
 
   if (!document.getElementById('fa-estilo')) {
     const s = document.createElement('style'); s.id = 'fa-estilo'; s.textContent = ESTILO; document.head.appendChild(s);
@@ -160,7 +162,8 @@ export function abrirAssistente({ empenhos: _e = [], extras: _x = [], estado = {
     const passos = passosDoEmpenho(e, ops, st);
     const conf = conferirEmpenho(e, ops);
     // Só os campos com valor ou que pedem informação entram na fila de copiar.
-    const fila = passos.map((p, k) => ({ ...p, k })).filter(p => p.valor || p.chaveOP != null || p.informar);
+    // Campo faltando (a fonte sem escolher) também aparece, como "a informar".
+    const fila = passos.map((p, k) => ({ ...p, k })).filter(p => p.valor || p.chaveOP != null || p.informar || p.faltando);
     const copiaveis = fila.filter(p => p.valor && p.chaveOP == null).map(p => p.k);
     atual = copiaveis.find(k => k >= proximo && !copiados.has(k)) ?? copiaveis.find(k => !copiados.has(k)) ?? -1;
     const total = empenhos.length, nLancados = lancados();
