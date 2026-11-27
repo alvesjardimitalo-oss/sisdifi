@@ -308,7 +308,11 @@ export async function criarSolicitacoes(lista) {
     const servidorOriginal = dados.servidor || {};
     const servidorPublico = { ...servidorOriginal };
     const cpf = String(servidorPublico.cpf || '').replace(/\\D/g, '');
+    const cpfAnterior = String(servidorPublico.cpf_anterior || '').replace(/\\D/g, '');
     const chavePix = String(servidorPublico.chave_pix || '');
+    if (cpf && cpf.length !== 11) throw Error('O CPF do servidor está incompleto ou inválido. Confira o cadastro antes de criar a solicitação.');
+    if (cpfAnterior && cpfAnterior.length !== 11) throw Error('O CPF anterior está inválido. Confira o cadastro antes de criar a solicitação.');
+    if (chavePix.length > 140) throw Error('A chave Pix excede o limite seguro de 140 caracteres. Confira o cadastro.');
     delete servidorPublico.cpf;
     delete servidorPublico.chave_pix;
     delete servidorPublico.cpf_anterior;
@@ -322,13 +326,14 @@ export async function criarSolicitacoes(lista) {
         ...dadosPublicos, numero, ano, sequencia: seq,
         criado_em: serverTimestamp(), criado_por: autor(), atualizado_em: serverTimestamp(), atualizado_por: autor()
       });
-      if (cpf || chavePix) {
+      if (cpf || cpfAnterior || chavePix) {
         tx.set(doc(fs, 'solicitacoes_privado', novaRef.id), {
           solicitacao_id: novaRef.id,
           servidor_id: String(dados.servidor_id || ''),
           secretaria_id: dados.secretaria_id || null,
-          ...(cpf.length === 11 ? { cpf } : {}),
-          ...(chavePix ? { chave_pix: chavePix.slice(0, 140) } : {})
+          ...(cpf ? { cpf } : {}),
+          ...(cpfAnterior ? { cpf_anterior: cpfAnterior } : {}),
+          ...(chavePix ? { chave_pix: chavePix } : {})
         });
       }
       return numero;
@@ -444,20 +449,24 @@ export async function protegerDadosSolicitacoes(progresso) {
     for (const item of lote) {
       const dados = item.data(), servidor = { ...(dados.servidor || {}) };
       const cpf = String(servidor.cpf || '').replace(/\\D/g, '');
+      const cpfAnterior = String(servidor.cpf_anterior || '').replace(/\\D/g, '');
       const chavePix = String(servidor.chave_pix || '');
-      delete servidor.cpf;
-      delete servidor.chave_pix;
-      delete servidor.cpf_anterior;
       const servidorId = String(dados.servidor_id || '');
-      if ((cpf.length || chavePix) && (!servidorId || !dados.secretaria_id)) {
+      if ((cpf && cpf.length !== 11) || (cpfAnterior && cpfAnterior.length !== 11)
+          || chavePix.length > 140
+          || ((cpf || cpfAnterior || chavePix) && (!servidorId || !dados.secretaria_id))) {
         ignorados++;
         continue;
       }
-      if (cpf.length === 11 || chavePix) {
+      delete servidor.cpf;
+      delete servidor.chave_pix;
+      delete servidor.cpf_anterior;
+      if (cpf || cpfAnterior || chavePix) {
         b.set(doc(fs, 'solicitacoes_privado', item.id), {
           solicitacao_id: item.id, servidor_id: servidorId, secretaria_id: dados.secretaria_id,
-          ...(cpf.length === 11 ? { cpf } : {}),
-          ...(chavePix ? { chave_pix: chavePix.slice(0, 140) } : {})
+          ...(cpf ? { cpf } : {}),
+          ...(cpfAnterior ? { cpf_anterior: cpfAnterior } : {}),
+          ...(chavePix ? { chave_pix: chavePix } : {})
         }, { merge: true });
       }
       b.update(doc(fs, 'solicitacoes', item.id), {
