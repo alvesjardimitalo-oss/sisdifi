@@ -192,13 +192,26 @@ export function coberturaPorConta(empenhos = [], contas = [], fichaInfo = () => 
   for (const e of empenhos || []) if (!porId.has(e.id)) porId.set(e.id, decidir(e, ''));
   const propostas = (empenhos || []).map(e => porId.get(e.id));
 
-  // Nomes da lista que não aparecem na folha, ou que aparecem em mais de um servidor.
+  /* Nomes da lista que não aparecem, ou que aparecem em mais de um servidor —
+     procurados só nas lotações que a conta pode pagar (ficha que admite a
+     fonte dela): uma Juliana de outra secretaria não confunde a conta da
+     Assistência Social. */
   const conferencia = [];
   if (temQuadro) {
-    const todos = Object.entries(quadro).flatMap(([lot, ss]) => ss.map(([nome]) => ({ nome, lot })));
-    for (const c of lista) for (const n of c.regra?.nomes || []) {
-      const achados = todos.filter(s => mesmoServidor(n.palavras, s.nome));
-      if (achados.length !== 1) conferencia.push({ conta: c.nome || c.fonte, nome: n.texto, achados: achados.map(s => s.nome) });
+    const fichaDaLotacao = new Map((empenhos || []).map(e => [e.lotacao, String(e.ficha || '')]));
+    const daConta = c => Object.entries(quadro).filter(([lot]) => {
+      const ficha = fichaDaLotacao.get(lot);
+      if (!ficha) return false;
+      const admitidas = ((fichaInfo(ficha) || {}).fontes || []).map(codigoFonte);
+      return c.fontes.some(f => admitidas.includes(f));
+    }).flatMap(([lot, ss]) => ss.map(([nome]) => ({ nome, lot })));
+    for (const c of lista) {
+      if (!c.regra?.nomes.length) continue;
+      const pessoas = daConta(c);
+      for (const n of c.regra.nomes) {
+        const achados = pessoas.filter(s => mesmoServidor(n.palavras, s.nome));
+        if (achados.length !== 1) conferencia.push({ conta: c.nome || c.fonte, nome: n.texto, achados: achados.map(s => s.nome) });
+      }
     }
   }
   for (const s of sugestoes) s.cabe = (lista.find(c => c.id === s.conta)?.restante ?? 0) >= s.valor;

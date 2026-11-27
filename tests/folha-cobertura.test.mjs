@@ -116,11 +116,21 @@ t('FUNDEB sem saldo vai para a ficha espelho em recurso próprio', () => {
 });
 
 t('nome da lista que não está na folha, ou que é de mais de um servidor, vai para conferência', () => {
-  const contas = [{ id: 'x', nome: 'Farmácia', fonte: '1621', saldo: 100, podePagar: 'Zélia, Ana' }];
-  const r = coberturaPorConta([], contas, info, QUADRO);
+  const contas = [{ id: 'x', nome: 'CRAS', fonte: '1660', saldo: 100, podePagar: 'Zélia, Ana' }];
+  const es = [emp(1, '347', '1500', 1, 'CRAS'), emp(2, '347', '1500', 1, 'CRAS2'), emp(3, '352', '1500', 1, 'IGD')];
+  const r = coberturaPorConta(es, contas, info, QUADRO);
   assert.deepEqual(r.conferencia.map(c => [c.nome, c.achados.length]), [['Zélia', 0], ['Ana', 2]]);
 });
 
+t('o nome é procurado só nas lotações que a conta pode pagar', () => {
+  // Há uma Juliana na Administração (ficha 65, só 1500) e outra no CRAS (1660):
+  // para a conta da Assistência Social, o nome é único.
+  const quadro = { CRAS: [['JULIANA ROCHA', 100]], ADM: [['JULIANA PEREIRA', 100]] };
+  const contas = [{ id: 'p', nome: 'PROCAD', fonte: '1660', saldo: 100, podePagar: 'Juliana' }];
+  const r = coberturaPorConta([emp(1, '347', '1500', 100, 'CRAS'), emp(2, '65', '1500', 100, 'ADM')], contas, info, quadro);
+  assert.deepEqual(r.conferencia, []);
+  assert.equal(r.propostas[0].fonte, '1660');
+});
 t('conta com mais de uma fonte', () => {
   assert.deepEqual(fontesDaConta('1600, 1604'), ['1600', '1604']);
   assert.deepEqual(fontesDaConta('1.600.000.0000'), ['1600']);

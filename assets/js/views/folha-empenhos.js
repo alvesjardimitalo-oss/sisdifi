@@ -893,6 +893,11 @@ export function telaFolhaEmpenhos(el){
     const p=pacote.previsao;
     const r=linhasDeLancamento(p,{competencia,numerosOP,escolhasHistorico,textosHistorico});
     const rateio=coberturaPorConta(p.empenhos,contasComSaldo(),fichaInfo,fontesRH.nominal?.quadro||null);
+    /* Folha nominal enviada antes da cobertura: ela só guardou as pensões, e
+       quem está em cada lotação precisa de um novo envio (só uma vez). */
+    if(fontesRH.nominal&&!fontesRH.nominal.quadro)
+      rateio.avisos=rateio.avisos.map(a=>/Folha de pagamento \(nominal\)/.test(a)
+        ?'A folha nominal deste mês foi enviada antes da cobertura das contas e o SISDIFI não guardou quem está em cada lotação. Envie a Folha de pagamento (nominal) de novo na etapa 1 — só desta vez.':a);
     const proposta=Object.fromEntries(rateio.propostas.map(x=>[x.id,x]));
     const usadas=COLUNAS_DESCONTO.filter(c=>r.linhas.some(l=>l.composicao[c.chave]));
     const temOP=r.linhas.some(l=>l.ops.length);
