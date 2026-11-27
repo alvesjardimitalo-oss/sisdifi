@@ -152,6 +152,9 @@ try {
   await assertFails(setDoc(doc(db('operador'), 'cpfs', '123'), {
     servidor_id: 'servidor-a'
   }));
+  await assertFails(setDoc(doc(db('operador'), 'cpfs', '22222222222'), {
+    servidor_id: 'servidor-inexistente'
+  }));
 
   // Logs aceitam apenas o próprio UID, estrutura conhecida e timestamp do servidor.
   await assertSucceeds(setDoc(doc(db('operador'), 'logs', 'log-valido'), {
