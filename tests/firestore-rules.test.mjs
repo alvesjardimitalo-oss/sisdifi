@@ -48,6 +48,7 @@ try {
       nome: 'Motorista saneado', secretaria_id: 'sec-b', motorista: true, privacidade_migrada: true
     });
     await setDoc(doc(db, 'cpfs', '12345678901'), { servidor_id: 'servidor-a' });
+    await setDoc(doc(db, 'cpfs', '10987654321'), { servidor_id: 'servidor-b' });
     await setDoc(doc(db, 'solicitacoes', 'antiga-com-dados'), {
       servidor_id: 'servidor-a', secretaria_id: 'sec-a', interna: false, visivel_secretaria: true, numero: '0001/2026',
       servidor: { nome: 'Servidor A', cpf: '12345678901', chave_pix: '12345678901' }
