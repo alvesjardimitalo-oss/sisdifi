@@ -981,6 +981,16 @@ export function telaFolhaEmpenhos(el){
         '<label class="campo"><span>Link da planilha (fica guardado neste navegador)</span><input id="fe-lanc-link" style="width:100%" placeholder="https://docs.google.com/spreadsheets/d/…" value="'+esc(linkPlanilha())+'"></label>'+
         '<p class="fe-muted">O SISDIFI escreve na aba do mês da competência (ex.: NOVEMBRO), a partir da linha '+PRIMEIRA_LINHA+', na ordem do lançamento: empenho, secretaria, e num grupo que abre e fecha no "+" a ficha, a fonte, o bruto e o histórico (aberto: feche depois de digitar o empenho e siga para a liquidação); depois o desconto, os itens do desconto (INSS, Caixa, Sicoob, Bradesco, Pensão, IR, Outros) num grupo fechado no "+", as OPs, o líquido, o resumo do RH e a conferência. A conta bancária fica só no SISDIFI. Na primeira vez em cada mês o SISDIFI arruma a aba sozinho. A aba precisa existir. Para colar com Ctrl+V, a aba já precisa estar nesse modelo. Não apaga nada abaixo das linhas lançadas. O Google pede para escolher a conta que edita a planilha.</p>'+
       '</details>'+
+      /* O número que a Contabilidade precisa para planejar: quanto de recurso
+         próprio a folha vai pedir, já com a cobertura das contas aplicada. */
+      (()=>{const v=f=>(prev.porFonte.find(x=>x.fonte===f)||{valor:0}).valor;
+        return '<div class="fe-card" style="margin:10px 0;padding:12px 14px;border-left:6px solid #f59e0b">'+
+          '<div style="font-size:.85rem;color:#92400e;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Recurso próprio necessário</div>'+
+          '<div style="font-size:1.8rem;font-weight:800;color:#b45309;line-height:1.2">'+dinheiroFolha(prev.propria)+'</div>'+
+          '<div class="fe-muted" style="margin-top:4px">1500 livre: <strong>'+dinheiroFolha(v('1500'))+'</strong> · 1001 Educação: <strong>'+dinheiroFolha(v('1001'))+'</strong> · 1002 Saúde: <strong>'+dinheiroFolha(v('1002'))+'</strong>'+
+          ' · das contas estaduais e federais: '+dinheiroFolha(prev.contas)+' ('+prev.pctContas.toLocaleString('pt-BR')+'%)'+
+          (prev.semFonte?' · <span class="ruim">'+dinheiroFolha(prev.semFonte)+' ainda sem fonte — escolha a fonte desses empenhos para fechar a conta</span>':'')+'</div>'+
+          '<small class="fe-muted">Bruto dos empenhos, com as fontes propostas pelo saldo das contas (etapa 3). Salário-família e maternidade são OP extraorçamentária e não entram.</small></div>';})()+
       '<p class="'+(r.naoBateram?'fe-danger':'fe-ok')+'" style="margin:10px 0"><strong>'+r.bateram+' de '+r.linhas.length+' empenhos bateram</strong> com o Resumo de Verbas'+
         (r.naoBateram?' · '+r.naoBateram+' não bateram (em vermelho)':'')+(r.incompletas?' · '+r.incompletas+' com ficha, fonte ou histórico faltando':'')+'.</p>'+
       '<p class="fe-muted">Conta de cada linha: bruto − desconto + OP − desconto da OP = total líquido do Resumo de Verbas. Clique num valor para copiar.</p>'+

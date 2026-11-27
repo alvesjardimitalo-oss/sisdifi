@@ -278,7 +278,7 @@ export const NOMES_FONTE={
  '1542':'Transferências do FUNDEB — complementação da União',
  '1550':'Transferência do Salário-Educação',
  '1600':'Transferência Fundo a Fundo SUS — Governo Federal',
- '1604':'Agentes Comunitários de Saúde — Governo Federal',
+ '1604':'Piso dos agentes comunitários e de combate às endemias — Governo Federal',
  '1605':'Assistência financeira da União — complementação do piso',
  '1621':'Transferência Fundo a Fundo SUS — Governo Estadual',
  '1660':'Fundo Nacional de Assistência Social'
