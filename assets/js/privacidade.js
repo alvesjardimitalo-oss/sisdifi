@@ -48,3 +48,12 @@ export const temPix = sv => !!(sv && (sv.chave_pix || sv.tem_pix));
 export const cpfOk = sv => sv ? (sv.cpf ? cpfValido(sv.cpf) : sv.cpf_valido !== false) : false;
 export const cpfExibir = sv => sv ? (sv.cpf ? formatarCpf(sv.cpf) : (sv.cpf_mascara || '')) : '';
 export const pixExibir = sv => sv ? (sv.chave_pix || (sv.tem_pix ? 'cadastrada' : '')) : '';
+
+// Conferência não confunde ausência de acesso com CPF inválido.
+export function cpfSituacao(sv) {
+  const cpf = String(sv?.cpf ?? '').trim();
+  if (cpf && !/[*xX•]/.test(cpf)) return cpfValido(cpf) ? 'valido' : 'invalido';
+  if (sv?.cpf_valido === true) return 'valido';
+  if (cpf || sv?.cpf_mascara) return 'nao_verificado';
+  return 'ausente';
+}
