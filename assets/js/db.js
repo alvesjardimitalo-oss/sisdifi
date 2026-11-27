@@ -267,12 +267,37 @@ async function gravarServidor(id, dados, carimbo) {
   await b.commit();
 }
 
+const COLECOES_COM_AUDITORIA_ATOMICA = new Set([
+  'duodecimo_anos', 'retencoes_anos', 'retencoes_config', 'fichas', 'valores'
+]);
+function incluirLogNaGravacao(batch, acao, detalhe) {
+  if (!sessao) throw Error('Sessão encerrada. Entre novamente para registrar a operação auditável.');
+  batch.set(doc(collection(fs, 'logs')), {
+    acao, detalhe, uid: sessao.uid, nome: sessao.nome || sessao.email, em: serverTimestamp()
+  });
+}
+
 export async function salvar(colecao, id, dados) {
   const carimbo = { atualizado_em: serverTimestamp(), atualizado_por: autor() };
   if (colecao === 'servidores') {
     const novoId = id || doc(collection(fs, 'servidores')).id;
     await gravarServidor(novoId, id ? dados : { ...dados, privacidade_migrada: true }, id ? carimbo : { criado_em: serverTimestamp(), criado_por: autor(), ...carimbo });
     return novoId;
+  }
+  if (COLECOES_COM_AUDITORIA_ATOMICA.has(colecao)) {
+    const ref = id ? doc(fs, colecao, id) : doc(collection(fs, colecao));
+    const batch = writeBatch(fs);
+    batch.set(ref, {
+      ...dados,
+      ...(!id ? { criado_em: serverTimestamp(), criado_por: autor() } : {}),
+      ...carimbo
+    }, id ? { merge: true } : {});
+    incluirLogNaGravacao(batch, colecao + '.salvar', {
+      documento: ref.id, operacao: id ? 'mesclar' : 'criar',
+      campos: Object.keys(dados).slice(0, 20)
+    });
+    await batch.commit();
+    return ref.id;
   }
   if (id) {
     await setDoc(doc(fs, colecao, id), { ...dados, ...carimbo }, { merge: true });
@@ -283,12 +308,37 @@ export async function salvar(colecao, id, dados) {
 }
 export async function atualizar(colecao, id, dados) {
   if (colecao === 'servidores') return gravarServidor(id, dados, { atualizado_em: serverTimestamp(), atualizado_por: autor() });
-  await updateDoc(doc(fs, colecao, id), { ...dados, atualizado_em: serverTimestamp(), atualizado_por: autor() });
+  const carimbo = { atualizado_em: serverTimestamp(), atualizado_por: autor() };
+  if (COLECOES_COM_AUDITORIA_ATOMICA.has(colecao)) {
+    const batch = writeBatch(fs);
+    batch.update(doc(fs, colecao, id), { ...dados, ...carimbo });
+    incluirLogNaGravacao(batch, colecao + '.atualizar', { documento: id, campos: Object.keys(dados).slice(0, 20) });
+    await batch.commit();
+    return;
+  }
+  await updateDoc(doc(fs, colecao, id), { ...dados, ...carimbo });
 }
-export const excluir = (colecao, id) => deleteDoc(doc(fs, colecao, id));
+export async function excluir(colecao, id) {
+  if (COLECOES_COM_AUDITORIA_ATOMICA.has(colecao)) {
+    const batch = writeBatch(fs);
+    batch.delete(doc(fs, colecao, id));
+    incluirLogNaGravacao(batch, colecao + '.excluir', { documento: id });
+    await batch.commit();
+    return;
+  }
+  await deleteDoc(doc(fs, colecao, id));
+}
 /** Substitui o documento inteiro (sem mesclar com o que havia), com carimbo de autoria. */
 export async function substituir(colecao, id, dados) {
-  await setDoc(doc(fs, colecao, id), { ...dados, atualizado_em: serverTimestamp(), atualizado_por: autor() });
+  const carimbo = { atualizado_em: serverTimestamp(), atualizado_por: autor() };
+  if (COLECOES_COM_AUDITORIA_ATOMICA.has(colecao)) {
+    const batch = writeBatch(fs);
+    batch.set(doc(fs, colecao, id), { ...dados, ...carimbo });
+    incluirLogNaGravacao(batch, colecao + '.substituir', { documento: id, campos: Object.keys(dados).slice(0, 20) });
+    await batch.commit();
+    return;
+  }
+  await setDoc(doc(fs, colecao, id), { ...dados, ...carimbo });
 }
 /** Marca um campo para ser apagado numa gravação com salvar() (mesclagem). */
 export const campoApagado = () => deleteField();
