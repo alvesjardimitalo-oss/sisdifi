@@ -322,6 +322,14 @@ export async function atualizar(colecao, id, dados) {
   await updateDoc(doc(fs, colecao, id), { ...dados, ...carimbo });
 }
 export async function excluir(colecao, id) {
+  if (colecao === 'solicitacoes') {
+    const batch = writeBatch(fs);
+    batch.delete(doc(fs, 'solicitacoes', id));
+    batch.delete(doc(fs, 'solicitacoes_privado', id));
+    await batch.commit();
+    cachePrivadoSolicitacao.delete(id);
+    return;
+  }
   if (COLECOES_COM_AUDITORIA_ATOMICA.has(colecao)) {
     const batch = writeBatch(fs);
     batch.delete(doc(fs, colecao, id));
