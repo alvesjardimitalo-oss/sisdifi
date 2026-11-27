@@ -41,14 +41,14 @@ try {
 
   // CPF e Pix integrais não ficam acessíveis ao perfil de consulta.
   await assertFails(getDoc(doc(db('consulta'), 'servidores_privado', 'servidor-a')));
-  await assertFails(getDoc(doc('consulta'), 'cpfs', '12345678901'));
+  await assertFails(getDoc(doc(db('consulta'), 'cpfs', '12345678901'));
 
   // Contabilidade/RH mantêm acesso funcional; Secretaria só acessa a própria pasta.
   await assertSucceeds(getDoc(doc(db('operador'), 'servidores_privado', 'servidor-a')));
   await assertSucceeds(getDoc(doc(db('rh'), 'servidores_privado', 'servidor-a')));
   await assertSucceeds(getDoc(doc(db('secretaria-a'), 'servidores_privado', 'servidor-a')));
   await assertFails(getDoc(doc(db('secretaria-a'), 'servidores_privado', 'servidor-b')));
-  await assertSucceeds(getDoc(doc(db('secretaria-a'), 'cpfs', '12345678901')));
+  await assertSucceeds(getDoc(doc(db('secretaria-a'), 'cpfs', '12345678901')));\n  await assertFails(getDoc(doc(db('secretaria-a'), 'cpfs', '10987654321')));
   await assertFails(getDocs(collection(db('operador'), 'cpfs')));
 
   // O índice de CPF só aceita o vínculo mínimo com um servidor da própria secretaria.
