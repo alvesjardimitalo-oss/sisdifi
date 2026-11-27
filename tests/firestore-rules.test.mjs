@@ -34,6 +34,13 @@ try {
     await setDoc(doc(db, 'servidores_privado', 'servidor-b'), {
       secretaria_id: 'sec-b', cpf: '10987654321', chave_pix: '10987654321'
     });
+    await setDoc(doc(db, 'servidores', 'servidor-legado'), {
+      nome: 'Servidor legado', secretaria_id: 'sec-a', cpf: '12345678901'
+    });
+    await setDoc(doc(db, 'servidores', 'servidor-saneado'), {
+      nome: 'Servidor saneado', secretaria_id: 'sec-a', cpf_mascara: '***.***.***-01',
+      privacidade_migrada: true
+    });
     await setDoc(doc(db, 'cpfs', '12345678901'), { servidor_id: 'servidor-a' });
     await setDoc(doc(db, 'solicitacoes', 'antiga-com-dados'), {
       servidor_id: 'servidor-a', secretaria_id: 'sec-a', interna: false, visivel_secretaria: true, numero: '0001/2026',
@@ -81,6 +88,19 @@ try {
   await assertSucceeds(setDoc(doc(db('secretaria-a'), 'solicitacoes_privado', 'saneada-secretaria'), {
     solicitacao_id: 'saneada-secretaria', servidor_id: 'servidor-a', secretaria_id: 'sec-a',
     chave_pix: '12345678901'
+  }));
+
+  // Cadastro público legado também fica oculto ao perfil consulta até a migração.
+  await assertFails(getDoc(doc(db('consulta'), 'servidores', 'servidor-legado')));
+  await assertSucceeds(getDoc(doc(db('consulta'), 'servidores', 'servidor-saneado')));
+  await assertFails(getDocs(collection(db('consulta'), 'servidores')));
+  await assertSucceeds(getDocs(query(
+    collection(db('consulta'), 'servidores'),
+    where('privacidade_migrada', '==', true)
+  )));
+  await assertSucceeds(getDoc(doc(db('operador'), 'servidores', 'servidor-legado')));
+  await assertFails(updateDoc(doc(db('operador'), 'servidores', 'servidor-legado'), {
+    privacidade_migrada: true
   }));
 
   // CPF e Pix integrais não ficam acessíveis ao perfil de consulta.
