@@ -21,8 +21,8 @@ import { telaImprimir } from './views/imprimir.js';
 import { telaConferencia } from './views/conferencia.js';
 import { telaRelatorio } from './views/relatorio.js';
 import { telaConsignacoes } from './views/consignacoes.js?v=3.13.2.b70908ba';
-import { telaDuodecimo } from './views/duodecimo.js?v=3.14.1.8bb0c6f0';
-import { telaRetencoes } from './views/retencoes.js?v=3.22.0.1b476131';
+import { telaDuodecimo } from './views/duodecimo.js?v=3.14.1.2abfd0c6';
+import { telaRetencoes } from './views/retencoes.js?v=3.22.0.294bc0ac';
 import { telaCopasa } from './views/copasa.js?v=3.22.0.b19a4d74';
 // Carregamento sob demanda: problemas no módulo de folha não impedem o SISDIFI de abrir.
 function telaFolhaEmpenhos(elemento, contexto) {
