@@ -153,21 +153,59 @@ export async function criarUsuario({ nome, email, senha, perfil, secretaria_id =
 }
 
 // ---------------- Leitura em tempo real ----------------
+const cachePrivadoSolicitacao = new Map();
+async function hidratarSolicitacao(dados) {
+  if (!dados || !dados.id || !sessao || !['admin', 'operador', 'rh', 'secretaria'].includes(sessao.perfil)) return dados;
+  try {
+    let pendente = cachePrivadoSolicitacao.get(dados.id);
+    if (!pendente) {
+      pendente = getDoc(doc(fs, 'solicitacoes_privado', dados.id))
+        .then(s => s.exists() ? s.data() : null)
+        .catch(() => null);
+      cachePrivadoSolicitacao.set(dados.id, pendente);
+    }
+    const privado = await pendente;
+    if (!privado) return dados;
+    return {
+      ...dados,
+      servidor: {
+        ...(dados.servidor || {}),
+        ...(privado.cpf ? { cpf: privado.cpf } : {}),
+        ...(privado.cpf_anterior ? { cpf_anterior: privado.cpf_anterior } : {}),
+        ...(privado.chave_pix ? { chave_pix: privado.chave_pix } : {})
+      }
+    };
+  } catch { return dados; }
+}
+async function hidratarLista(colecao, itens) {
+  if (colecao !== 'solicitacoes') return itens;
+  return Promise.all(itens.map(hidratarSolicitacao));
+}
 /** filtro opcional: [campo, valor] → só documentos com campo == valor (ex.: solicitações da própria secretaria). */
 export function ouvir(colecao, cb, onErro, filtro = null) {
-  // filtro: [campo, valor] ou lista de [campo, valor] (todas as condições)
-  const filtros = !filtro ? [] : Array.isArray(filtro[0]) ? filtro : [filtro];
+  const filtros = !filtro ? [] : Array.isArray(filtro[0]) ? [...filtro] : [filtro];
+  // Regras do Firestore não filtram documentos. A consulta precisa declarar o marcador
+  // de migração para que o perfil consulta nunca tente ler snapshots históricos com PII.
+  if (['solicitacoes', 'servidores'].includes(colecao) && sessao?.perfil === 'consulta') filtros.push(['privacidade_migrada', true]);
+  if (colecao === 'servidores' && sessao?.perfil === 'secretaria'
+      && filtros.some(([campo, valor]) => campo === 'motorista' && valor === true)) filtros.push(['privacidade_migrada', true]);
   const alvo = filtros.length ? query(collection(fs, colecao), ...filtros.map(([c, v]) => where(c, '==', v))) : collection(fs, colecao);
   return onSnapshot(alvo,
-    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    snap => { hidratarLista(colecao, snap.docs.map(d => ({ id: d.id, ...d.data() }))).then(cb).catch(e => onErro && onErro(e)); },
     e => onErro && onErro(e));
 }
 export function ouvirDoc(colecao, id, cb, onErro) {
-  return onSnapshot(doc(fs, colecao, id), s => cb(s.exists() ? { id: s.id, ...s.data() } : null), e => onErro && onErro(e));
+  return onSnapshot(doc(fs, colecao, id), s => {
+    const item = s.exists() ? { id: s.id, ...s.data() } : null;
+    if (colecao === 'solicitacoes' && item) hidratarSolicitacao(item).then(cb).catch(e => onErro && onErro(e));
+    else cb(item);
+  }, e => onErro && onErro(e));
 }
 export async function lerDoc(colecao, id) {
   const s = await getDoc(doc(fs, colecao, id));
-  return s.exists() ? { id: s.id, ...s.data() } : null;
+  if (!s.exists()) return null;
+  const item = { id: s.id, ...s.data() };
+  return colecao === 'solicitacoes' ? hidratarSolicitacao(item) : item;
 }
 export async function ultimosLogs(n = 200) {
   const snap = await getDocs(query(collection(fs, 'logs'), orderBy('em', 'desc'), limitar(n)));
@@ -212,7 +250,9 @@ export async function migrarDuodecimoLegado() {
  */
 function opsServidor(id, dados, carimbo) {
   const { publico, privado } = separarServidor(dados);
-  const ops = [[doc(fs, 'servidores', id), { ...publico, ...carimbo }]];
+  const temDadosPrivados = Object.keys(privado).some(k => k !== 'secretaria_id');
+  const marcador = dados.privacidade_migrada === true || temDadosPrivados ? { privacidade_migrada: true } : {};
+  const ops = [[doc(fs, 'servidores', id), { ...publico, ...marcador, ...carimbo }]];
   if (Object.keys(privado).filter(k => k !== 'secretaria_id').length) {
     ops.push([doc(fs, 'servidores_privado', id), privado]);
     if (privado.cpf) ops.push([doc(fs, 'cpfs', privado.cpf), { servidor_id: id }]);
@@ -228,12 +268,39 @@ async function gravarServidor(id, dados, carimbo) {
   await b.commit();
 }
 
-export async function salvar(colecao, id, dados) {
+const COLECOES_COM_AUDITORIA_ATOMICA = new Set([
+  'retencoes_config', 'valores', 'duodecimo_anos', 'retencoes_anos'
+]);
+function incluirLogNaGravacao(batch, acao, detalhe) {
+  if (!sessao) throw Error('Sessão encerrada. Entre novamente para registrar a operação auditável.');
+  batch.set(doc(collection(fs, 'logs')), {
+    acao, detalhe, uid: sessao.uid, nome: String(sessao.nome || sessao.email || sessao.uid), em: serverTimestamp()
+  });
+}
+
+export async function salvar(colecao, id, dados, auditoria = null) {
   const carimbo = { atualizado_em: serverTimestamp(), atualizado_por: autor() };
   if (colecao === 'servidores') {
     const novoId = id || doc(collection(fs, 'servidores')).id;
-    await gravarServidor(novoId, dados, id ? carimbo : { criado_em: serverTimestamp(), criado_por: autor(), ...carimbo });
+    await gravarServidor(novoId, id ? dados : { ...dados, privacidade_migrada: true }, id ? carimbo : { criado_em: serverTimestamp(), criado_por: autor(), ...carimbo });
     return novoId;
+  }
+  if (COLECOES_COM_AUDITORIA_ATOMICA.has(colecao)) {
+    const ref = id ? doc(fs, colecao, id) : doc(collection(fs, colecao));
+    const batch = writeBatch(fs);
+    const payload = {
+      ...dados,
+      ...(!id ? { criado_em: serverTimestamp(), criado_por: autor() } : {}),
+      ...carimbo
+    };
+    if (id) batch.set(ref, payload, { merge: true });
+    else batch.set(ref, payload);
+    incluirLogNaGravacao(batch, auditoria?.acao || colecao + '.salvar', auditoria?.detalhe || {
+      documento: ref.id, operacao: id ? 'mesclar' : 'criar',
+      campos: Object.keys(dados).slice(0, 20)
+    });
+    await batch.commit();
+    return ref.id;
   }
   if (id) {
     await setDoc(doc(fs, colecao, id), { ...dados, ...carimbo }, { merge: true });
@@ -244,12 +311,45 @@ export async function salvar(colecao, id, dados) {
 }
 export async function atualizar(colecao, id, dados) {
   if (colecao === 'servidores') return gravarServidor(id, dados, { atualizado_em: serverTimestamp(), atualizado_por: autor() });
-  await updateDoc(doc(fs, colecao, id), { ...dados, atualizado_em: serverTimestamp(), atualizado_por: autor() });
+  const carimbo = { atualizado_em: serverTimestamp(), atualizado_por: autor() };
+  if (COLECOES_COM_AUDITORIA_ATOMICA.has(colecao)) {
+    const batch = writeBatch(fs);
+    batch.update(doc(fs, colecao, id), { ...dados, ...carimbo });
+    incluirLogNaGravacao(batch, colecao + '.atualizar', { documento: id, campos: Object.keys(dados).slice(0, 20) });
+    await batch.commit();
+    return;
+  }
+  await updateDoc(doc(fs, colecao, id), { ...dados, ...carimbo });
 }
-export const excluir = (colecao, id) => deleteDoc(doc(fs, colecao, id));
+export async function excluir(colecao, id) {
+  if (colecao === 'solicitacoes') {
+    const batch = writeBatch(fs);
+    batch.delete(doc(fs, 'solicitacoes', id));
+    batch.delete(doc(fs, 'solicitacoes_privado', id));
+    await batch.commit();
+    cachePrivadoSolicitacao.delete(id);
+    return;
+  }
+  if (COLECOES_COM_AUDITORIA_ATOMICA.has(colecao)) {
+    const batch = writeBatch(fs);
+    batch.delete(doc(fs, colecao, id));
+    incluirLogNaGravacao(batch, colecao + '.excluir', { documento: id });
+    await batch.commit();
+    return;
+  }
+  await deleteDoc(doc(fs, colecao, id));
+}
 /** Substitui o documento inteiro (sem mesclar com o que havia), com carimbo de autoria. */
 export async function substituir(colecao, id, dados) {
-  await setDoc(doc(fs, colecao, id), { ...dados, atualizado_em: serverTimestamp(), atualizado_por: autor() });
+  const carimbo = { atualizado_em: serverTimestamp(), atualizado_por: autor() };
+  if (COLECOES_COM_AUDITORIA_ATOMICA.has(colecao)) {
+    const batch = writeBatch(fs);
+    batch.set(doc(fs, colecao, id), { ...dados, ...carimbo });
+    incluirLogNaGravacao(batch, colecao + '.substituir', { documento: id, campos: Object.keys(dados).slice(0, 20) });
+    await batch.commit();
+    return;
+  }
+  await setDoc(doc(fs, colecao, id), { ...dados, ...carimbo });
 }
 /** Marca um campo para ser apagado numa gravação com salvar() (mesclagem). */
 export const campoApagado = () => deleteField();
@@ -273,15 +373,37 @@ export async function criarSolicitacoes(lista) {
     const ano = Number(String(dados.data_solicitacao).slice(0, 4));
     const contadorRef = doc(fs, 'contadores', 'solicitacoes-' + ano);
     const novaRef = doc(collection(fs, 'solicitacoes'));
+    const servidorOriginal = dados.servidor || {};
+    const servidorPublico = { ...servidorOriginal };
+    const cpf = String(servidorPublico.cpf || '').replace(/\D/g, '');
+    const cpfAnterior = String(servidorPublico.cpf_anterior || '').replace(/\D/g, '');
+    const chavePix = String(servidorPublico.chave_pix || '');
+    if (cpf && cpf.length !== 11) throw Error('O CPF do servidor está incompleto ou inválido. Confira o cadastro antes de criar a solicitação.');
+    if (cpfAnterior && cpfAnterior.length !== 11) throw Error('O CPF anterior está inválido. Confira o cadastro antes de criar a solicitação.');
+    if (chavePix.length > 140) throw Error('A chave Pix excede o limite seguro de 140 caracteres. Confira o cadastro.');
+    delete servidorPublico.cpf;
+    delete servidorPublico.chave_pix;
+    delete servidorPublico.cpf_anterior;
+    const dadosPublicos = { ...dados, servidor: servidorPublico };
     const numero = await runTransaction(fs, async tx => {
       const c = await tx.get(contadorRef);
       const seq = (c.exists() ? Number(c.data().ultimo || 0) : 0) + 1;
       const numero = String(seq).padStart(4, '0') + '/' + ano;
       tx.set(contadorRef, { ultimo: seq, ano }, { merge: true });
       tx.set(novaRef, {
-        ...dados, numero, ano, sequencia: seq,
+        ...dadosPublicos, privacidade_migrada: true, numero, ano, sequencia: seq,
         criado_em: serverTimestamp(), criado_por: autor(), atualizado_em: serverTimestamp(), atualizado_por: autor()
       });
+      if (cpf || cpfAnterior || chavePix) {
+        tx.set(doc(fs, 'solicitacoes_privado', novaRef.id), {
+          solicitacao_id: novaRef.id,
+          servidor_id: String(dados.servidor_id || ''),
+          secretaria_id: dados.secretaria_id || null,
+          ...(cpf ? { cpf } : {}),
+          ...(cpfAnterior ? { cpf_anterior: cpfAnterior } : {}),
+          ...(chavePix ? { chave_pix: chavePix } : {})
+        });
+      }
       return numero;
     });
     criadas.push({ id: novaRef.id, numero });
@@ -294,9 +416,10 @@ export async function criarSolicitacoes(lista) {
  * com numeração sequencial (RET 0001/2026...) feita em transação — nunca repete número.
  * lista = registros já validados (sem número). Retorna os registros com id, seq e numero.
  */
-export async function lancarRetencoes(ano, lista) {
+export async function lancarRetencoes(ano, lista, meta = {}) {
   if (!sessao || !['admin', 'operador'].includes(sessao.perfil)) throw Error('Acesso restrito à Contabilidade e ADM.');
   const ref = doc(fs, 'retencoes_anos', String(ano));
+  const logRef = doc(collection(fs, 'logs'));
   return runTransaction(fs, async tx => {
     const atual = await tx.get(ref);
     let seq = atual.exists() ? Number(atual.data().ultimo || 0) : 0;
@@ -310,26 +433,37 @@ export async function lancarRetencoes(ano, lista) {
       saida.push({ id, ...novos[id] });
     }
     tx.set(ref, { ano: Number(ano), ultimo: seq, lancamentos: novos, atualizado_em: serverTimestamp(), atualizado_por: autor() }, { merge: true });
+    tx.set(logRef, {
+      acao: 'retencoes.lancar',
+      detalhe: { ano: Number(ano), origem: String(meta.origem || 'manual'), quantidade: saida.length, total_centavos: saida.reduce((s, r) => s + Number(r.centavos || 0), 0), numeros: saida.map(r => r.numero) },
+      uid: sessao.uid, nome: String(sessao.nome || sessao.email || sessao.uid), em: serverTimestamp()
+    });
     return saida;
   });
 }
-
 /**
  * Renumera as retenções do ano (em transação). calcular(lancamentos) devolve { mudancas: { id: { seq, numero } }, ultimo }.
  */
 export async function renumerarRetencoes(ano, calcular) {
   if (!sessao || !['admin', 'operador'].includes(sessao.perfil)) throw Error('Acesso restrito à Contabilidade e ADM.');
   const ref = doc(fs, 'retencoes_anos', String(ano));
+  const logRef = doc(collection(fs, 'logs'));
   return runTransaction(fs, async tx => {
     const atual = await tx.get(ref);
     if (!atual.exists()) return 0;
     const { mudancas, ultimo } = calcular(atual.data().lancamentos || {});
     const n = Object.keys(mudancas).length;
-    if (n) tx.set(ref, { ultimo, lancamentos: mudancas, atualizado_em: serverTimestamp(), atualizado_por: autor() }, { merge: true });
+    if (n) {
+      tx.set(ref, { ultimo, lancamentos: mudancas, atualizado_em: serverTimestamp(), atualizado_por: autor() }, { merge: true });
+      tx.set(logRef, {
+        acao: 'retencoes.renumerar',
+        detalhe: { ano: Number(ano), quantidade: n },
+        uid: sessao.uid, nome: String(sessao.nome || sessao.email || sessao.uid), em: serverTimestamp()
+      });
+    }
     return n;
   });
 }
-
 /** Gravação em lote (importação). operacoes = [{ colecao, id, dados }] */
 export async function gravarEmLote(operacoes, progresso) {
   const falhas = [];
@@ -339,13 +473,25 @@ export async function gravarEmLote(operacoes, progresso) {
     const parte = operacoes.slice(i, i + 100);
     const b = writeBatch(fs);
     for (const op of parte) for (const [ref, d] of expandir(op)) b.set(ref, d, { merge: true });
+    const auditaveis = parte.filter(op => COLECOES_COM_AUDITORIA_ATOMICA.has(op.colecao));
+    if (auditaveis.length) incluirLogNaGravacao(b, 'financeiro.lote', {
+      colecoes: [...new Set(auditaveis.map(op => op.colecao))],
+      quantidade: auditaveis.length,
+      documentos: auditaveis.map(op => String(op.id || '')).slice(0, 100)
+    });
     try {
       await b.commit();
     } catch (e) {
       // Um registro recusado derruba o lote inteiro: grava um a um para salvar o resto e apontar qual falhou.
       for (const op of parte) {
-        try { const b1 = writeBatch(fs); for (const [ref, d] of expandir(op)) b1.set(ref, d, { merge: true }); await b1.commit(); }
-        catch (e2) { falhas.push({ colecao: op.colecao, id: op.id, nome: op.dados.nome || op.dados.numero || op.id, erro: e2.code || e2.message }); }
+        try {
+          const b1 = writeBatch(fs);
+          for (const [ref, d] of expandir(op)) b1.set(ref, d, { merge: true });
+          if (COLECOES_COM_AUDITORIA_ATOMICA.has(op.colecao)) incluirLogNaGravacao(b1, 'financeiro.lote', {
+            colecoes: [op.colecao], quantidade: 1, documentos: [String(op.id || '')]
+          });
+          await b1.commit();
+        } catch (e2) { falhas.push({ colecao: op.colecao, id: op.id, nome: op.dados.nome || op.dados.numero || op.id, erro: e2.code || e2.message }); }
       }
     }
     progresso && progresso(Math.min(i + 100, operacoes.length), operacoes.length);
@@ -366,15 +512,67 @@ export async function salvarConfiguracaoFiscal(dados, campos, acao, detalhe) {
       registro.antes = { issPadrao: atual.issPadrao ?? null, issPorCodigo: atual.issPorCodigo || {} };
       registro.depois = dados;
     }
-    tx.set(log, { acao, detalhe: registro, uid: sessao.uid, nome: sessao.nome || sessao.email, em: serverTimestamp() });
+    tx.set(log, { acao, detalhe: registro, uid: sessao.uid, nome: String(sessao.nome || sessao.email || sessao.uid), em: serverTimestamp() });
   });
 }
 
 export async function registrarLog(acao, detalhe = {}) {
   if (!sessao) return;
   try {
-    await addDoc(collection(fs, 'logs'), { acao, detalhe, uid: sessao.uid, nome: sessao.nome || sessao.email, em: serverTimestamp() });
+    await addDoc(collection(fs, 'logs'), { acao, detalhe, uid: sessao.uid, nome: String(sessao.nome || sessao.email || sessao.uid), em: serverTimestamp() });
   } catch { /* log nunca impede a operação */ }
+}
+
+/**
+ * Migra CPF/Pix dos snapshots históricos de solicitações para uma coleção privada.
+ * A execução é manual e restrita à Contabilidade/ADM; não apaga nem altera outros campos do processo.
+ */
+export async function protegerDadosSolicitacoes(progresso) {
+  if (!sessao || !['admin', 'operador'].includes(sessao.perfil)) throw Error('Acesso restrito à Contabilidade e ADM.');
+  const snap = await getDocs(collection(fs, 'solicitacoes'));
+  const pendentes = snap.docs.filter(s => {
+    const servidor = s.data().servidor || {};
+    return s.data().privacidade_migrada !== true || ['cpf', 'chave_pix', 'cpf_anterior'].some(k => Object.prototype.hasOwnProperty.call(servidor, k));
+  });
+  let migrados = 0, ignorados = 0;
+  for (let i = 0; i < pendentes.length; i += 120) {
+    const lote = pendentes.slice(i, i + 120);
+    const b = writeBatch(fs);
+    const migradosAntes = migrados;
+    for (const item of lote) {
+      const dados = item.data(), servidor = { ...(dados.servidor || {}) };
+      const cpf = String(servidor.cpf || '').replace(/\D/g, '');
+      const cpfAnterior = String(servidor.cpf_anterior || '').replace(/\D/g, '');
+      const chavePix = String(servidor.chave_pix || '');
+      const servidorId = String(dados.servidor_id || '');
+      if ((cpf && cpf.length !== 11) || (cpfAnterior && cpfAnterior.length !== 11)
+          || chavePix.length > 140
+          || ((cpf || cpfAnterior || chavePix) && (!servidorId || !dados.secretaria_id))) {
+        ignorados++;
+        continue;
+      }
+      if (cpf || cpfAnterior || chavePix) {
+        b.set(doc(fs, 'solicitacoes_privado', item.id), {
+          solicitacao_id: item.id, servidor_id: servidorId, secretaria_id: dados.secretaria_id,
+          ...(cpf ? { cpf } : {}),
+          ...(cpfAnterior ? { cpf_anterior: cpfAnterior } : {}),
+          ...(chavePix ? { chave_pix: chavePix } : {})
+        }, { merge: true });
+      }
+      const patch = {
+        privacidade_migrada: true, atualizado_em: serverTimestamp(), atualizado_por: autor()
+      };
+      if ('cpf' in servidor) patch['servidor.cpf'] = deleteField();
+      if ('cpf_anterior' in servidor) patch['servidor.cpf_anterior'] = deleteField();
+      if ('chave_pix' in servidor) patch['servidor.chave_pix'] = deleteField();
+      b.update(doc(fs, 'solicitacoes', item.id), patch);
+      migrados++;
+    }
+    if (migrados > migradosAntes) await b.commit();
+    progresso && progresso(Math.min(i + 120, pendentes.length), pendentes.length);
+  }
+  await registrarLog('privacidade.solicitacoes_migrar', { migrados, ignorados });
+  return { migrados, ignorados, total: pendentes.length };
 }
 
 /** Move campos de valor do documento da solicitação para a coleção protegida "valores". lista = [{ id, valores }] */
@@ -383,10 +581,10 @@ export async function protegerDadosServidores(lista, progresso) {
   for (let i = 0; i < lista.length; i += 120) {
     const b = writeBatch(fs);
     for (const sv of lista.slice(i, i + 120)) {
-      const { publico, privado } = separarServidor({ cpf: sv.cpf || '', chave_pix: sv.chave_pix || '', secretaria_id: sv.secretaria_id || null });
+      const { publico, privado } = separarServidor({ cpf: sv.cpf || '', cpf_anterior: sv.cpf_anterior || '', chave_pix: sv.chave_pix || '', secretaria_id: sv.secretaria_id || null });
       b.set(doc(fs, 'servidores_privado', sv.id), privado, { merge: true });
       if (privado.cpf) b.set(doc(fs, 'cpfs', privado.cpf), { servidor_id: sv.id }, { merge: true });
-      b.update(doc(fs, 'servidores', sv.id), { cpf_mascara: publico.cpf_mascara || '', cpf_valido: !!publico.cpf_valido, tem_pix: !!publico.tem_pix, cpf: deleteField(), chave_pix: deleteField() });
+      b.update(doc(fs, 'servidores', sv.id), { cpf_mascara: publico.cpf_mascara || sv.cpf_mascara || '', cpf_valido: 'cpf_valido' in publico ? !!publico.cpf_valido : !!sv.cpf_valido, tem_pix: 'tem_pix' in publico ? !!publico.tem_pix : !!sv.tem_pix, privacidade_migrada: true, cpf: deleteField(), cpf_anterior: deleteField(), chave_pix: deleteField() });
     }
     await b.commit();
     progresso && progresso(Math.min(i + 120, lista.length), lista.length);

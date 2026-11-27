@@ -181,8 +181,7 @@ export function telaRetencoes(el) {
     const porAno = {};
     for (const v of validos) (porAno[v.data.slice(0, 4)] ||= []).push(v);
     const criados = [];
-    for (const [a, lista] of Object.entries(porAno)) criados.push(...await db.lancarRetencoes(a, lista));
-    db.registrarLog('retencoes.lancar', { origem: origemDoLote, quantidade: criados.length, total_centavos: criados.reduce((s, r) => s + r.centavos, 0), numeros: criados.map(r => r.numero) }).catch(() => {});
+    for (const [a, lista] of Object.entries(porAno)) criados.push(...await db.lancarRetencoes(a, lista, { origem: origemDoLote }));
     toast(`${criados.length} retenção(ões) lançada(s): ${criados[0]?.numero}${criados.length > 1 ? ' a ' + criados.at(-1).numero : ''}.`);
     if (criados.some(r => r.data.slice(0, 4) !== String(ano))) toast('Há lançamentos de outro exercício: troque o ano para vê-los.');
     // Lançou data anterior a outras já numeradas: oferece reordenar ANTES de imprimir, para o comprovante sair com o número certo.
@@ -192,7 +191,6 @@ export function telaRetencoes(el) {
       if (!d || !foraDeOrdem(d.lancamentos)) continue;
       if (!await confirmar(`Há retenções de ${a} com data anterior a outras já numeradas. Reordenar a numeração pela data do desconto agora? (comprovantes já impressos de ${a} precisarão ser gerados de novo)`, { titulo: 'Numeração fora da ordem das datas', ok: 'Reordenar', nao: 'Manter' })) continue;
       const n = await db.renumerarRetencoes(a, l => renumerarPorData(l, a));
-      db.registrarLog('retencoes.reordenar', { ano: a, alterados: n }).catch(() => {});
       const novo = await db.lerDoc('retencoes_anos', a).catch(() => null);
       if (novo) paraImprimir = paraImprimir.map(r => r.data.startsWith(a) && novo.lancamentos?.[r.id] ? { id: r.id, ...novo.lancamentos[r.id] } : r);
     }
@@ -401,8 +399,9 @@ export function telaRetencoes(el) {
         if (v.data.slice(0, 4) !== String(r.data).slice(0, 4)) throw Error('Para mudar o ano, anule este lançamento e faça outro no exercício certo.');
         const { id, ...antes } = r;
         if (!v.liquidado) { v.liquidado = false; v.dataLiquidacao = ''; }
-        await db.salvar('retencoes_anos', String(r.data).slice(0, 4), { lancamentos: { [id]: { ...antes, ...v, atualizadoEm: new Date().toISOString(), atualizadoPor: estado.sessao.nome } } });
-        db.registrarLog('retencoes.editar', { numero: r.numero, empenho: v.empenho, liquidacao: v.liquidacao, centavos: v.centavos }).catch(() => {});
+        await db.salvar('retencoes_anos', String(r.data).slice(0, 4), { lancamentos: { [id]: { ...antes, ...v, atualizadoEm: new Date().toISOString(), atualizadoPor: estado.sessao.nome } } }, {
+          acao: 'retencoes.editar', detalhe: { numero: r.numero, empenho: v.empenho, liquidacao: v.liquidacao, centavos: v.centavos }
+        });
         toast(r.numero + ' atualizado.'); m.fechar();
       } catch (err) { aviso.textContent = mensagemErro(err); }
     };
@@ -416,8 +415,9 @@ export function telaRetencoes(el) {
     if (!motivo) return;
     try {
       const { id, ...antes } = r;
-      await db.salvar('retencoes_anos', String(r.data).slice(0, 4), { lancamentos: { [id]: { ...antes, anulado: true, motivoAnulacao: motivo, anuladoEm: new Date().toISOString(), anuladoPor: estado.sessao.nome } } });
-      db.registrarLog('retencoes.anular', { numero: r.numero, motivo }).catch(() => {});
+      await db.salvar('retencoes_anos', String(r.data).slice(0, 4), { lancamentos: { [id]: { ...antes, anulado: true, motivoAnulacao: motivo, anuladoEm: new Date().toISOString(), anuladoPor: estado.sessao.nome } } }, {
+        acao: 'retencoes.anular', detalhe: { numero: r.numero, motivo }
+      });
       toast(r.numero + ' anulado.');
     } catch (e) { toast(mensagemErro(e), 'erro'); }
   }
@@ -443,8 +443,9 @@ export function telaRetencoes(el) {
       try {
         const porAno = {};
         for (const r of lista) (porAno[String(r.data).slice(0, 4)] ||= {})[r.id] = { liquidado: true, dataLiquidacao: r.data, ...(nro ? { liquidacao: nro } : {}), atualizadoEm: new Date().toISOString(), atualizadoPor: estado.sessao.nome };
-        for (const [a, lanc] of Object.entries(porAno)) await db.salvar('retencoes_anos', a, { lancamentos: lanc });
-        db.registrarLog('retencoes.liquidar', { numeros: lista.map(r => r.numero), liquidacao: nro }).catch(() => {});
+        for (const [a, lanc] of Object.entries(porAno)) await db.salvar('retencoes_anos', a, { lancamentos: lanc }, {
+          acao: 'retencoes.liquidar', detalhe: { ano: Number(a), numeros: lista.filter(r => String(r.data).startsWith(a)).map(r => r.numero), liquidacao: nro }
+        });
         selecionados.clear();
         toast(`${lista.length} retenção(ões) marcada(s) como liquidada(s).`); m.fechar();
       } catch (err) { toast(mensagemErro(err), 'erro'); }
@@ -469,8 +470,9 @@ export function telaRetencoes(el) {
       try {
         const porAno = {};
         for (const r of lista) (porAno[String(r.data).slice(0, 4)] ||= {})[r.id] = { ...campos, atualizadoEm: new Date().toISOString(), atualizadoPor: estado.sessao.nome };
-        for (const [a, lanc] of Object.entries(porAno)) await db.salvar('retencoes_anos', a, { lancamentos: lanc });
-        db.registrarLog('retencoes.empenho_lote', { numeros: lista.map(r => r.numero), ...campos }).catch(() => {});
+        for (const [a, lanc] of Object.entries(porAno)) await db.salvar('retencoes_anos', a, { lancamentos: lanc }, {
+          acao: 'retencoes.empenho_lote', detalhe: { ano: Number(a), numeros: lista.filter(r => String(r.data).startsWith(a)).map(r => r.numero), ...campos }
+        });
         toast('Empenho gravado em ' + lista.length + ' retenção(ões).'); m.fechar();
       } catch (err) { toast(mensagemErro(err), 'erro'); }
     };
@@ -479,7 +481,6 @@ export function telaRetencoes(el) {
     if (perguntar && !await confirmar(`Renumerar as retenções de ${ano} pela data do desconto (= data da liquidação)? Comprovantes já impressos precisam ser gerados de novo com o número novo.`, { titulo: 'Reordenar numeração', ok: 'Reordenar' })) return;
     try {
       const n = await db.renumerarRetencoes(ano, l => renumerarPorData(l, ano));
-      db.registrarLog('retencoes.reordenar', { ano, alterados: n }).catch(() => {});
       toast(n ? `${n} retenção(ões) renumerada(s) pela data.` : 'A numeração já está na ordem das datas.');
     } catch (e) { toast(mensagemErro(e), 'erro'); }
   }
@@ -491,8 +492,9 @@ export function telaRetencoes(el) {
     try {
       const porAno = {};
       for (const r of sem) (porAno[String(r.data).slice(0, 4)] ||= {})[r.id] = { empenho: empenhoDe(r), atualizadoEm: new Date().toISOString(), atualizadoPor: estado.sessao.nome };
-      for (const [a, lanc] of Object.entries(porAno)) await db.salvar('retencoes_anos', a, { lancamentos: lanc });
-      db.registrarLog('retencoes.empenho_padrao', { quantidade: sem.length }).catch(() => {});
+      for (const [a, lanc] of Object.entries(porAno)) await db.salvar('retencoes_anos', a, { lancamentos: lanc }, {
+        acao: 'retencoes.empenho_padrao', detalhe: { ano: Number(a), quantidade: Object.keys(lanc).length }
+      });
       toast('Empenho preenchido em ' + sem.length + ' retenção(ões).');
     } catch (e) { toast(mensagemErro(e), 'erro'); }
   };
@@ -566,8 +568,10 @@ export function telaRetencoes(el) {
     if (!sem.length) return;
     completandoEmp = true;
     const lanc = Object.fromEntries(sem.map(r => [r.id, { empenho: empenhoDe(r), atualizadoEm: new Date().toISOString(), atualizadoPor: estado.sessao.nome }]));
-    db.salvar('retencoes_anos', String(ano), { lancamentos: lanc })
-      .then(() => { db.registrarLog('retencoes.empenho_automatico', { ano, quantidade: sem.length }).catch(() => {}); toast(`Empenho preenchido automaticamente em ${sem.length} retenção(ões).`); })
+    db.salvar('retencoes_anos', String(ano), { lancamentos: lanc }, {
+      acao: 'retencoes.empenho_automatico', detalhe: { ano, quantidade: sem.length }
+    })
+      .then(() => { toast(`Empenho preenchido automaticamente em ${sem.length} retenção(ões).`); })
       .catch(() => {}).finally(() => { completandoEmp = false; });
   }
   // Correção da conta do IPI (92998-8 → 92998-0): ajusta a configuração e os lançamentos já gravados, uma vez.
@@ -579,8 +583,9 @@ export function telaRetencoes(el) {
     if (!errados.length) return;
     corrigindoIPI = true;
     const lanc = Object.fromEntries(errados.map(r => [r.id, { conta: CONTA_IPI }]));
-    db.salvar('retencoes_anos', String(ano), { lancamentos: lanc })
-      .then(() => db.registrarLog('retencoes.corrige_conta_ipi', { quantidade: errados.length }).catch(() => {}))
+    db.salvar('retencoes_anos', String(ano), { lancamentos: lanc }, {
+      acao: 'retencoes.corrige_conta_ipi', detalhe: { ano, quantidade: errados.length }
+    })
       .catch(() => {}).finally(() => { corrigindoIPI = false; });
   }
   desConfig = db.ouvirDoc('retencoes_config', 'geral', d => {

@@ -10,6 +10,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+  pull-requests: write
   issues: write
 concurrency:
   group: legislacao-fiscal
@@ -30,15 +31,21 @@ jobs:
       - name: Consultar legislação oficial
         id: verificar
         run: python3 scripts/monitor-legislacao-fiscal.py
-      - name: Registrar monitoramento e atualizar catálogo do SISDIFI
-        run: |
-          git config user.name "sisdifi-legislacao[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add assets/data/legislacao-fiscal.json
-          if ! git diff --cached --quiet; then
-            git commit -m "chore(fiscal): consulta diária às fontes oficiais de legislação"
-            git push origin HEAD:main
-          fi
+      - name: Abrir PR com o resultado do monitoramento
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(fiscal): atualizar consulta das fontes oficiais"
+          branch: bot/monitor-legislacao-fiscal
+          delete-branch: true
+          add-paths: assets/data/legislacao-fiscal.json
+          title: "Monitoramento fiscal: atualizar catálogo de fontes oficiais"
+          body: |
+            Atualização automática do catálogo de fontes públicas.
+            
+            **Atenção:** diferença de conteúdo não comprova mudança de norma, alíquota ou vigência. A Contabilidade deve conferir a publicação oficial e registrar a validação antes de alterar parâmetros.
+            
+            Este PR não altera alíquotas nem regras de cálculo.
       - name: Abrir alerta para revisão de mudança detectada
         if: steps.verificar.outputs.novos_alertas != '0'
         env:

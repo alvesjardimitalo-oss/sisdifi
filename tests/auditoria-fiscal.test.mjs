@@ -36,6 +36,16 @@ assert.equal(a.situacao,'conferida_para_revisao');
 assert.equal(a.impedimentos.length,0);
 assert.equal(a.pendencias.length,0);
 assert.match(a.resumo,/liquidação ainda depende/);
+const issDivergente = auditoriaNota({
+  doc: base,
+  cadastro: { situacao: 'ATIVA' },
+  resultado: { ...aval, simples: false, iss: {
+    fonteConfiguracao: 'unica', aliquotaBaseMunicipal: 5, aliquotaAnexoII: 3, subitemAnexoII: '04.02'
+  } },
+  contexto: c, catalogo, hoje: '2026-11-11'
+});
+assert.ok(issDivergente.pendencias.some(p => p.id === 'iss_aliquota_unica'));
+assert.match(issDivergente.pendencias.find(p => p.id === 'iss_aliquota_unica').pergunta, /Não altere o parâmetro automaticamente/);
 a=auditoriaNota({doc:base,cadastro:{situacao:'ATIVA'},resultado:aval,contexto:{},catalogo,hoje:'2026-11-11'});
 assert.equal(a.situacao,'pendente');
 assert.ok(a.pendencias.some(p=>p.id==='base_especial'));

@@ -19,6 +19,9 @@ jobs:
           erro=0
           for f in $(find assets/js -name '*.js'); do node --check "$f" || erro=1; done
           exit $erro
+      - name: Diagnóstico de hashes de cache
+        run: |
+          node --input-type=module -e "import { calcular } from './scripts/versionar-assets.mjs'; const r = calcular(); console.log('hash app.js:', r.hashes.get('assets/js/app.js')); console.log('hash views/fiscal.js:', r.hashes.get('assets/js/views/fiscal.js')); console.log('hash views/duodecimo.js:', r.hashes.get('assets/js/views/duodecimo.js')); console.log('hash views/retencoes.js:', r.hashes.get('assets/js/views/retencoes.js'));"
       - name: Todas as suítes
         run: |
           erro=0

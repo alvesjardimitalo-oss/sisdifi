@@ -363,7 +363,34 @@ const NOMES_ACAO = {
   'usuario.editar': 'Editou usuário', 'importacao.banco_antigo': 'Importou banco antigo', 'solicitacao.etapa': 'Tramitou solicitação', 'backup.baixar': 'Baixou cópia de segurança', 'servidor.pix': 'Alterou chave Pix', 'valores.proteger': 'Protegeu valores'
 };
 export function telaAuditoria(el) {
-  el.innerHTML = cabecalho('Auditoria', '', 'Últimas 300 ações registradas no sistema.') + '<div id="logs" class="carregando"><div class="spinner"></div></div>';
+  const podeMigrarPrivacidade = ['admin', 'operador'].includes(estado.sessao?.perfil);
+  const migracao = podeMigrarPrivacidade ? `
+    <section class="cartao">
+      <h3>Proteção de dados pessoais históricos</h3>
+      <p class="muted">Move CPF e chave Pix dos snapshots antigos de solicitações para uma coleção privada, preservando o restante do processo. Solicitações ainda não migradas deixam de ser visíveis ao perfil Somente consulta até a migração.</p>
+      <button type="button" class="btn btn-sec" id="migrar-privacidade">Migrar CPF/Pix das solicitações antigas</button>
+      <p class="muted" id="resultado-migracao-privacidade" aria-live="polite"></p>
+    </section>` : '';
+  el.innerHTML = cabecalho('Auditoria', '', 'Últimas 300 ações registradas no sistema.') + migracao + '<div id="logs" class="carregando"><div class="spinner"></div></div>';
+  const botaoMigracao = $('#migrar-privacidade', el);
+  if (botaoMigracao) botaoMigracao.onclick = async () => {
+    if (!(await confirmar('Migrar os dados pessoais históricos agora? A operação preserva CPF/Pix em coleção privada e remove esses campos dos snapshots consultáveis. Faça isso com a equipe fora do cadastro de novas solicitações.'))) return;
+    botaoMigracao.disabled = true;
+    botaoMigracao.textContent = 'Migrando…';
+    const saida = $('#resultado-migracao-privacidade', el);
+    try {
+      const r = await db.protegerDadosSolicitacoes();
+      const resumo = `Concluído: ${r.migrados} solicitações migradas de ${r.total}. Registros que precisam de conferência manual: ${r.ignorados}.`;
+      if (saida) saida.textContent = resumo;
+      toast(resumo, r.ignorados ? 'aviso' : 'sucesso');
+    } catch (err) {
+      if (saida) saida.textContent = mensagemErro(err);
+      toast(mensagemErro(err), 'erro');
+    } finally {
+      botaoMigracao.disabled = false;
+      botaoMigracao.textContent = 'Migrar CPF/Pix das solicitações antigas';
+    }
+  };
   db.ultimosLogs(300).then(logs => {
     $('#logs', el).outerHTML = `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Data/hora</th><th>Usuário</th><th>Ação</th><th>Detalhes</th></tr></thead>
       <tbody>${logs.map(l => `<tr><td>${l.em ? esc(l.em.toLocaleString('pt-BR')) : '—'}</td><td>${esc(l.nome)}</td><td>${esc(NOMES_ACAO[l.acao] || l.acao)}</td>

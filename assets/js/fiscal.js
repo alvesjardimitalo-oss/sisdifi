@@ -942,6 +942,11 @@ export function conferir({ doc = {}, cadastro = null, naturezaId, simplesManual 
      emitente nao pode bloquear um pagamento que esta correto. */
   const doPagamento = problemas.filter(p => p.impacto !== 'declaracao');
   const situacao = doPagamento.some(p => p.nivel === 'erro') ? 'erro' : doPagamento.some(p => p.nivel === 'alerta') ? 'alerta' : 'ok';
+  // Expõe a origem da alíquota no resultado para a pré-auditoria exigir conferência humana.
+  iss.fonteConfiguracao = issMun.fonte;
+  iss.aliquotaBaseMunicipal = ISS_ALIQ;
+  iss.aliquotaAnexoII = issMun.anexo;
+  iss.subitemAnexoII = issMun.subitem;
   const fundamentos = fundamentosAplicados({ nat, simples, mei, ir, iss, inss, localIss, cb, dedTerceiros, issMun });
   return { natureza: nat, valor, emissao, simples, mei, fonteSimples, ir, iss, inss, localIss, cbsibs: cb, retencoes, liquido, comparativo, temDadosNota, verificacao, problemas, situacao, fundamentos };
 }

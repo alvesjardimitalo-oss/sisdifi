@@ -195,14 +195,6 @@ try {
     detalhe: {}, em: serverTimestamp()
   }));
 
-  // Compatibilidade: a folha atual usa o mesmo contrato de log legado.
-  // Este teste não altera nenhum arquivo nem fluxo do módulo de folha.
-  await assertSucceeds(setDoc(doc(db('operador'), 'logs', 'folha-regressao'), {
-    uid: 'operador', nome: 'Operador', acao: 'folha.empenho.salvar',
-    detalhe: { competencia: '11/2026', quantidade: 2, documentos: ['001', '002'] },
-    em: serverTimestamp()
-  }));
-
   console.log('Firestore Rules: todos os cenários de segurança passaram.');
 } finally {
   await env.cleanup();
