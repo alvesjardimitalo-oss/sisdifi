@@ -185,7 +185,7 @@ export function ouvir(colecao, cb, onErro, filtro = null) {
   const filtros = !filtro ? [] : Array.isArray(filtro[0]) ? [...filtro] : [filtro];
   // Regras do Firestore não filtram documentos. A consulta precisa declarar o marcador
   // de migração para que o perfil consulta nunca tente ler snapshots históricos com PII.
-  if (colecao === 'solicitacoes' && sessao?.perfil === 'consulta') filtros.push(['privacidade_migrada', true]);
+  if (['solicitacoes', 'servidores'].includes(colecao) && sessao?.perfil === 'consulta') filtros.push(['privacidade_migrada', true]);
   const alvo = filtros.length ? query(collection(fs, colecao), ...filtros.map(([c, v]) => where(c, '==', v))) : collection(fs, colecao);
   return onSnapshot(alvo,
     snap => { hidratarLista(colecao, snap.docs.map(d => ({ id: d.id, ...d.data() }))).then(cb).catch(e => onErro && onErro(e)); },
@@ -247,7 +247,7 @@ export async function migrarDuodecimoLegado() {
  */
 function opsServidor(id, dados, carimbo) {
   const { publico, privado } = separarServidor(dados);
-  const ops = [[doc(fs, 'servidores', id), { ...publico, ...carimbo }]];
+  const ops = [[doc(fs, 'servidores', id), { ...publico, privacidade_migrada: true, ...carimbo }]];
   if (Object.keys(privado).filter(k => k !== 'secretaria_id').length) {
     ops.push([doc(fs, 'servidores_privado', id), privado]);
     if (privado.cpf) ops.push([doc(fs, 'cpfs', privado.cpf), { servidor_id: id }]);
@@ -502,10 +502,10 @@ export async function protegerDadosServidores(lista, progresso) {
   for (let i = 0; i < lista.length; i += 120) {
     const b = writeBatch(fs);
     for (const sv of lista.slice(i, i + 120)) {
-      const { publico, privado } = separarServidor({ cpf: sv.cpf || '', chave_pix: sv.chave_pix || '', secretaria_id: sv.secretaria_id || null });
+      const { publico, privado } = separarServidor({ cpf: sv.cpf || '', cpf_anterior: sv.cpf_anterior || '', chave_pix: sv.chave_pix || '', secretaria_id: sv.secretaria_id || null });
       b.set(doc(fs, 'servidores_privado', sv.id), privado, { merge: true });
       if (privado.cpf) b.set(doc(fs, 'cpfs', privado.cpf), { servidor_id: sv.id }, { merge: true });
-      b.update(doc(fs, 'servidores', sv.id), { cpf_mascara: publico.cpf_mascara || '', cpf_valido: !!publico.cpf_valido, tem_pix: !!publico.tem_pix, cpf: deleteField(), chave_pix: deleteField() });
+      b.update(doc(fs, 'servidores', sv.id), { cpf_mascara: publico.cpf_mascara || '', cpf_valido: !!publico.cpf_valido, tem_pix: !!publico.tem_pix, privacidade_migrada: true, cpf: deleteField(), cpf_anterior: deleteField(), chave_pix: deleteField() });
     }
     await b.commit();
     progresso && progresso(Math.min(i + 120, lista.length), lista.length);
