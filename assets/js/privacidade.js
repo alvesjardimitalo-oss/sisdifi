@@ -1,6 +1,6 @@
 // SISDIFI — Dados pessoais dos servidores (LGPD)
-// CPF e chave Pix ficam em "servidores_privado/{id}", que só a Contabilidade, o RH, a consulta e a secretaria do
-// próprio servidor leem. O cadastro público ("servidores") guarda nome, cargo, categoria e indicadores sem o dado:
+// CPF e chave Pix ficam em "servidores_privado/{id}", que só Admin/Contabilidade, RH e a secretaria do
+// próprio servidor leem. O perfil consulta recebe apenas o cadastro público e os indicadores sem o dado:
 // cpf_mascara ("***.456.789-**"), cpf_valido e tem_pix. O índice "cpfs/{cpf}" só responde a quem já sabe o CPF
 // completo (não lista), para encontrar o servidor e evitar cadastro duplicado.
 import { cpfValido, formatarCpf, analisarPix } from './calculo.js';
