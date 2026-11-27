@@ -23,6 +23,8 @@ jobs:
         run: |
           erro=0
           for f in tests/*.test.mjs; do
+            # As Rules exigem o emulador Firestore; rodam no workflow dedicado.
+            [ "$f" = "tests/firestore-rules.test.mjs" ] && continue
             echo "::group::$f"
             node "$f" || erro=1
             echo "::endgroup::"
