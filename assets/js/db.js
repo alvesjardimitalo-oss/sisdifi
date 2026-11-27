@@ -287,11 +287,13 @@ export async function salvar(colecao, id, dados) {
   if (COLECOES_COM_AUDITORIA_ATOMICA.has(colecao)) {
     const ref = id ? doc(fs, colecao, id) : doc(collection(fs, colecao));
     const batch = writeBatch(fs);
-    batch.set(ref, {
+    const payload = {
       ...dados,
       ...(!id ? { criado_em: serverTimestamp(), criado_por: autor() } : {}),
       ...carimbo
-    }, id ? { merge: true } : {});
+    };
+    if (id) batch.set(ref, payload, { merge: true });
+    else batch.set(ref, payload);
     incluirLogNaGravacao(batch, colecao + '.salvar', {
       documento: ref.id, operacao: id ? 'mesclar' : 'criar',
       campos: Object.keys(dados).slice(0, 20)
