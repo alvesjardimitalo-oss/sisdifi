@@ -60,6 +60,25 @@ export async function entrarComGoogle() {
   prov.setCustomParameters({ prompt: 'select_account' });
   return signInWithPopup(auth, prov);
 }
+/* Permissão para escrever nas planilhas Google da Contabilidade.
+   Usa uma instância separada do Firebase, então a conta Google escolhida aqui
+   (a que edita a planilha) não troca a sessão do SISDIFI, que pode ser de
+   e-mail e senha. Devolve só o token de acesso do Google, que vale ~1 hora e
+   fica na memória da página — nada é gravado. */
+export async function tokenGooglePlanilhas() {
+  const app2 = initializeApp(firebaseConfig, 'planilhas-' + Date.now());
+  try {
+    const prov = new GoogleAuthProvider();
+    prov.addScope('https://www.googleapis.com/auth/spreadsheets');
+    prov.setCustomParameters({ prompt: 'select_account' });
+    const r = await signInWithPopup(getAuth(app2), prov);
+    const token = GoogleAuthProvider.credentialFromResult(r)?.accessToken;
+    if (!token) throw Error('O Google não devolveu a permissão para a planilha.');
+    return { token, email: r.user?.email || '' };
+  } finally {
+    deleteApp(app2).catch(() => {});
+  }
+}
 export const criarConta = (email, senha) => createUserWithEmailAndPassword(auth, email.trim(), senha);
 export function dadosUsuarioAtual() {
   const u = auth.currentUser;

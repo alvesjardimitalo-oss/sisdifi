@@ -93,3 +93,18 @@ O parser reconhece a rubrica ou resumo `COMP FED.PIS SAL ENFERMAGEM` e descriç�
 O INSS da folha extra não é projetado nem descontado por presunção. Se houver desconto de INSS na própria extra, gera alerta; se for recolhido/descontado na folha posterior, deverá ser acompanhado na competência de desconto, sem dupla retenção. Isso descreve o fluxo informado pela Contabilidade e **não é uma validação automática da legislação previdenciária**.
 
 A exportação em rascunho e conferida inclui colunas: bruto original RH, incentivo federal, tratamento adotado e observação sobre INSS da extra. Uma folha extra sem consignados/pensões pode ter conferência final sem a minuta da folha principal; existindo descontos bancários/pensão ou folha principal, as verificações anteriores continuam exigidas.
+
+## Lançamento: uma linha por empenho e a planilha Google
+
+Assim que o Resumo de Verbas é lido, o topo da tela mostra a tabela de lançamento: empenho/ano, ficha, fonte, bruto, histórico, desconto e composição (INSS, Caixa, Sicoob, Bradesco, pensão, IR), as OPs (salário-família, maternidade, natalidade) e a conferência bruto − desconto + OP − desconto da OP = total líquido do Resumo de Verbas. Não depende das etapas.
+
+**Fonte pelo saldo.** Com o saldo das contas (etapa 3), cada empenho vai para a primeira fonte estadual/federal que a ficha admite e que ainda o cobre inteiro; o resto vai para o recurso próprio da ficha (1500, 1001, 1002) ou, no FUNDEB, para a ficha espelho. É proposta: só vale com "Usar as fontes pelo saldo". 1604 (ACS) e 1605 (piso da enfermagem) não são oferecidas a outros empenhos.
+
+**Lançar na planilha Google.** Escreve na aba do mês (ex.: NOVEMBRO) da planilha da folha, a partir da linha 4, colunas A–N no modelo da Contabilidade (grupo, empenho, secretaria, ficha, fonte, conta, bruto, desconto, nº OP, salário-família bruto/desconto, maternidade bruto/desconto, líquido) e, depois, INSS, Caixa, Sicoob, Bradesco, Pensão, IR, Outros, histórico, resumo do RH e conferência. Não apaga nada abaixo das linhas lançadas; se a aba já tiver empenhos, pergunta antes de substituir. Sem configuração nenhuma, "Copiar para colar na planilha" faz o mesmo pelo Ctrl+V na célula A4.
+
+Para o botão direto funcionar, uma vez só:
+1. Google Cloud Console do projeto do Firebase → *APIs e serviços* → *Biblioteca* → ativar **Google Sheets API**.
+2. *Tela de consentimento OAuth* → incluir o escopo `.../auth/spreadsheets`; enquanto o app não for verificado pelo Google, cadastre as contas da Contabilidade como **usuários de teste** (o Google mostra o aviso "app não verificado"; é esperado).
+3. A conta Google escolhida no botão precisa ter permissão de **edição** na planilha.
+
+O token do Google fica só na memória da página (vale cerca de 1 hora) e não é gravado; a sessão do SISDIFI não muda.

@@ -215,3 +215,80 @@ export function distribuirFontesPorSaldo(empenhos = [], saldos = {}, fichaInfo =
     uso: [...uso.values()].map(u => ({ ...u, sobra: u.saldo - u.usado })),
     mudancas: propostas.filter(p => p.mudou).length };
 }
+
+/* =====================================================================
+   Planilha da Contabilidade ("Nova Folha 2026", uma aba por mês)
+   =====================================================================
+   Colunas A–N, a partir da linha 4, como a Contabilidade já usa:
+   A grupo (só na primeira linha do grupo) · B empenho · C secretaria ·
+   D ficha · E fonte · F conta · G bruto · H desconto da liquidação ·
+   I nº da OP · J salário-família bruto · K desconto · L salário-maternidade
+   (e natalidade) bruto · M desconto · N líquido.
+   Conferido em novembro/2026: N = G − H + J − K + L − M.
+   Depois do N vêm as colunas que a planilha ainda não tem: a composição do
+   desconto, o histórico e se bateu com o Resumo de Verbas. */
+export const GRUPOS_PLANILHA = {
+  principal: 'FOLHA DE PAGAMENTO', extra: 'FOLHA EXTRA',
+  decimo: 'ADIANTAMENTO DE 50% 13º SALÁRIO', rescisao: 'RECISÃO CONTRATUAL'
+};
+export const CABECALHO_PLANILHA = ['', 'Empenho', 'Secretaria', 'Ficha', 'Fonte de Recursos', 'Conta Bancária',
+  'Valor Bruto', 'Desconto Liquidação', 'Nº OP', 'Valor Bruto', 'Desconto Liquidação', 'Valor Bruto',
+  'Desconto Liquidação', 'Valor Liquido ', ...COLUNAS_DESCONTO.map(c => c.rotulo), 'Histórico', 'Resumo RH', 'Conferência'];
+
+const FICHAS_FUNDEB = new Set(['173', '174', '186', '187', '191', '192', '198', '199']);
+const semAcentoMaiusc = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+/** Nome curto da secretaria, como a planilha escreve. */
+export function secretariaDaPlanilha(secretaria = '', ficha = '') {
+  const s = semAcentoMaiusc(secretaria);
+  if (/HOSPITAL/.test(s)) return 'HOSPITAL MUNICIPAL';
+  if (/EDUCA|ENSINO|FUNDEB/.test(s)) return FICHAS_FUNDEB.has(String(ficha)) ? 'FUNDEB' : 'SEC. EDUCAÇÃO';
+  const mapa = [[/GABINETE|PREFEITO/, 'GABINETE DO PREFEITO'], [/ADMINISTRA/, 'ADMINISTRAÇÃO'], [/CULTURA|TURISMO/, 'CULTURA'],
+    [/FAZENDA/, 'FAZENDA'], [/ESPORTE/, 'ESPORTE E LAZER'], [/TRANSPORTE/, 'TRANSPORTES'], [/AGRICULTURA/, 'AGRICULTURA'],
+    [/OBRAS/, 'OBRAS PUBLICAS'], [/MEIO AMBIENTE/, 'MEIO AMBIENTE'], [/LIMPEZA/, 'LIMPEZA URBANA'],
+    [/SAUDE/, 'SECRETARIA DE SAÚDE'], [/ACAO SOCIAL|ASSISTENCIA/, 'SEC. AÇÃO SOCIAL']];
+  for (const [re, nome] of mapa) if (re.test(s)) return nome;
+  return String(secretaria || '').toUpperCase();
+}
+
+/**
+ * Linhas da planilha, na ordem dos empenhos. Valores em centavos; quem
+ * escreve decide o formato (número para a API, texto pt-BR para colar).
+ * `empenhos` é previsao.empenhos (para a secretaria e a conta); `lanc` é o
+ * resultado de linhasDeLancamento.
+ */
+export function linhasDaPlanilha(empenhos = [], lanc = { linhas: [] }) {
+  const porId = new Map((empenhos || []).map(e => [e.id, e]));
+  let grupo = '';
+  return lanc.linhas.map(l => {
+    const e = porId.get(l.id) || {};
+    const fam = l.ops.filter(o => o.tipo === 'Salário-família');
+    const mat = l.ops.filter(o => o.tipo !== 'Salário-família');
+    const soma = (xs, k) => xs.reduce((n, o) => n + o[k], 0);
+    const rotulo = l.tipo !== grupo ? (GRUPOS_PLANILHA[l.tipo] || String(l.tipo).toUpperCase()) : '';
+    grupo = l.tipo;
+    const opValor = v => (v ? v : null);
+    return [
+      rotulo, l.numero ?? '', secretariaDaPlanilha(e.secretaria, l.ficha), l.ficha, l.fonte, e.conta || '',
+      l.bruto, l.desconto || null,
+      l.ops.map(o => o.numero).filter(Boolean).join(' / '),
+      opValor(soma(fam, 'valor')), opValor(soma(fam, 'desconto')),
+      opValor(soma(mat, 'valor')), opValor(soma(mat, 'desconto')),
+      l.calculado,
+      ...COLUNAS_DESCONTO.map(c => l.composicao[c.chave] || null),
+      l.historico, l.resumo, l.bateu ? 'BATEU' : 'NÃO BATEU: ' + l.diferencas.join(' ')
+    ];
+  });
+}
+/** Índices (0 = coluna A) das colunas de dinheiro em linhasDaPlanilha. */
+export const COLUNAS_DINHEIRO_PLANILHA = new Set([6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22]);
+
+/** Texto para colar na planilha (Ctrl+V em A4): tabulação e valores em pt-BR. */
+export function textoParaColar(linhas = []) {
+  const valor = (v, i) => {
+    if (v == null || v === '') return '';
+    if (COLUNAS_DINHEIRO_PLANILHA.has(i) && typeof v === 'number')
+      return (v / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return String(v).replace(/[\t\r\n]+/g, ' ');
+  };
+  return linhas.map(l => l.map(valor).join('\t')).join('\n');
+}

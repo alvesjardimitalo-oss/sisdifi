@@ -19,8 +19,9 @@ import {pensoesParaOP,chaveCadastro,RUBRICAS_PENSAO} from '../folha-pensoes.js?v
 import {passosDoEmpenho,conferirEmpenho,fichasOPpendentes,modeloDoEmpenho,textoDoModelo,MODELOS_HISTORICO} from '../folha-transcrever.js';
 import {ordemDasLotacoes} from '../folha-ordem.js?v=3.23.0.06d2837c';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js?v=3.23.0.418e5047';
-import {linhasDeLancamento,distribuirFontesPorSaldo,COLUNAS_DESCONTO} from '../folha-lancamento.js';
-import {ouvir,ouvirDoc,salvar,substituir,excluir,campoApagado} from '../db.js';
+import {linhasDeLancamento,distribuirFontesPorSaldo,COLUNAS_DESCONTO,linhasDaPlanilha,textoParaColar} from '../folha-lancamento.js';
+import {idDaPlanilha,situacaoDaPlanilha,escreverNaPlanilha,PRIMEIRA_LINHA} from '../folha-planilha-google.js';
+import {ouvir,ouvirDoc,salvar,substituir,excluir,campoApagado,tokenGooglePlanilhas} from '../db.js';
 import {carregarMes,salvarMes} from '../consignacoes-mensal.js?v=3.13.0.357fc820';
 import {saldosDasContas,consignadosPorFonte,etapasDaFolha,avisosDaConta,contaParaFonte,rotuloConta,novaContaId,
   normalizarFonte,assinaturaDaFolha,previstoParaConsignacoes} from '../folha-fluxo.js?v=3.23.0.d0b07bba';
@@ -846,6 +847,7 @@ export function telaFolhaEmpenhos(el){
      sem conta: ficha, fonte, bruto, histórico, desconto e composição, OPs e a
      prova contra o Resumo de Verbas. Não depende das etapas: aparece assim que
      o Resumo de Verbas é lido. Clicar num valor copia. */
+  const linkPlanilha=()=>{try{return localStorage.getItem('sisdifi-folha-planilha')||'';}catch(e){return '';}};
   const somenteValor=c=>(c/100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
   /* Saldo por fonte, das contas da etapa 3, na ordem das contas. */
   const saldosPorFonte=()=>contas.filter(c=>c.fonte&&saldos[c.id]!=null).map(c=>({fonte:codigoCurto(c.fonte),saldo:saldos[c.id]}));
@@ -902,7 +904,13 @@ export function telaFolhaEmpenhos(el){
       rateio.avisos.map(a=>'<p class="fe-alert">'+esc(a)+'</p>').join('')
       :'<p class="fe-muted">Para o sistema dizer quais empenhos cabem no recurso estadual/federal, informe o saldo das contas (com a fonte) na etapa 3. O que não couber vai para o recurso próprio.</p>';
     alvo.innerHTML='<div class="fe-actions" style="justify-content:space-between"><h2 style="margin:0">Lançamento · uma linha por empenho</h2>'+
-      '<span><button type="button" class="btn btn-sec" id="fe-lanc-csv">Baixar tabela (Excel)</button></span></div>'+
+      '<span><button type="button" class="btn" id="fe-lanc-planilha">Lançar na planilha Google</button> '+
+        '<button type="button" class="btn btn-sec" id="fe-lanc-colar">Copiar para colar na planilha</button> '+
+        '<button type="button" class="btn btn-sec" id="fe-lanc-csv">Baixar tabela (Excel)</button></span></div>'+
+      '<details class="fe-sub"><summary>Planilha Google da folha</summary>'+
+        '<label class="campo"><span>Link da planilha (fica guardado neste navegador)</span><input id="fe-lanc-link" style="width:100%" placeholder="https://docs.google.com/spreadsheets/d/…" value="'+esc(linkPlanilha())+'"></label>'+
+        '<p class="fe-muted">O SISDIFI escreve na aba do mês da competência (ex.: NOVEMBRO), a partir da linha '+PRIMEIRA_LINHA+', nas colunas A a N que vocês já usam; depois delas vêm INSS, Caixa, Sicoob, Bradesco, Pensão, IR, Outros, histórico, resumo do RH e conferência. A aba precisa existir. Não apaga nada abaixo das linhas lançadas. O Google pede para escolher a conta que edita a planilha.</p>'+
+      '</details>'+
       '<p class="'+(r.naoBateram?'fe-danger':'fe-ok')+'" style="margin:10px 0"><strong>'+r.bateram+' de '+r.linhas.length+' empenhos bateram</strong> com o Resumo de Verbas'+
         (r.naoBateram?' · '+r.naoBateram+' não bateram (em vermelho)':'')+(r.incompletas?' · '+r.incompletas+' com ficha, fonte ou histórico faltando':'')+'.</p>'+
       '<p class="fe-muted">Conta de cada linha: bruto − desconto + OP − desconto da OP = total líquido do Resumo de Verbas. Clique num valor para copiar.</p>'+
@@ -922,6 +930,39 @@ export function telaFolhaEmpenhos(el){
     if(aplicar)aplicar.onclick=()=>{
       for(const x of rateio.propostas)if(x.mudou)mapa[x.id]={...(mapa[x.id]||{}),ficha:x.ficha,fonte:x.fonte};
       persistir();render();toast(rateio.mudancas+' empenho(s) com a fonte pelo saldo.');
+    };
+    const paraPlanilha=()=>linhasDaPlanilha(p.empenhos,r);
+    $('#fe-lanc-link').onchange=e=>{try{localStorage.setItem('sisdifi-folha-planilha',e.target.value.trim());}catch(x){}};
+    $('#fe-lanc-colar').onclick=async()=>{
+      try{await navigator.clipboard.writeText(textoParaColar(paraPlanilha()));
+        toast('Copiado. Na planilha, clique na célula A'+PRIMEIRA_LINHA+' da aba do mês e cole (Ctrl+V).');}
+      catch(e){toast('O navegador não deixou copiar: '+(e.message||e),'erro');}
+    };
+    $('#fe-lanc-planilha').onclick=async e=>{
+      const botao=e.currentTarget;
+      const id=idDaPlanilha($('#fe-lanc-link').value);
+      if(!id){$('#fe-lancamento details.fe-sub').open=true;toast('Cole o link da planilha Google da folha.','erro');return;}
+      try{localStorage.setItem('sisdifi-folha-planilha',$('#fe-lanc-link').value.trim());}catch(x){}
+      if(!primeiro){toast('Informe o número do primeiro empenho (etapa 2) antes de lançar.','erro');return;}
+      if(r.naoBateram&&!confirm(r.naoBateram+' empenho(s) não bateram com o Resumo de Verbas. Lançar mesmo assim? Eles vão com "NÃO BATEU" na última coluna.'))return;
+      botao.disabled=true;
+      try{
+        status('Pedindo permissão ao Google…');
+        const {token,email}=await tokenGooglePlanilhas();
+        const sit=await situacaoDaPlanilha(token,id,competencia);
+        if(!sit.aba)throw Error('A planilha "'+sit.titulo+'" não tem a aba do mês '+competencia+'. Crie a aba (copie a do mês anterior) e tente de novo.');
+        const linhas=paraPlanilha();
+        if(sit.preenchidas&&!confirm('A aba '+sit.aba+' já tem '+sit.preenchidas+' empenho(s) preenchido(s). Substituir as linhas '+PRIMEIRA_LINHA+' a '+(PRIMEIRA_LINHA+linhas.length-1)+'?'))return;
+        status('Lançando na aba '+sit.aba+'…');
+        const res=await escreverNaPlanilha(token,id,sit.aba,linhas);
+        status(res.linhas+' empenhos lançados em '+sit.titulo+' › '+sit.aba+' ('+res.faixa+'), com a conta '+email+'.');
+        toast(res.linhas+' empenhos lançados na aba '+sit.aba+'.');
+        if(sit.preenchidas>linhas.length)toast('A aba tinha '+sit.preenchidas+' linhas e foram lançadas '+linhas.length+': confira e apague as que sobraram.','erro');
+      }catch(err){
+        const cancelou=/popup-closed|cancelled-popup/.test(err.code||'');
+        status(cancelou?'Lançamento cancelado.':'Não foi possível lançar na planilha: '+(err.message||err));
+        if(!cancelou)toast('Não foi possível lançar na planilha: '+(err.message||err),'erro');
+      }finally{botao.disabled=false;}
     };
     $('#fe-lanc-csv').onclick=()=>{
       const cab=['Empenho','Ficha','Fonte','Bruto','Histórico','Desconto',...COLUNAS_DESCONTO.map(c=>c.rotulo),

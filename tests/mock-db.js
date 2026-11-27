@@ -123,3 +123,5 @@ export async function enviarPDF(meta, arquivo, progresso) {
 }
 export async function baixarPDF(id) { return new Blob([pdfs.get(id) || new ArrayBuffer(0)], { type: 'application/pdf' }); }
 export async function excluirPDF(id) { colecoes.orcamentos?.delete(id); pdfs.delete(id); notificar('orcamentos'); }
+
+export async function tokenGooglePlanilhas() { throw Error('Sem Google nos testes.'); }

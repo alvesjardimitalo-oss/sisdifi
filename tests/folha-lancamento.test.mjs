@@ -4,7 +4,8 @@
 // salário-família de R$ 400 — e a linha tem de fechar com o Resumo de Verbas.
 import assert from 'node:assert/strict';
 import { linhaDeLancamento, linhasDeLancamento, composicaoDaLiquidacao,
-  distribuirFontesPorSaldo } from '../assets/js/folha-lancamento.js';
+  distribuirFontesPorSaldo, linhasDaPlanilha, textoParaColar, secretariaDaPlanilha } from '../assets/js/folha-lancamento.js';
+import { idDaPlanilha, abaDoMes, valoresParaAPI, letraColuna } from '../assets/js/folha-planilha-google.js';
 
 let ok = 0; const falhas = [];
 const t = (nome, fn) => { try { fn(); ok++; } catch (e) { falhas.push(nome + ': ' + e.message); } };
@@ -130,6 +131,49 @@ t('FUNDEB sem saldo vai para a ficha espelho em recurso próprio', () => {
   const r = distribuirFontesPorSaldo([e(1, '174', '1540', 600000), e(2, '174', '1540', 600000)],
     { '1540': 1000000 }, info);
   assert.deepEqual(r.propostas.map(p => [p.ficha, p.fonte]), [['174', '1540'], ['125', '1001']]);
+});
+
+/* ---- Planilha da Contabilidade ---- */
+// Empenho 5168 de novembro/2026 na planilha: bruto 62.274,25, desconto 5.667,63,
+// salário-família 810,48, maternidade 1.782,37, líquido 59.199,47.
+t('linha da planilha nas colunas A–N, com o líquido da planilha', () => {
+  const emp = empenho({ id: 'principal|x', empenho: 5168, secretaria: 'SECRETARIA MUNIC. DE EDUCACAO', ficha: '186', fonte: '1540',
+    bruto: 6227425, descontoRH: 566763, descontoAjustado: 566763, composicao: { INSS: 566763 }, liquidoRH: 5919947 });
+  const ops = [{ id: 'a', empenhoReferencia: 5168, tipo: 'Salário-família', bruto: 81048, inss: 0 },
+    { id: 'b', empenhoReferencia: 5168, tipo: 'Salário-maternidade', bruto: 178237, inss: 0 }];
+  const lanc = linhasDeLancamento({ empenhos: [emp], extras: ops }, { competencia: '2026-11', numerosOP: { a: '470', b: '471' } });
+  const [l] = linhasDaPlanilha([emp], lanc);
+  assert.deepEqual(l.slice(0, 14), ['FOLHA DE PAGAMENTO', 5168, 'FUNDEB', '186', '1540', '', 6227425, 566763, '470 / 471',
+    81048, null, 178237, null, 5919947]);
+  assert.equal(l[l.length - 1], 'BATEU');
+  const texto = textoParaColar([l]);
+  assert.match(texto, /^FOLHA DE PAGAMENTO\t5168\tFUNDEB\t186\t1540\t\t62\.274,25\t5\.667,63\t470 \/ 471\t810,48\t\t1\.782,37\t\t59\.199,47\t/);
+  assert.equal(valoresParaAPI([l])[0][6], 62274.25);
+});
+
+t('o nome do grupo só na primeira linha', () => {
+  const lanc = linhasDeLancamento({ empenhos: [empenho(), empenho({ id: 'b', empenho: 5001 }), empenho({ id: 'c', empenho: 5002, tipo: 'decimo' })], extras: [] },
+    { competencia: '2026-11' });
+  assert.deepEqual(linhasDaPlanilha([], lanc).map(l => l[0]), ['FOLHA DE PAGAMENTO', '', 'ADIANTAMENTO DE 50% 13º SALÁRIO']);
+});
+
+t('secretaria no nome curto da planilha', () => {
+  assert.equal(secretariaDaPlanilha('SECRETARIA MUNIC. DE ADMINISTRACAO'), 'ADMINISTRAÇÃO');
+  assert.equal(secretariaDaPlanilha('SECRETARIA MUNIC. DE EDUCACAO', '108'), 'SEC. EDUCAÇÃO');
+  assert.equal(secretariaDaPlanilha('SECRETARIA MUNIC. DE EDUCACAO', '174'), 'FUNDEB');
+  assert.equal(secretariaDaPlanilha('HOSPITAL MUNICIPAL SAO GERALDO'), 'HOSPITAL MUNICIPAL');
+  assert.equal(secretariaDaPlanilha('SECRETARIA MUNIC. DE ACAO SOCIAL'), 'SEC. AÇÃO SOCIAL');
+});
+
+t('link e aba da planilha', () => {
+  assert.equal(idDaPlanilha('https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz_-123/edit#gid=0'), '1AbCdEfGhIjKlMnOpQrStUvWxYz_-123');
+  assert.equal(idDaPlanilha('qualquer coisa'), '');
+  assert.equal(abaDoMes(['Janeiro', 'Março', 'NOVEMBRO'], '2026-11'), 'NOVEMBRO');
+  assert.equal(abaDoMes(['Janeiro', 'Março'], '2026-03'), 'Março');
+  assert.equal(abaDoMes(['EXTRA FOLHA - ABRIL', 'Abril'], '2026-04'), 'Abril');
+  assert.equal(abaDoMes(['Janeiro'], '2026-12'), '');
+  assert.equal(letraColuna(0), 'A');
+  assert.equal(letraColuna(22), 'W');
 });
 
 console.log(`folha-lancamento: ${ok} ok, ${falhas.length} falhas`);
