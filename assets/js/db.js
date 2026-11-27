@@ -268,7 +268,7 @@ async function gravarServidor(id, dados, carimbo) {
 }
 
 const COLECOES_COM_AUDITORIA_ATOMICA = new Set([
-  'duodecimo_anos', 'retencoes_anos', 'retencoes_config', 'fichas', 'valores'
+  'retencoes_config', 'valores'
 ]);
 function incluirLogNaGravacao(batch, acao, detalhe) {
   if (!sessao) throw Error('Sessão encerrada. Entre novamente para registrar a operação auditável.');
