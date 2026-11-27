@@ -247,7 +247,9 @@ export async function migrarDuodecimoLegado() {
  */
 function opsServidor(id, dados, carimbo) {
   const { publico, privado } = separarServidor(dados);
-  const ops = [[doc(fs, 'servidores', id), { ...publico, privacidade_migrada: true, ...carimbo }]];
+  const temDadosPrivados = Object.keys(privado).some(k => k !== 'secretaria_id');
+  const marcador = dados.privacidade_migrada === true || temDadosPrivados ? { privacidade_migrada: true } : {};
+  const ops = [[doc(fs, 'servidores', id), { ...publico, ...marcador, ...carimbo }]];
   if (Object.keys(privado).filter(k => k !== 'secretaria_id').length) {
     ops.push([doc(fs, 'servidores_privado', id), privado]);
     if (privado.cpf) ops.push([doc(fs, 'cpfs', privado.cpf), { servidor_id: id }]);
@@ -267,7 +269,7 @@ export async function salvar(colecao, id, dados) {
   const carimbo = { atualizado_em: serverTimestamp(), atualizado_por: autor() };
   if (colecao === 'servidores') {
     const novoId = id || doc(collection(fs, 'servidores')).id;
-    await gravarServidor(novoId, dados, id ? carimbo : { criado_em: serverTimestamp(), criado_por: autor(), ...carimbo });
+    await gravarServidor(novoId, id ? dados : { ...dados, privacidade_migrada: true }, id ? carimbo : { criado_em: serverTimestamp(), criado_por: autor(), ...carimbo });
     return novoId;
   }
   if (id) {
