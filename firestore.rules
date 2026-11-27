@@ -236,7 +236,7 @@ service cloud.firestore {
         && existsAfter(/databases/$(database)/documents/solicitacoes/$(id))
         && getAfter(/databases/$(database)/documents/solicitacoes/$(id)).data.servidor_id == request.resource.data.servidor_id
         && getAfter(/databases/$(database)/documents/solicitacoes/$(id)).data.secretaria_id == request.resource.data.secretaria_id
-        && (operador() || (secretaria() && request.resource.data.secretaria_id == minhaSecretaria()))
+        && (operador() || (secretaria() && request.resource.data.secretaria_id == minhaSecretaria() && getAfter(/databases/$(database)/documents/solicitacoes/$(id)).data.visivel_secretaria == true))
         && (!('cpf' in request.resource.data) || (request.resource.data.cpf is string && request.resource.data.cpf.matches('^[0-9]{11}$')))
         && (!('cpf_anterior' in request.resource.data) || (request.resource.data.cpf_anterior is string && request.resource.data.cpf_anterior.matches('^[0-9]{11}$')))
         && (!('chave_pix' in request.resource.data) || (request.resource.data.chave_pix is string && request.resource.data.chave_pix.size() <= 140));
