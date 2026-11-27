@@ -9,9 +9,9 @@
 // 4 · Ficha, fonte e conta de cada empenho, descontando do saldo
 // 5 · Confirmar a folha → consignados e pensões por fonte vão para Consignações por mês
 import {estado,pode} from '../estado.js';
-import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificacaoPessoal,sugerirFichaDaLotacao,fontesParaEscolher,FICHAS_PESSOAL_2026} from '../folha-orcamento-2026.js';
+import {consultarFichaOrcamento,alertaNaturezaFicha,fonteCompativel,classificacaoPessoal,sugerirFichaDaLotacao,fontesParaEscolher,FICHAS_PESSOAL_2026,fonteDaFicha,codigoCurto} from '../folha-orcamento-2026.js';
 import {esc,toast} from '../ui.js';
-import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha,tipoDeFolhaCabecalho,competenciaNoResumo,pagamentosConsignados,atualizarFeriasNoResumo} from '../folha-empenhos.js?v=3.23.0.997c05d0';
+import {analisarResumoVerbas,analisarResumoConsolidado,descontarFolhasProprias,prepararEmpenhos,conferirConsignadosFolha,centavosFolha,dinheiroFolha,tipoDeFolhaCabecalho,competenciaNoResumo,pagamentosConsignados,atualizarFeriasNoResumo,emitirTextoCSV} from '../folha-empenhos.js?v=3.23.0.997c05d0';
 import {extrairLinhasDaFolha} from '../folha-empenhos-pdf.js';
 import {sugerirMaternidadesDaFolha,consolidarMaternidade,lotacoesDoResumo} from '../folha-maternidade.js';
 import {varrerServidores} from '../folha-servidores.js';
@@ -19,6 +19,7 @@ import {pensoesParaOP,chaveCadastro,RUBRICAS_PENSAO} from '../folha-pensoes.js?v
 import {passosDoEmpenho,conferirEmpenho,fichasOPpendentes,modeloDoEmpenho,textoDoModelo,MODELOS_HISTORICO} from '../folha-transcrever.js';
 import {ordemDasLotacoes} from '../folha-ordem.js?v=3.23.0.06d2837c';
 import {gerarPlanilhaFolha} from '../folha-empenhos-xlsx.js?v=3.23.0.418e5047';
+import {linhasDeLancamento,distribuirFontesPorSaldo,COLUNAS_DESCONTO} from '../folha-lancamento.js';
 import {ouvir,ouvirDoc,salvar,substituir,excluir,campoApagado} from '../db.js';
 import {carregarMes,salvarMes} from '../consignacoes-mensal.js?v=3.13.0.357fc820';
 import {saldosDasContas,consignadosPorFonte,etapasDaFolha,avisosDaConta,contaParaFonte,rotuloConta,novaContaId,
@@ -148,6 +149,12 @@ export function telaFolhaEmpenhos(el){
     '.fe .fe-valor{font-variant-numeric:tabular-nums;font-size:1.02rem}.fe .fe-valor.fe-destaque{font-weight:700;color:#13466a}'+
     '@media(max-width:900px){.fe .fe-files{grid-template-columns:1fr}}@media(max-width:780px){.fe .fe-grid{grid-template-columns:1fr 1fr}.fe .fe-kpis{grid-template-columns:1fr 1fr}}'+
     '@media(max-width:500px){.fe .fe-grid{grid-template-columns:1fr}}'+
+    '.fe-lanc table{font-size:.86rem;border-collapse:collapse;width:100%}.fe-lanc th,.fe-lanc td{padding:6px 8px;border-bottom:1px solid var(--borda,#ddd);vertical-align:top;text-align:left}'+
+    '.fe-lanc td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.fe-lanc .hist{font-size:.75rem;min-width:300px;max-width:380px;line-height:1.3}.fe-lanc .op .hist{min-width:0}'+
+    '.fe-lanc tr.nb td{background:rgba(220,38,38,.08)}.fe-lanc tr.falta td:first-child{box-shadow:inset 3px 0 #d97706}'+
+    '.fe-lanc [data-cp]{cursor:copy}.fe-lanc [data-cp]:hover{outline:1px dashed currentColor}.fe-lanc .op{white-space:nowrap}.fe-lanc .op+.op{margin-top:6px}'+
+    '.fe-lanc .ok{color:#15803d;font-weight:700}.fe-lanc .ruim{color:#b91c1c;font-weight:700}.fe-lanc .dif{font-size:.75rem;color:#b91c1c;white-space:normal}'+
+    '.fe-lanc .mudou{color:#1d4ed8;font-weight:700}.fe-lanc .grupo td{background:var(--fundo-alt,#f3f4f6);font-weight:700}'+
     '</style>';
   const passo=(id,n,titulo,corpo)=>'<details class="fe-passo" data-passo="'+id+'"><summary><h2>'+n+' · '+titulo+'</h2><span class="fe-sit" id="fe-sit-'+id+'"></span></summary><div class="fe-corpo">'+corpo+'</div></details>';
   const slot=(chave,titulo,ajuda,importar)=>'<label class="fe-file" id="fe-slot-'+chave+'"><strong>'+titulo+'</strong><small>'+ajuda+'</small>'+
@@ -159,6 +166,7 @@ export function telaFolhaEmpenhos(el){
     '<section class="fe-card"><div class="fe-grid">'+
       '<label class="campo"><span>Competência da folha</span><input type="month" id="fe-comp" value="'+esc(competencia)+'"></label>'+
     '</div><p id="fe-status" class="fe-muted" role="status" aria-live="polite"></p><nav class="fe-passos" id="fe-passos" aria-label="Etapas"></nav></section>'+
+    '<section class="fe-card fe-lanc" id="fe-lancamento"></section>'+
     passo('arquivos',1,'Arquivos do RH',
       '<p class="fe-muted">Envie, nesta ordem, o <strong>Resumo de Verbas</strong> e a <strong>Folha de pagamento</strong> do mês; depois o Resumo de Verbas do <strong>13º</strong> e o das <strong>rescisões</strong>, quando houver. O resumo mensal do RH já contém o 13º e as rescisões: o SISDIFI desconta esses valores do mensal e gera empenhos separados, sem contar o mesmo dinheiro duas vezes.</p>'+
       '<div class="fe-files">'+
@@ -833,6 +841,103 @@ export function telaFolhaEmpenhos(el){
       (!minutas.length?'<p class="fe-muted">Nenhuma minuta consultada. Depois do lançamento, importe as minutas em Consignações por mês e clique em Consultar minutas.</p>':'')+
       '<p class="fe-muted">A igualdade do total por banco não prova que cada guia está vinculada à lotação correta. A comparação por fonte fica em Consignações por mês.</p>':'';
   }
+  /* ---- Lançamento: uma linha por empenho ----
+     O que se digita no sistema contábil, na ordem dos empenhos, sem lotação e
+     sem conta: ficha, fonte, bruto, histórico, desconto e composição, OPs e a
+     prova contra o Resumo de Verbas. Não depende das etapas: aparece assim que
+     o Resumo de Verbas é lido. Clicar num valor copia. */
+  const somenteValor=c=>(c/100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  /* Saldo por fonte, das contas da etapa 3, na ordem das contas. */
+  const saldosPorFonte=()=>contas.filter(c=>c.fonte&&saldos[c.id]!=null).map(c=>({fonte:codigoCurto(c.fonte),saldo:saldos[c.id]}));
+  const fichaInfo=ficha=>{
+    const ref=localizarFicha(ficha);
+    if(!ref)return null;
+    const fontes=(ref.fontes||[]).map(codigoCurto);
+    const propria=fontes.includes('1500')?fonteDaFicha({fontes:['1500'],unidade:ref.unidade,acao:ref.acao}):'';
+    return {fontes,propria};
+  };
+  function renderLancamento(pacote){
+    const alvo=$('#fe-lancamento');
+    if(!pacote){alvo.innerHTML='<h2>Lançamento · uma linha por empenho</h2><p class="fe-muted">Envie o Resumo de Verbas na etapa 1 e a tabela aparece aqui.</p>';return;}
+    const p=pacote.previsao;
+    const r=linhasDeLancamento(p,{competencia,numerosOP,escolhasHistorico,textosHistorico});
+    const rateio=distribuirFontesPorSaldo(p.empenhos,saldosPorFonte(),fichaInfo);
+    const proposta=Object.fromEntries(rateio.propostas.map(x=>[x.id,x]));
+    const usadas=COLUNAS_DESCONTO.filter(c=>r.linhas.some(l=>l.composicao[c.chave]));
+    const temOP=r.linhas.some(l=>l.ops.length);
+    const cp=(v,txt)=>'<span data-cp="'+esc(v)+'">'+esc(txt??v)+'</span>';
+    const din=c=>c?cp(somenteValor(c)):'<span class="fe-muted">—</span>';
+    const nomes={principal:'Folha mensal',extra:'Folha extra',decimo:'Adiantamento do 13º',rescisao:'Rescisões'};
+    const colunas=7+usadas.length+(temOP?1:0)+2;
+    let grupo='';
+    const corpo=r.linhas.map(l=>{
+      const cab=l.tipo!==grupo?'<tr class="grupo"><td colspan="'+colunas+'">'+esc(nomes[l.tipo]||l.tipo)+'</td></tr>':'';grupo=l.tipo;
+      const pr=proposta[l.id];
+      const fonte=l.fonte?cp(l.fonte):'<span class="ruim">falta</span>';
+      const sugere=pr?.mudou?'<br><small class="mudou" title="'+esc(pr.motivo)+'">saldo: '+(pr.ficha!==l.ficha?'ficha '+esc(pr.ficha)+' · ':'')+esc(pr.fonte)+'</small>':'';
+      const ops=l.ops.map(o=>'<div class="op"><strong>'+esc(o.tipo)+'</strong> · ficha '+cp(o.ficha||'?')+'<br>'+
+        'OP nº <input data-op-lanc="'+esc(o.id)+'" style="width:64px" value="'+esc(o.numero)+'" aria-label="Número da OP"> '+din(o.valor)+
+        (o.desconto?' · desc. '+din(o.desconto):'')+'<br><small class="hist">'+cp(o.historico)+'</small></div>').join('');
+      return cab+'<tr class="'+(l.bateu?'':'nb ')+(l.falta.length?'falta':'')+'">'+
+        '<td><strong>'+cp(String(l.numero),l.empenhoAno)+'</strong></td>'+
+        '<td>'+(l.ficha?cp(l.ficha):'<span class="ruim">falta</span>')+'</td>'+
+        '<td>'+fonte+sugere+'</td>'+
+        '<td class="n">'+din(l.bruto)+'</td>'+
+        '<td class="hist">'+(l.historico?cp(l.historico):'<span class="ruim">escolher modelo (Transcrever)</span>')+'</td>'+
+        '<td class="n"><strong>'+din(l.desconto)+'</strong></td>'+
+        usadas.map(c=>'<td class="n">'+din(l.composicao[c.chave])+'</td>').join('')+
+        (temOP?'<td>'+(ops||'<span class="fe-muted">—</span>')+'</td>':'')+
+        '<td class="n">'+(l.resumo==null?'<span class="ruim">?</span>':din(l.resumo))+'</td>'+
+        '<td>'+(l.bateu?'<span class="ok">✓ bateu</span>':'<span class="ruim">✗ não bateu</span>'+l.diferencas.map(d=>'<div class="dif">'+esc(d)+'</div>').join(''))+'</td>'+
+        '</tr>';
+    }).join('');
+    const tot=r.totais;
+    const rodape='<tr class="grupo"><td colspan="3">Total · '+r.linhas.length+' empenhos</td><td class="n">'+somenteValor(tot.bruto)+'</td><td></td>'+
+      '<td class="n">'+somenteValor(tot.desconto)+'</td>'+usadas.map(c=>'<td class="n">'+somenteValor(tot.composicao[c.chave])+'</td>').join('')+
+      (temOP?'<td class="n">'+somenteValor(tot.liquidoOP)+'</td>':'')+'<td class="n">'+somenteValor(tot.resumo)+'</td>'+
+      '<td>'+(tot.calculado===tot.resumo?'<span class="ok">✓</span>':'<span class="ruim">dif. '+somenteValor(tot.resumo-tot.calculado)+'</span>')+'</td></tr>';
+    const usoSaldo=rateio.uso.length?'<p><strong>Fontes estaduais e federais</strong> (saldo das contas da etapa 3): '+rateio.uso.map(u=>esc(u.fonte)+' — saldo '+dinheiroFolha(u.saldo)+
+        ', cabem '+u.empenhos.length+' empenho(s) somando '+dinheiroFolha(u.usado)+', sobra '+dinheiroFolha(u.sobra)).join(' · ')+'</p>'+
+      (rateio.mudancas?'<p>'+rateio.mudancas+' empenho(s) mudam de fonte pelo saldo (em azul na coluna Fonte). <button type="button" class="btn" id="fe-aplicar-saldo">Usar as fontes pelo saldo</button></p>':'<p class="fe-muted">As fontes já estão de acordo com o saldo.</p>')+
+      rateio.avisos.map(a=>'<p class="fe-alert">'+esc(a)+'</p>').join('')
+      :'<p class="fe-muted">Para o sistema dizer quais empenhos cabem no recurso estadual/federal, informe o saldo das contas (com a fonte) na etapa 3. O que não couber vai para o recurso próprio.</p>';
+    alvo.innerHTML='<div class="fe-actions" style="justify-content:space-between"><h2 style="margin:0">Lançamento · uma linha por empenho</h2>'+
+      '<span><button type="button" class="btn btn-sec" id="fe-lanc-csv">Baixar tabela (Excel)</button></span></div>'+
+      '<p class="'+(r.naoBateram?'fe-danger':'fe-ok')+'" style="margin:10px 0"><strong>'+r.bateram+' de '+r.linhas.length+' empenhos bateram</strong> com o Resumo de Verbas'+
+        (r.naoBateram?' · '+r.naoBateram+' não bateram (em vermelho)':'')+(r.incompletas?' · '+r.incompletas+' com ficha, fonte ou histórico faltando':'')+'.</p>'+
+      '<p class="fe-muted">Conta de cada linha: bruto − desconto + OP − desconto da OP = total líquido do Resumo de Verbas. Clique num valor para copiar.</p>'+
+      usoSaldo+
+      '<div class="fe-scroll"><table><thead><tr><th>Empenho</th><th>Ficha</th><th>Fonte</th><th>Bruto</th><th>Histórico</th><th>Desconto</th>'+
+        usadas.map(c=>'<th>'+esc(c.rotulo)+'</th>').join('')+(temOP?'<th>Ordem de pagamento</th>':'')+'<th>Resumo RH</th><th>Conferência</th></tr></thead>'+
+      '<tbody>'+corpo+rodape+'</tbody></table></div>';
+    alvo.querySelectorAll('[data-cp]').forEach(x=>x.onclick=()=>{
+      navigator.clipboard?.writeText(x.dataset.cp).then(()=>toast('Copiado: '+x.dataset.cp),()=>{});
+    });
+    alvo.querySelectorAll('[data-op-lanc]').forEach(i=>i.onchange=()=>{
+      const v=i.value.trim();
+      if(v)numerosOP[i.dataset.opLanc]=v;else delete numerosOP[i.dataset.opLanc];
+      persistir();render();
+    });
+    const aplicar=$('#fe-aplicar-saldo');
+    if(aplicar)aplicar.onclick=()=>{
+      for(const x of rateio.propostas)if(x.mudou)mapa[x.id]={...(mapa[x.id]||{}),ficha:x.ficha,fonte:x.fonte};
+      persistir();render();toast(rateio.mudancas+' empenho(s) com a fonte pelo saldo.');
+    };
+    $('#fe-lanc-csv').onclick=()=>{
+      const cab=['Empenho','Ficha','Fonte','Bruto','Histórico','Desconto',...COLUNAS_DESCONTO.map(c=>c.rotulo),
+        'OP tipo','OP ficha','OP nº','OP valor','OP desconto','OP histórico','Resumo RH','Calculado','Diferença','Situação'];
+      const linhas=[cab];
+      for(const l of r.linhas){
+        const base=[l.empenhoAno,l.ficha,l.fonte,somenteValor(l.bruto),l.historico,somenteValor(l.desconto),...COLUNAS_DESCONTO.map(c=>somenteValor(l.composicao[c.chave]))];
+        const fim=[l.resumo==null?'':somenteValor(l.resumo),somenteValor(l.calculado),l.diferenca==null?'':somenteValor(l.diferenca),l.bateu?'bateu':'não bateu: '+l.diferencas.join(' ')];
+        if(!l.ops.length)linhas.push([...base,'','','','','','',...fim]);
+        l.ops.forEach((o,i)=>linhas.push([...(i?base.map(()=>''):base),o.tipo,o.ficha,o.numero,somenteValor(o.valor),somenteValor(o.desconto),o.historico,...(i?fim.map(()=>''):fim)]));
+      }
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(new Blob([emitirTextoCSV(linhas)],{type:'text/csv;charset=utf-8'}));
+      a.download='lancamento-folha-'+competencia+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+    };
+  }
   function render(){
     if(!ativa)return;
     const pacote=montar();
@@ -852,6 +957,7 @@ export function telaFolhaEmpenhos(el){
     }
     $('#fe-confirmar-mapa').checked=aprovouMapa;
     renderConfirmar(pacote,sit);
+    renderLancamento(pacote);
     renderPassos(sit,pacote);
     if(ultimaAlteracao)$('#fe-compartilhado').title='Última alteração: '+quem(ultimaAlteracao)+' · '+quando(ultimaAlteracao);
     $('#fe-filtro').value=filtro;$('#fe-visao').value=visao;
