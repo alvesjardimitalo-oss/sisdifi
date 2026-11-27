@@ -87,9 +87,11 @@ service cloud.firestore {
     }
     match /servidores/{id} {
       // Secretaria vê só os servidores da própria pasta e os motoristas de todas as secretarias.
-      allow read: if diarias() && (!secretaria()
-        || resource.data.secretaria_id == minhaSecretaria()
-        || resource.data.motorista == true);
+      allow read: if diarias()
+        && (perfil() != 'consulta' || resource.data.privacidade_migrada == true)
+        && (!secretaria()
+          || resource.data.secretaria_id == minhaSecretaria()
+          || resource.data.motorista == true);
       // Secretaria completa o cadastro: cargo quando está em branco (ou servidor da própria pasta) e o indicador de Pix.
       allow update: if secretaria()
         && (resource.data.get('secretaria_id', '') == minhaSecretaria() || resource.data.get('motorista', false) == true)
@@ -103,12 +105,21 @@ service cloud.firestore {
         && request.resource.data.secretaria_id == minhaSecretaria()
         && request.resource.data.nome is string
         && request.resource.data.grupo == 'DEMAIS_SERVIDORES'
+        && request.resource.data.privacidade_migrada == true
         && motoristaConfere()
         && semDadoPessoal();
-      allow create, update: if operador()
+      allow create: if operador()
         && request.resource.data.nome is string
         && request.resource.data.grupo in ['PREFEITO', 'VICE_SECRETARIO_JURIDICO', 'DEMAIS_SERVIDORES']
+        && request.resource.data.privacidade_migrada == true
+        && motoristaConfere()
         && semDadoPessoal();
+      allow update: if operador()
+        && request.resource.data.nome is string
+        && request.resource.data.grupo in ['PREFEITO', 'VICE_SECRETARIO_JURIDICO', 'DEMAIS_SERVIDORES']
+        && semDadoPessoal()
+        && (request.resource.data.privacidade_migrada != true
+          || !request.resource.data.keys().hasAny(['cpf', 'chave_pix', 'cpf_anterior']));
       allow delete: if operador(); // a tela só exclui servidor sem nenhuma solicitação
     }
 
