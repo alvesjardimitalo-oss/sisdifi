@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 jobs:
   publicar:
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/audit/correcao-seguranca-integridade'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     concurrency:
       group: sisdifi-firestore-rules-production
